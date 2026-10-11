@@ -3,89 +3,37 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="Set up php-dbg-component, embed a PHP debugger, edit variables at breakpoints, and run PHP assertions from JavaScript.">
-  <title>php-dbg-component: Quickstart and API</title>
+  <meta name="description" content="Embed a PHP debugger in your page. Try live breakpoints, variable editing, and PHP tests with a vanilla JavaScript component.">
+  <title>php-dbg-component: Embed a PHP debugger</title>
   <link rel="stylesheet" href="./site.css">
   <link rel="stylesheet" href="./assets/component/styles.css">
 </head>
 <body>
-<a class="skip-link" href="#content">Skip to documentation</a>
+<a class="skip-link" href="#content">Skip to content</a>
 <header class="site-header">
-  <a class="brand" href="#content">php-dbg-component</a>
+  <a class="brand" href="./">php-dbg-component</a>
   <nav aria-label="Project links">
-    <a href="https://github.com/seanmorris/php-dbg-component/blob/main/README.md">README</a>
+    <a href="#playground">Demo</a>
+    <a href="./guide.html">Docs</a>
     <a href="https://github.com/seanmorris/php-dbg-component">GitHub</a>
   </nav>
 </header>
-<div class="docs-layout">
-<aside class="sidebar">
-  <nav aria-label="On this page">
-    <p>On this page</p>
-    <a href="#quickstart">Run locally</a>
-    <a href="#integration">Embed the component</a>
-    <a href="#playground">Live debugger</a>
-    <a href="#variables">Edit variables</a>
-    <a href="#tests">Run PHP tests</a>
-    <a href="#sources">Sources and editors</a>
-    <a href="#runtime">Versions and extensions</a>
-    <a href="#reference">API reference</a>
-    <a href="#styling">CSS and themes</a>
-    <a href="#runtime-hosting">Host runtime files</a>
-  </nav>
-</aside>
-<main id="content">
-  <h1>php-dbg-component</h1>
-  <p>A JavaScript component for running and debugging PHP in the browser with <a href="https://github.com/seanmorris/php-wasm">php-dbg-wasm</a>. Supports PHP 8.0–8.5, breakpoints, variable editing, and execution from JavaScript. PHP runs in a worker by default.</p>
-
-  <section id="quickstart">
-    <h2>Run locally</h2>
-    <p>Clone the repository, install its dependencies, and start the example server:</p>
-    <pre><code>git clone https://github.com/seanmorris/php-dbg-component.git
-cd php-dbg-component
-npm ci
-npm run start</code></pre>
-    <p>Open <a href="http://localhost:9120/">http://localhost:9120/</a>. Click <strong>Run</strong> to stop at line 3, then <strong>Continue</strong> to print <code>Result: 5</code>.</p>
-    <p>The server uses a compatible installed <code>php-dbg-wasm</code> package if one is available. Otherwise it downloads the preview build recorded in <a href="https://github.com/seanmorris/php-dbg-component/blob/main/runtime-lock.json"><code>runtime-lock.json</code></a> and verifies its checksum. That file pins a GitHub build artifact and its source commit.</p>
-    <details>
-      <summary>Build this documentation site locally</summary>
-      <pre><code>npm run setup:runtime
-RUNTIME_BUNDLE=./runtime-bundle npm run build:docs
-npm run start</code></pre>
-      <p>Open <a href="http://localhost:9120/docs/">http://localhost:9120/docs/</a>. If the server is already running, keep it running after the build.</p>
-    </details>
-  </section>
-
-  <section id="integration">
-    <h2>Embed the component</h2>
-    <p>For an existing project, install the component from GitHub:</p>
-    <pre><code>npm install github:seanmorris/php-dbg-component</code></pre>
-    <p>Serve the component modules and a matching runtime directory over HTTPS or localhost. To use the preview runtime, run <code>npm run setup:runtime</code> in the cloned repository and copy <code>runtime-bundle/runtime/</code> to your site's <code>runtime/</code> directory. Keep its files together. See <a href="#runtime-hosting">runtime hosting</a> for extensions and native builds.</p>
-    <p>This example assumes the page can serve <code>node_modules/</code> and <code>runtime/</code> at the paths shown:</p>
-    <pre><code id="embed-example">&lt;!doctype html&gt;
-&lt;html lang="en"&gt;
-&lt;meta charset="utf-8"&gt;
-&lt;title&gt;PHP debugger&lt;/title&gt;
-&lt;link rel="stylesheet" href="./node_modules/php-dbg-component/src/styles.css"&gt;
-&lt;div id="debugger"&gt;&lt;/div&gt;
-&lt;script type="module"&gt;
-  import {PhpDebugger} from './node_modules/php-dbg-component/src/index.mjs';
-
-  const dbg = new PhpDebugger({
-    runtimeBaseUrl: './runtime/',
-    version: '8.4',
-    code: '&lt;?php\n$n = 2;\n$n += 3;\necho $n;',
-    breakpoints: [3]
-  });
-  dbg.mount(document.querySelector('#debugger'));
-&lt;/script&gt;
-&lt;/html&gt;</code></pre>
-    <p><code>mount()</code> creates the textarea and controls. Runtime downloads begin when the user clicks <strong>Run</strong> or your code calls <code>run()</code> or <code>prepare()</code>. Breakpoint lines start at 1.</p>
-    <p>With a bundler, import <code>PhpDebugger</code> from <code>'php-dbg-component'</code> and the stylesheet from <code>'php-dbg-component/styles.css'</code>. Preserve the module worker; use <code>workerUrl</code> if your build emits it at a different URL. Call <code>await dbg.destroy()</code> when removing the integration.</p>
+<main id="content" class="home">
+  <section class="home-intro">
+    <h1>Add a PHP debugger<br>to your page.</h1>
+    <p>Let readers step through examples and edit variables as PHP runs in their browser. Embed it with vanilla JavaScript, or connect an existing editor.</p>
+    <div class="home-actions">
+      <a class="primary-link" href="#playground">Try the debugger</a>
+      <a href="./guide.html#quickstart">Quickstart</a>
+    </div>
   </section>
 
   <section id="playground">
-    <h2>Live debugger</h2>
-    <p>Click <strong>Run</strong> to pause on line 5 inside <code>total()</code>. Expand <code>$item</code>, edit its <code>price</code>, and use <strong>Step over</strong> to execute the assignment. Select a frame to inspect its variables. The unchanged example prints <code>Cart total: 24</code>.</p>
+    <div class="demo-heading">
+      <h2>Try it here</h2>
+      <span>PHP 8.0–8.5 · Runs in your browser</span>
+    </div>
+    <p>Click <strong>Run</strong> to pause on line 5. Expand <code>$item</code> and change <code>price</code> to <code>10</code>, then click <strong>Continue</strong>. The total changes from <code>24</code> to <code>30</code>.</p>
     <div class="demo-settings">
       <label>Source editor <select id="editor-kind"><option value="textarea">Textarea</option><option value="ace">Ace</option><option value="codemirror5">CodeMirror 5</option><option value="codemirror6">CodeMirror 6</option></select></label>
       <label>Theme <select id="theme"><option value="light">Light</option><option value="dark">Dark</option><option value="warm">Warm</option></select></label>
@@ -94,179 +42,52 @@ npm run start</code></pre>
     <p id="asset-status" role="status">Loading the interface. PHP downloads when you click Run.</p>
     <div id="editor-host"></div>
     <div id="debugger-host"></div>
-    <p class="caption">Editor libraries load when selected. The selected PHP version loads on its first run. Components on this page share downloaded binaries and compiled modules.</p>
+    <p class="caption">PHP runs in a worker. The selected runtime downloads on its first run; components on the same page share binaries and compiled modules.</p>
   </section>
 
-  <section id="variables">
-    <h2>Edit variables while paused</h2>
-    <p>Using the <code>dbg</code> instance from the embedding example, start a run without awaiting its completion. Wait for the breakpoint, inspect the variable, then assign a PHP expression:</p>
-    <pre><code id="edit-example">const done = dbg.run();
-await dbg.whenPaused();
+  <section id="integration" class="home-example">
+    <div>
+      <h2>Use it with your own code</h2>
+      <p>Pass a PHP string, bind a textarea, or attach an Ace or CodeMirror adapter. The optional interface uses ordinary CSS, so it can match your page.</p>
+      <p><a href="./guide.html#integration">Embedding instructions</a> · <a href="./guide.html#sources">Editor adapters</a></p>
+    </div>
+    <pre><code>import {PhpDebugger} from 'php-dbg-component';
+import 'php-dbg-component/styles.css';
 
-const locals = await dbg.inspect('variables');
-const n = locals.find(value =&gt; value.name === 'n');
-await dbg.setVariable(n.reference, '40');
-
-await dbg.setBreakpoints([]);
-await dbg.continue();
-const result = await done;
-console.log(result.stdout); // "43"</code></pre>
-    <p>Use <code>children(reference)</code> to expand arrays or objects and edit their writable children. <code>evaluate(expression)</code> also accepts assignments. <code>selectFrame(index)</code> changes the frame used for inspection and evaluation; frame 0 is the innermost call.</p>
-    <p>Variable references expire when execution resumes or ends. Inspect again after stepping. PHP enforces visibility, types, and readonly properties; failed edits report the PHP error.</p>
+const dbg = new PhpDebugger({
+  runtimeBaseUrl: './runtime/',
+  code: '&lt;?php\n$n = 2;\n$n += 3;\necho $n;',
+  breakpoints: [3]
+});
+dbg.mount(document.querySelector('#debugger'));</code></pre>
   </section>
 
-  <section id="tests">
-    <h2>Run PHP tests from JavaScript</h2>
-    <p>A controller can execute PHP without mounting a view. Test mode skips breakpoints and returns output, exit status, diagnostics, and assertion results:</p>
-    <pre><code id="test-example">const test = new PhpDebugger({
+  <section id="tests" class="home-example">
+    <div>
+      <h2>Run PHP tests from the page</h2>
+      <p>Use the same controller to check output and exit codes. Await each result or schedule separate controllers in parallel. Mounting the interface is optional.</p>
+      <div class="example-result"><button id="run-test" type="button">Run PHP assertion</button><output id="test-result" aria-live="polite">Not run</output></div>
+      <p><a href="./guide.html#tests">Test execution and results</a></p>
+    </div>
+    <pre><code>const test = new PhpDebugger({
   runtimeBaseUrl: './runtime/',
   code: '&lt;?php echo 6 * 7, "\\n";'
 });
-
 try {
   const result = await test.run({
     mode: 'test',
-    expect: {stdout: '42\n', stderr: '', exitCode: 0},
-    timeoutMs: 5000
+    expect: {stdout: '42\n', exitCode: 0}
   });
   console.log(result.test.status); // "passed"
 } finally {
   await test.destroy();
 }</code></pre>
-    <div class="example-result"><button id="run-test" type="button">Run PHP assertion</button><output id="test-result" aria-live="polite">Not run</output></div>
-    <p><code>run()</code> resolves to <code>{runId, version, status, exitCode, stdout, stderr, diagnostics, durationMs, test}</code>. PHP failures resolve as data; invalid API arguments and overlapping runs throw. <code>test.status</code> is <code>passed</code>, <code>failed</code>, or <code>unchecked</code>.</p>
-    <p><code>timeoutMs</code> counts time running PHP, excluding loading and pauses. Pass an <code>AbortSignal</code> as <code>signal</code> to cancel a run. Your application can await runs sequentially or run separate controllers in parallel; each run has its own memory and virtual files.</p>
-    <details>
-      <summary>Run a test when a custom element connects</summary>
-      <pre><code>&lt;php-debugger runtime-base-url="./runtime/" autorun mode="test"&gt;
-  &lt;textarea&gt;&lt;?php echo "ok";&lt;/textarea&gt;
-  &lt;script type="application/json" data-expect&gt;
-    {"stdout":"ok","exitCode":0}
-  &lt;/script&gt;
-&lt;/php-debugger&gt;
-&lt;script type="module"&gt;
-  import {definePhpDebugger} from './node_modules/php-dbg-component/src/element.mjs';
-  definePhpDebugger();
-&lt;/script&gt;</code></pre>
-      <p>Registration and autorun are explicit. Listen for <code>phpdbg-testresult</code> on the element to receive the result in <code>event.detail</code>. Removing the element destroys its controller.</p>
-    </details>
-  </section>
-
-  <section id="sources">
-    <h2>Sources and editor adapters</h2>
-    <p>The controller reads its source once at the start of each run. Use <code>code</code> for a string or async getter, or <code>source</code> for an element or adapter.</p>
-    <div class="table-scroll"><table>
-      <thead><tr><th>Source</th><th>Option</th></tr></thead>
-      <tbody>
-        <tr><td>String</td><td><code>code: '&lt;?php echo 42;'</code></td></tr>
-        <tr><td>Variable or async loader</td><td><code>code: () =&gt; currentPhpCode</code></td></tr>
-        <tr><td>Textarea or input</td><td><code>source: document.querySelector('textarea')</code></td></tr>
-        <tr><td>Other element</td><td><code>source: document.querySelector('pre')</code> reads <code>textContent</code></td></tr>
-        <tr><td>Existing editor</td><td><code>source: adapter</code></td></tr>
-      </tbody>
-    </table></div>
-    <p>Import only the adapter for your editor:</p>
-    <pre><code>import {createAceAdapter} from 'php-dbg-component/adapters/ace';
-
-const adapter = createAceAdapter(existingAceEditor);
-const dbg = new PhpDebugger({runtimeBaseUrl: './runtime/', source: adapter});
-dbg.mount(document.querySelector('#controls'));
-
-// When removing the integration:
-await dbg.destroy();
-adapter.dispose();</code></pre>
-    <p>CodeMirror adapters use <code>createCodeMirror5Adapter</code> from <code>'php-dbg-component/adapters/codemirror5'</code> and <code>createCodeMirror6Adapter</code> from <code>'php-dbg-component/adapters/codemirror6'</code>. CodeMirror 6 requires <code>@codemirror/state</code> and <code>@codemirror/view</code>.</p>
-    <p>Adapters add breakpoint gutters, current-line markers, and temporary read-only state. Your application owns the editor instance and its cleanup. The core component has no Ace or CodeMirror dependency.</p>
-  </section>
-
-  <section id="runtime">
-    <h2>PHP versions and extensions</h2>
-    <pre><code>const dbg = new PhpDebugger({
-  runtimeBaseUrl: './runtime/',
-  version: '8.4',
-  extensions: ['curl'],
-  code: '&lt;?php echo extension_loaded("curl") ? "yes" : "no";'
-});
-
-await dbg.setVersion('8.5');
-const result = await dbg.run({mode: 'test'});</code></pre>
-    <p>The default version is 8.4. Supported versions are 8.0–8.5. <code>setVersion()</code> stops an active run and selects the version for the next run. Host the artifacts for every version you offer.</p>
-    <p>Extensions are explicit. The loader downloads the selected runtime, requested extensions, and their declared dependencies. Components share these downloads and compiled modules across the page.</p>
-    <details>
-      <summary>Loading extensions</summary>
-      <p><code>extensions: ['curl']</code> resolves to <code>../php-wasm-curl/VERSION.mjs</code> relative to <code>runtimeBaseUrl</code>. Override that URL with <code>extensionUrls: {curl: './vendor/curl/8.4.mjs'}</code>, or supply an extension as <code>{module: './vendor/custom/8.4.mjs'}</code>. Keep the extension's dependencies beside its modules.</p>
-      <p>This check loads curl and calls <code>extension_loaded('curl')</code>. HTTP requests made through curl still follow browser CORS rules.</p>
-      <div class="example-result"><button id="run-curl" type="button">Check curl extension</button><output id="curl-result" aria-live="polite">Not loaded</output></div>
-    </details>
-    <h3>Worker and main-thread execution</h3>
-    <p><code>execution: 'worker'</code> is the default and allows hard termination. Use <code>execution: 'main'</code> when PHP needs page DOM access through vrzno. Main-thread pause and stop are cooperative; a blocking native call can block the page. <code>dbg.capabilities.hardStop</code> reports whether hard termination is available.</p>
-    <p>Execute trusted PHP. A same-origin worker can access network and browser APIs.</p>
-  </section>
-
-  <section id="reference">
-    <h2>API reference</h2>
-    <p>Execution methods return promises. Start a run with <code>const done = dbg.run()</code> when you need to interact with it before completion.</p>
-    <div class="table-scroll"><table>
-      <thead><tr><th>Method</th><th>Behavior</th></tr></thead>
-      <tbody>
-        <tr><td><code>prepare()</code></td><td>Download and initialize the selected runtime without executing the source.</td></tr>
-        <tr><td><code>run(options)</code>, <code>restart(options)</code></td><td>Run PHP and resolve its result. Restart first cancels an active run.</td></tr>
-        <tr><td><code>pause()</code>, <code>whenPaused()</code></td><td>Request a pause or wait for a breakpoint, step, or exception stop.</td></tr>
-        <tr><td><code>continue()</code></td><td>Resume until the next pause or completion.</td></tr>
-        <tr><td><code>stepInto()</code>, <code>stepOver()</code>, <code>stepOut()</code>, <code>until()</code>, <code>leave()</code></td><td>Control execution with phpdbg stepping commands.</td></tr>
-        <tr><td><code>inspect(scope, {frame})</code></td><td>Inspect <code>variables</code>, <code>globals</code>, <code>constants</code>, <code>functions</code>, <code>classes</code>, <code>files</code>, or <code>frames</code>.</td></tr>
-        <tr><td><code>children(reference, {offset, limit})</code></td><td>Expand a value. Default page size: 100; maximum: 1000.</td></tr>
-        <tr><td><code>selectFrame(index)</code></td><td>Select the frame for inspection and evaluation.</td></tr>
-        <tr><td><code>evaluate(expression, {frame})</code></td><td>Evaluate a PHP expression in a paused frame.</td></tr>
-        <tr><td><code>setVariable(reference, expression)</code></td><td>Assign a PHP expression to a writable variable or child value.</td></tr>
-        <tr><td><code>setBreakpoints([...])</code></td><td>Replace breakpoints while idle or paused. Accepts line numbers or <code>{file, line, enabled}</code>.</td></tr>
-        <tr><td><code>setCode(code)</code></td><td>Set a string or getter for the next run.</td></tr>
-        <tr><td><code>setVersion(version)</code></td><td>Stop execution and select the next runtime version.</td></tr>
-        <tr><td><code>mount(element)</code></td><td>Create the optional debugger view.</td></tr>
-        <tr><td><code>stop()</code>, <code>destroy()</code></td><td>Cancel execution. Destroy also removes the view and component listeners.</td></tr>
-      </tbody>
-    </table></div>
-    <h3>Events and state</h3>
-    <pre><code>dbg.addEventListener('output', ({detail}) =&gt; {
-  console.log(detail.channel, detail.text);
-});
-dbg.addEventListener('complete', ({detail}) =&gt; {
-  console.log(detail.status, detail.exitCode);
-});</code></pre>
-    <p>Other events include <code>statechange</code>, <code>pause</code>, <code>locationchange</code>, <code>framechange</code>, <code>variablechange</code>, <code>breakpointchange</code>, <code>versionchange</code>, <code>sourcechange</code>, <code>diagnostic</code>, and <code>testresult</code>. Each is a <code>CustomEvent</code> with data in <code>detail</code>.</p>
-    <p>Read <code>dbg.state</code>, <code>dbg.location</code>, <code>dbg.breakpoints</code>, and <code>dbg.result</code> for current state. Output channels are <code>stdout</code>, <code>stderr</code>, and <code>debug</code>.</p>
-    <p>See the <a href="https://github.com/seanmorris/php-dbg-component/blob/main/src/index.d.ts">TypeScript declarations</a> for option, event, and result types, and the <a href="https://github.com/seanmorris/php-dbg-component/blob/main/README.md">README</a> for virtual files, custom elements, and lifecycle details.</p>
-  </section>
-
-  <section id="styling">
-    <h2>CSS and themes</h2>
-    <p>The view uses light DOM and <code>php-debugger-</code> classes. Load the optional stylesheet and override its CSS variables, or supply your own rules:</p>
-    <pre><code>.php-debugger {
-  --php-debugger-bg: #131b27;
-  --php-debugger-fg: #e7edf5;
-  --php-debugger-accent: #8ce4cb;
-  --php-debugger-border: #35465c;
-  --php-debugger-radius: 4px;
-}
-.php-debugger-button { font-family: inherit; }</code></pre>
-    <p>The root exposes <code>data-state</code> and <code>data-test-status</code> for state styling. Use the <a href="#playground">live debugger's theme selector</a> to test page-level overrides.</p>
-  </section>
-
-  <section id="runtime-hosting">
-    <h2>Host runtime files</h2>
-    <p>Serve matching bridge v1 artifacts from <code>php-dbg-wasm</code>. Copy the complete runtime directory, including wrapper modules, <code>.mjs</code> loaders, <code>.wasm</code> binaries, <code>.assets.json</code> manifests, and any <code>.data</code> files. The manifests identify binary filenames, checksums, and dependencies.</p>
-    <pre><code>public/
-  runtime/           # runtime-bundle/runtime/
-  php-wasm-curl/     # runtime-bundle/php-wasm-curl/
-  php-wasm-dom/      # runtime-bundle/php-wasm-dom/
-  php-wasm-libxml/   # runtime-bundle/php-wasm-libxml/</code></pre>
-    <p>Set <code>runtimeBaseUrl: './runtime/'</code> for a page at this root. Include the extension directories you request and their dependencies. Serve <code>.mjs</code> as JavaScript, <code>.wasm</code> as <code>application/wasm</code>, and manifests as JSON. HTTPS or localhost is required for checksum verification; <code>file://</code> cannot load the module workers.</p>
-    <p>A 404 for <code>php8.4-dbg-worker.mjs.assets.json</code> means the runtime URL does not contain that build's manifest. Check the deployed directory and the requested version. The component rejects artifacts that lack bridge v1.</p>
-    <p>To use native builds from a local php-wasm checkout, start the example server with <code>PHP_WASM_ROOT=/path/to/php-wasm npm run start</code>. See the <a href="https://github.com/seanmorris/php-dbg-component#runtime-assets-versions-and-extensions">native build commands</a> and <a href="https://github.com/seanmorris/php-dbg-component/blob/main/docs/DEPLOYMENT.md">documentation deployment instructions</a>.</p>
   </section>
 </main>
-</div>
-<footer><a href="https://github.com/seanmorris/php-dbg-component">php-dbg-component source</a><a href="https://github.com/seanmorris/php-dbg-component/blob/main/NOTICE">Licenses and notices</a></footer>
+<footer>
+  <a href="./guide.html">Quickstart and API reference</a>
+  <span>Built on <a href="https://github.com/seanmorris/php-wasm">php-dbg-wasm</a>. <a href="https://github.com/seanmorris/php-dbg-component/blob/main/NOTICE">Licenses</a></span>
+</footer>
 <script type="module" src="./site.mjs"></script>
 </body>
 </html>

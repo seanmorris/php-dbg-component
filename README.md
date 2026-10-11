@@ -2,7 +2,7 @@
 
 A vanilla JavaScript PHP debugger you can embed in a page or drive from a script. It runs real PHP through [php-dbg-wasm](https://github.com/seanmorris/php-wasm), with a worker per execution, shared downloads, and an optional, fully styleable interface.
 
-[Documentation and live demos](https://seanmorris.github.io/php-dbg-component/) · [API and source](src/index.mjs)
+[Live demo](https://seanmorris.github.io/php-dbg-component/) · [Quickstart and API](https://seanmorris.github.io/php-dbg-component/guide.html) · [Source](src/index.mjs)
 
 - PHP 8.0–8.5, selected at runtime; default 8.4.
 - Breakpoints, pause/continue, stepping, frames, locals, globals, constants, functions, classes, and files.

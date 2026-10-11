@@ -1,6 +1,6 @@
 # Building and publishing the docs
 
-`docs/` is the GitHub Pages root. All links and runtime paths are relative, so the site also works under `/php-dbg-component/` or a custom domain. No server-side PHP is needed.
+`docs/` is the GitHub Pages root. `index.html` contains the homepage and live example; `guide.html` contains the quickstart and API reference. All links and runtime paths are relative, so the site also works under `/php-dbg-component/` or a custom domain. No server-side PHP is needed.
 
 1. Build matching php-wasm debugger worker and web artifacts (bridge v1) as described in the root README.
 2. Run `npm ci` in this repository.
