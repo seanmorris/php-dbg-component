@@ -30,8 +30,8 @@ async function mount(reset=false){
     const {EditorState,EditorView,lineNumbers,createCodeMirror6Adapter}=await import('./assets/editors/codemirror6.mjs');editor=new EditorView({state:EditorState.create({doc:savedCode,extensions:[lineNumbers()]}),parent:$('#editor-host')});adapter=createCodeMirror6Adapter(editor);
   }
   dbg=new PhpDebugger({runtimeBaseUrl,version,versions,code:savedCode,source:adapter,breakpoints:[5]});dbg.mount($('#debugger-host'));window.phpDebuggerDemo=dbg;
-  $('#asset-status').textContent=`Ready · PHP ${version} · WASM loads when you press Run.`;
-  dbg.addEventListener('statechange',e=>{if(e.detail.state==='loading')$('#asset-status').textContent='Loading the selected runtime…';else if(e.detail.state==='paused')$('#asset-status').textContent=`Paused · ${dbg.location.file}:${dbg.location.line} · expand or edit a value below.`;else if(e.detail.state==='completed')$('#asset-status').textContent='Complete. Change the source or version and run again.';});
+  $('#asset-status').textContent=`PHP ${version} selected. Click Run to load the runtime.`;
+  dbg.addEventListener('statechange',e=>{if(e.detail.state==='loading')$('#asset-status').textContent='Loading the selected runtime…';else if(e.detail.state==='paused')$('#asset-status').textContent=`Paused at ${dbg.location.file}:${dbg.location.line}.`;else if(e.detail.state==='completed')$('#asset-status').textContent=`Completed with exit code ${dbg.result.exitCode}.`;});
   dbg.addEventListener('complete',e=>{if(e.detail.status==='error')$('#asset-status').textContent=e.detail.diagnostics.map(d=>d.message).join('\n');});
 }
 async function change(reset=false){$('#editor-kind').disabled=true;$('#reset').disabled=true;try{await mount(reset);}catch(error){$('#asset-status').textContent=error.message;}finally{$('#editor-kind').disabled=false;$('#reset').disabled=false;}}
