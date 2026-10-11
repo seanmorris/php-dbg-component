@@ -30,7 +30,8 @@ test('break, edit locals and nested values, step, caller frame and stale referen
     const done = dbg.run(); await dbg.whenPaused();
     const locals = await dbg.inspect('variables');
     const n = locals.find(v => v.name === 'n');
-    await dbg.setVariable(n.reference, '9');
+    const edited = await dbg.setVariable(n.reference, '8');
+    await dbg.setVariable(edited.reference, '9');
     await dbg.evaluate('$a["x"] = 20'); await dbg.evaluate('$o->x = 30');
     await dbg.selectFrame(1);
     const caller = await dbg.inspect('variables');

@@ -160,7 +160,7 @@ export class DebugEngine {
     const identity = this.identity(value), circular = identity !== null && ancestors.includes(identity);
     const expandable = value !== null && typeof value === 'object' && !circular;
     const reference = `${this.sessionId}:${this.epoch}:${++this.nextReference}`;
-    this.references.set(reference, {value, expression, writable, frame, ancestors:[...ancestors,identity]});
+    this.references.set(reference, {name, value, expression, writable, frame, ancestors:[...ancestors,identity]});
     return {name, type, reference, expandable, circular, writable:!!expression && writable && typeof value !== 'function',
       value:expandable || circular || typeof value === 'function' ? undefined : value,
       displayValue:circular ? '[Circular]' : expandable ? (type === 'array' ? 'Array' : 'Object') : typeof value === 'string' ? JSON.stringify(value) : String(value)};
@@ -214,7 +214,9 @@ export class DebugEngine {
     const variable = this.references.get(reference);
     if(!variable) throw new Error('Stale variable reference');
     if(!variable.expression || !variable.writable) throw new Error('This value is read-only');
-    const value = await this.evaluate(`${variable.expression} = (${expression})`, {frame:variable.frame});
+    const evaluated = await this.evaluate(`${variable.expression} = (${expression})`, {frame:variable.frame});
+    const value = this.describe(variable.name, this.references.get(evaluated.reference).value, variable.expression, variable.writable, variable.frame, variable.ancestors.slice(0,-1));
+    this.references.delete(evaluated.reference);
     this.emit({type:'variablechange', reference, value});
     return value;
   }
