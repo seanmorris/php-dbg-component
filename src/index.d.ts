@@ -28,13 +28,27 @@ export interface EditorAdapter {
   onBreakpointChange?(listener: (breakpoints: Array<number | Breakpoint>) => void): () => void;
   dispose?(): void;
 }
+export interface PreloadFile { url: string | URL; parent: string; name: string; path?: string }
+export interface PackagePreloadFile { url: string | URL; path: string; name?: string }
+export interface SharedLibrary { name?: string; url: string | URL; ini?: boolean }
+export interface ExtensionContext { phpVersion: PhpVersion; phpArgs: Record<string, unknown> }
+export interface ExtensionPackage {
+  getLibs(runtime: ExtensionContext): Array<string | URL | SharedLibrary>;
+  getFiles?(runtime: ExtensionContext): PackagePreloadFile[];
+}
+export type LibraryDefinition = string | URL | SharedLibrary | ExtensionPackage;
+export type LibraryList = Array<LibraryDefinition | LibraryDefinition[]>;
+export interface RuntimeArgs extends Record<string, unknown> {
+  sharedLibs?: LibraryList; dynamicLibs?: LibraryList; files?: PreloadFile[];
+}
 export interface DebuggerOptions extends Omit<RunOptions, 'signal'> {
   version?: PhpVersion; versions?: readonly PhpVersion[]; execution?: 'worker' | 'main'; entrypoint?: string;
   code?: string | (() => string | Promise<string>); source?: Element | EditorAdapter | (() => string | Promise<string>);
   breakpoints?: Array<number | Breakpoint>; runtimeBaseUrl?: string | URL; workerUrl?: string | URL;
   extensions?: Array<string | {module: string | URL}>; extensionUrls?: Record<string, string | URL>;
+  sharedLibs?: LibraryList; dynamicLibs?: LibraryList;
   libraryUrls?: Record<string, string | URL>;
-  assetRegistry?: AssetRegistry; runtimeArgs?: Record<string, unknown>; loadTimeoutMs?: number; outputLimit?: number;
+  assetRegistry?: AssetRegistry; runtimeArgs?: RuntimeArgs; loadTimeoutMs?: number; outputLimit?: number;
 }
 export class AssetRegistry {
   constructor(options?: {fetch?: typeof fetch});

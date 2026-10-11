@@ -1,4 +1,3 @@
-import {wasmDependencies} from './wasm.mjs';
 const registryKey = Symbol.for('php-dbg-component.assets.v1');
 
 /** Immutable, shared downloads. Callers receive copies, never the cached buffer. */
@@ -59,51 +58,45 @@ export class AssetRegistry {
 
 export function sharedAssets() { return globalThis[registryKey] ??= new AssetRegistry(); }
 
-const supportPackages = {libxml2:'libxml',libz:'zlib',libzip:'libzip',libfreetype:'gd',libjpeg:'gd',libpng:'gd',libwebp:'gd',libiconv:'iconv',libonig:'mbstring',libssl:'openssl',libcrypto:'openssl',libsqlite3:'sqlite',libyaml:'yaml',libtidy:'tidy'};
-
 export async function prepareAssets(options) {
   const registry = options.assetRegistry || sharedAssets();
   const base = new URL(options.runtimeBaseUrl || '/node_modules/php-dbg-wasm/', globalThis.location?.href || 'http://localhost/');
+  const sourceBase = globalThis.location?.href || base;
   const environment = options.execution === 'main' ? 'web' : 'worker';
   const manifestUrl = new URL(`php${options.version}-dbg-${environment}.mjs.assets.json`, base);
   const manifest = await registry.json(manifestUrl);
   if(manifest.schemaVersion !== 1 || manifest.bridgeVersion !== 1 || manifest.version !== options.version || manifest.environment !== environment)
     throw new Error('The runtime asset manifest is incompatible with this debugger. Build the matching php-dbg-wasm worker/web artifacts.');
-  const modules = await Promise.all((options.extensions || []).map(async extension => {
-    const url = typeof extension === 'string'
-      ? options.extensionUrls?.[extension] || new URL(`../php-wasm-${extension}/${['libxml','zlib'].includes(extension)?'index':options.version}.mjs`, base).href
-      : extension.module;
-    if(!url) throw new TypeError('An extension needs a name or module URL');
-    return (await import(/* webpackIgnore: true */ new URL(url, globalThis.location?.href || base).href)).default;
-  }));
-  const wrapper = {phpVersion: options.version};
-  const libraries = modules.flatMap(module => module.getLibs?.(wrapper) || []);
-  const files = modules.flatMap(module => module.getFiles?.(wrapper) || []);
-  const addRequired = name => {
-    if(libraries.some(lib => lib.name === name)) return;
-    const stem = name.replace(/\.so$/, '');
-    const pkg = supportPackages[stem] || (stem.startsWith('libicu') ? 'intl' : null);
-    const url = options.libraryUrls?.[name] || (pkg && new URL(`../php-wasm-${pkg}/${name}`, base).href);
-    if(!url) throw new Error(`No asset location for required library ${name}; provide libraryUrls[${JSON.stringify(name)}]`);
-    libraries.push({name, url, ini:false});
-  };
-  for(const name of manifest.libraries || []) addRequired(name);
-  // Package helpers do not all enumerate their native dependencies (e.g. DOM/libxml).
-  // Follow the actual selected binaries, recursively, through the shared byte cache.
-  for(let index=0; index<libraries.length; index++) {
-    const lib = libraries[index];
-    lib.name ||= String(lib.url).split('/').pop();
-    for(const name of wasmDependencies(await registry.bytes(lib.url))) addRequired(name);
+  const [{resolveDependencies}, modules] = await Promise.all([
+    import(/* webpackIgnore: true */ new URL('resolveDependencies.mjs', base).href),
+    Promise.all((options.extensions || []).map(async extension => {
+      const url = typeof extension === 'string'
+        ? options.extensionUrls?.[extension] || new URL(`../php-wasm-${extension}/${['libxml','zlib'].includes(extension)?'index':options.version}.mjs`, base).href
+        : extension.module;
+      if(!url) throw new TypeError('An extension needs a name or module URL');
+      const module = await import(/* webpackIgnore: true */ new URL(url, sourceBase).href);
+      return module.default || module;
+    }))
+  ]);
+  const wrapper = {phpVersion:options.version, phpArgs:{...options.runtimeArgs, version:options.version}};
+  // Module namespaces and their hooks cannot be posted to a worker. Ask the
+  // runtime's own resolver for plain definitions, then pass those through.
+  const shared = resolveDependencies([...(options.runtimeArgs?.sharedLibs || []), ...(options.sharedLibs || []), ...modules], wrapper);
+  const dynamic = resolveDependencies([...(options.runtimeArgs?.dynamicLibs || []), ...(options.dynamicLibs || [])], wrapper);
+  const files = [...(options.runtimeArgs?.files || []), ...shared.files, ...dynamic.files];
+  const urls = {...dynamic.urlLibs, ...shared.urlLibs};
+  for(const name of [...(manifest.libraries || []), ...shared.libs, ...dynamic.libs]) {
+    if(typeof name === 'string' && !(name in urls)) urls[name] = new URL(name, base).href;
   }
-  const assets = {base:base.href, environment, module:null, libraries:[], files:[], data:{}};
+  const assets = {base:base.href, environment, module:null,
+    sharedLibs:shared.libs, dynamicLibs:dynamic.libs, libraryUrls:{}, files:[], data:{}};
   await Promise.all([
     registry.module(new URL(manifest.wasm, base), manifest.sha256).then(module => {assets.module = module;}),
-    ...libraries.map(async (lib, index) => {
-      const url = await registry.objectUrl(lib.url);
-      assets.libraries[index] = {name:lib.name || String(lib.url).split('/').pop(), url, ini:!!lib.ini};
+    ...Object.entries(urls).map(async ([name, url]) => {
+      assets.libraryUrls[name] = await registry.objectUrl(new URL(options.libraryUrls?.[name] || url, sourceBase));
     }),
     ...files.map(async (file, index) => {
-      assets.files[index] = {path:file.path || `${file.parent}/${file.name}`, bytes:await registry.bytes(file.url)};
+      assets.files[index] = {...file, url:await registry.objectUrl(new URL(file.url, sourceBase))};
     }),
     ...(manifest.data || []).map(async name => {assets.data[name] = await registry.bytes(new URL(name, base));})
   ]);

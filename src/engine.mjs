@@ -22,8 +22,10 @@ export class DebugEngine {
         return {};
       },
       getPreloadedPackage(name) {return assets.data[String(name).split('/').pop()];},
-      sharedLibs:assets.libraries,
-      locateFile: name => assets.libraries.find(lib => lib.name === name)?.url,
+      sharedLibs:assets.sharedLibs,
+      dynamicLibs:assets.dynamicLibs,
+      files:assets.files,
+      locateFile: name => assets.libraryUrls[name],
       onDbgOutput: event => this.output(event),
       onDbgEvent: event => {if(event.type === 'exception') {this.exception = event; this.diagnostics.push(event); this.emit({...event, type:'diagnostic'});}},
       onAbort: reason => failed.reject(new Error(String(reason))),
@@ -33,7 +35,6 @@ export class DebugEngine {
     if(typeof this.binary._php_wasm_dbg_bridge_version !== 'function' || this.binary.ccall('php_wasm_dbg_bridge_version','number',[],[]) !== 1)
       throw new Error('This php-dbg-wasm build lacks debugger bridge v1. Rebuild its native worker/web artifacts.');
     this.binary.FS.mkdir('/.php-debugger');
-    for(const file of assets.files) this.writeFile(file.path, new Uint8Array(file.bytes));
     this.php.addEventListener('stdin-request', () => {
       // The native async call must unwind before reading its state.
       setTimeout(() => {this.sequence++; for(const waiter of this.waiters) waiter.resolve(); this.waiters.clear();}, 0);

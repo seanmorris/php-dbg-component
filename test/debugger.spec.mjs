@@ -142,10 +142,10 @@ test('run joins an in-flight prepare and cancelled async source never starts a r
   expect(result.result.stdout).toBe('prepared');expect(result.cancelled.status).toBe('cancelled');expect(result.states).not.toContain('loading');
 });
 
-test('selected extension native dependencies are discovered without loading unrelated packages',async({page})=>{
+test('explicit support packages load without fetching unrelated extensions',async({page})=>{
   await setup(page);const requests=[];page.on('request',r=>requests.push(new URL(r.url()).pathname));
   const result=await page.evaluate(async version=>{
-    const d=new PhpDebugger({runtimeBaseUrl:'/runtime/',version,extensions:['dom'],code:'<?php $doc=new DOMDocument(); $doc->loadXML("<root>yes</root>"); echo $doc->documentElement->textContent;'});
+    const d=new PhpDebugger({runtimeBaseUrl:'/runtime/',version,extensions:['dom','libxml'],code:'<?php $doc=new DOMDocument(); $doc->loadXML("<root>yes</root>"); echo $doc->documentElement->textContent;'});
     const result=await d.run({mode:'test'});await d.destroy();return result;
   },version);
   expect(result.stdout).toBe('yes');expect(requests.filter(p=>p.endsWith('.so')).sort()).toEqual([`/php-wasm-dom/php${version}-dom.so`,'/php-wasm-libxml/libxml2.so'].sort());

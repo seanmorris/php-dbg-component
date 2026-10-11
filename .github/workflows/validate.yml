@@ -43,7 +43,7 @@ jobs:
           if [ "$PHP_VERSION" = 8.4 ]; then
             npm run test:browser
           else
-            npx playwright test test/debugger.spec.mjs test/ui.spec.mjs --project=chromium
+            npx playwright test test/debugger.spec.mjs test/extensions.spec.mjs test/ui.spec.mjs --project=chromium
           fi
       - uses: actions/upload-artifact@v6
         if: failure()

@@ -161,7 +161,26 @@ make worker-dbg-mjs web-dbg-mjs ENV_FILE=.github/.env_8.4.dynamic.ci PHP_VERSION
 
 Repeat for the versions you offer. Serve `packages/php-dbg-wasm/` at `runtimeBaseUrl` with its `.mjs`, `.wasm`, `.assets.json`, and any `.data` assets. The manifest is generated during the build and includes the binary SHA-256 and required libraries. Keep matching wrapper/helper modules together. The component rejects artifacts without bridge v1.
 
-`extensions:['curl','dom']` explicitly loads version-specific extension packages. The default URL is `../php-wasm-NAME/VERSION.mjs` relative to the runtime directory; deploy the package's complete directory there, including dependencies referenced by its modules. Override with `extensionUrls: {curl:'https://example.test/curl/8.4.mjs'}` or `extensions:[{module:'https://example.test/custom/8.4.mjs'}]`. Selection is explicit: code is never scanned to guess dependencies.
+Use the same `sharedLibs` inputs as php-wasm. With a bundler:
+
+```js
+import * as curl from 'php-wasm-curl';
+
+const dbg = new PhpDebugger({
+  runtimeBaseUrl: './runtime/',
+  version: '8.4',
+  sharedLibs: [curl],
+  code: '<?php var_dump(extension_loaded("curl"));'
+});
+```
+
+For a static site, replace the package import with `await import('./php-wasm-curl/index.mjs')`. Package index modules select binaries using the active PHP version, including after `setVersion()`. Importing the helper does not download its WASM binaries. Include supporting packages explicitly when the extension helper does not declare them, for example `sharedLibs: [dom, libxml]`.
+
+`sharedLibs` also accepts library URL strings, `URL` objects, and `{name, url, ini}` definitions. URL strings and `URL` objects enable the PHP extension at startup; object definitions require `ini: true`. `ini: false` and `dynamicLibs` make libraries available without adding an `extension=` line. The preview phpdbg runtime does not expose PHP's `dl()` function, so enable PHP extensions at startup. Bare library filenames resolve relative to `runtimeBaseUrl`, with `libraryUrls` available for explicit mappings.
+
+The component calls the runtime's `resolveDependencies()` on the page, including package `getLibs()` and `getFiles()` hooks. It passes cached URLs to the worker and preloads files before PHP initialization. Hooks receive `phpVersion` and `phpArgs`; they do not receive an initialized PHP runtime. Inputs under `runtimeArgs.sharedLibs`, `runtimeArgs.dynamicLibs`, and preload definitions under `runtimeArgs.files` use the same process. The top-level `files` option remains a map of virtual source files.
+
+The existing `extensions:['curl','dom','libxml']` shorthand imports helpers and passes them to the same resolver. Versioned helpers use `../php-wasm-NAME/VERSION.mjs` relative to the runtime directory; libxml and zlib use `index.mjs`. Override with `extensionUrls: {curl:'https://example.test/curl/8.4.mjs'}` or `extensions:[{module:'https://example.test/custom/8.4.mjs'}]`. Include support libraries explicitly, as in php-wasm. The component does not inspect WASM dependency sections or guess package locations.
 
 The default registry shares download promises, immutable bytes, blob URLs for shared libraries, and compiled WebAssembly modules across components on a page. Each worker instantiates its own memory. Failed downloads are evicted for retry. `assetRegistry` can supply a separate `AssetRegistry`. Call `sharedAssets().clear()` only after all components stop. Serve the component over HTTPS or localhost for browser checksum verification. Network access follows browser CORS and CSP rules; allow your asset origins, module workers, WASM compilation, and blob asset fetches. No SharedArrayBuffer or cross-origin isolation is required.
 

@@ -14,3 +14,7 @@ new PhpDebugger({version:'7.4'});
 // @ts-expect-error execution mode
 new PhpDebugger({execution:'node'});
 dbg.addEventListener('complete', event => {const result: RunResult = event.detail; void result;});
+new PhpDebugger({sharedLibs:[new URL('https://example.test/curl.so'), 'https://example.test/curl.so',
+  [{url:'https://example.test/curl.so',ini:true}],
+  {getLibs:php=>[{url:`https://example.test/php${php.phpVersion}-curl.so`,ini:true}],getFiles:()=>[{url:'https://example.test/data',path:'/preload/data'}]}],
+  dynamicLibs:[{getLibs:()=>[]}],runtimeArgs:{files:[{url:'https://example.test/data',parent:'/preload/',name:'data'}]}});

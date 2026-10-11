@@ -1,10 +1,15 @@
 import {deferred} from './model.mjs';
 
 export async function createTransport(options, assets, emit) {
+  const runtimeArgs = {...options.runtimeArgs};
+  // Package hooks and URL instances are resolved on the page before crossing
+  // the worker boundary; the engine receives cached, normalized assets instead.
+  for(const key of ['sharedLibs','dynamicLibs','files']) delete runtimeArgs[key];
+  const runtimeOptions = {version:options.version, runtimeArgs};
   if(options.execution === 'main') {
     const {DebugEngine} = await import('./engine.mjs');
     const engine = new DebugEngine(emit);
-    return {open:() => engine.open(assets, options), call:(method, ...args) => engine.invoke(method, args), destroy:() => engine.stop()};
+    return {open:() => engine.open(assets, runtimeOptions), call:(method, ...args) => engine.invoke(method, args), destroy:() => engine.stop()};
   }
   const worker = new Worker(options.workerUrl || new URL('./worker.mjs', import.meta.url), {type:'module'});
   const pending = new Map(); let id = 0; let destroyed = false;
@@ -27,7 +32,7 @@ export async function createTransport(options, assets, emit) {
     return wait.promise;
   }
   return {
-    open:() => call('open', assets, {version:options.version, runtimeArgs:options.runtimeArgs}), call,
+    open:() => call('open', assets, runtimeOptions), call,
     destroy() {destroyed = true; worker.terminate(); fail(new DOMException('Debugger worker closed', 'AbortError'));}
   };
 }

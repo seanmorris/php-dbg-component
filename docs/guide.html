@@ -182,20 +182,24 @@ adapter.dispose();</code></pre>
 
   <section id="runtime">
     <h2>PHP versions and extensions</h2>
-    <pre><code>const dbg = new PhpDebugger({
+    <pre><code>const curl = await import('./php-wasm-curl/index.mjs');
+
+const dbg = new PhpDebugger({
   runtimeBaseUrl: './runtime/',
   version: '8.4',
-  extensions: ['curl'],
+  sharedLibs: [curl],
   code: '&lt;?php echo extension_loaded("curl") ? "yes" : "no";'
 });
 
 await dbg.setVersion('8.5');
 const result = await dbg.run({mode: 'test'});</code></pre>
     <p>The default version is 8.4. Supported versions are 8.0–8.5. <code>setVersion()</code> stops an active run and selects the version for the next run. Host the artifacts for every version you offer.</p>
-    <p>Extensions are explicit. The loader downloads the selected runtime, requested extensions, and their declared dependencies. Components share these downloads and compiled modules across the page.</p>
+    <p>Use <code>sharedLibs</code> as in php-wasm. Package index modules select the binary for the active PHP version through <code>getLibs()</code>. The component uses the runtime's dependency resolver and loads <code>getFiles()</code> preload files before PHP initializes. Components share downloads and compiled modules across the page.</p>
     <details>
       <summary>Loading extensions</summary>
-      <p><code>extensions: ['curl']</code> resolves to <code>../php-wasm-curl/VERSION.mjs</code> relative to <code>runtimeBaseUrl</code>. Override that URL with <code>extensionUrls: {curl: './vendor/curl/8.4.mjs'}</code>, or supply an extension as <code>{module: './vendor/custom/8.4.mjs'}</code>. Keep the extension's dependencies beside its modules.</p>
+      <p>With a bundler, use <code>import * as curl from 'php-wasm-curl'</code>. <code>sharedLibs</code> also accepts library URL strings, <code>URL</code> objects, or definitions such as <code>{url: './php-wasm-curl/php8.4-curl.so', ini: true}</code>. Explicit binary URLs stay tied to that version. Include support packages when the helper does not declare them, for example <code>sharedLibs: [dom, libxml]</code>.</p>
+      <p><code>ini: false</code> and <code>dynamicLibs</code> resolve libraries without enabling them as PHP extensions. The preview phpdbg runtime has no PHP <code>dl()</code> function; enable extensions at startup. Package hooks and definitions in <code>runtimeArgs.sharedLibs</code> and <code>runtimeArgs.dynamicLibs</code> are resolved before the worker starts. Use <code>runtimeArgs.files</code> for additional preload file definitions.</p>
+      <p>The <code>extensions: ['curl']</code> shorthand remains supported and resolves to <code>../php-wasm-curl/VERSION.mjs</code> relative to <code>runtimeBaseUrl</code>. Override it with <code>extensionUrls</code> or an explicit <code>{module: URL}</code> entry.</p>
       <p>This check loads curl and calls <code>extension_loaded('curl')</code>. HTTP requests made through curl still follow browser CORS rules.</p>
       <div class="example-result"><button id="run-curl" type="button">Check curl extension</button><output id="curl-result" aria-live="polite">Not loaded</output></div>
     </details>

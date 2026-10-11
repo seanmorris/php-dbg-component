@@ -47,16 +47,6 @@ test('controller import and construction are DOM-free and do not load a runtime'
   assert.equal(dbg.state, 'destroyed');
 });
 
-test('WASM dependency metadata is read without executing library code', async () => {
-  const {wasmDependencies}=await import('../src/wasm.mjs');
-  const name=new TextEncoder().encode('dylink.0'),lib=new TextEncoder().encode('libxml2.so');
-  const needed=[1,lib.length,...lib],section=[name.length,...name,2,needed.length,...needed];
-  const binary=new Uint8Array([0,97,115,109,1,0,0,0,0,section.length,...section]);
-  assert.deepEqual(wasmDependencies(binary),['libxml2.so']);
-  assert.throws(()=>wasmDependencies(binary.slice(0,-1)),/Truncated/);
-  assert.throws(()=>wasmDependencies(new Uint8Array([1])),/Invalid/);
-});
-
 test('verified identical binaries share compilation and downloads across loader URLs', async()=>{
   const {AssetRegistry}=await import('../src/assets.mjs');
   const bytes=new Uint8Array([0,97,115,109,1,0,0,0]);
