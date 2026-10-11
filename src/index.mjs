@@ -55,7 +55,7 @@ export class PhpDebugger extends EventTarget {
   async setBreakpoints(input) {
     this.assertAlive();
     const breakpoints = normalizeBreakpoints(input, this.options.entrypoint);
-    if(this.state === 'running') throw new Error('Pause execution before changing breakpoints');
+    if(this.active && this.state !== 'paused') throw new Error('Pause execution before changing breakpoints');
     if(this.state === 'paused') await this.transport.call('breakpoints', breakpoints);
     this.breakpoints = breakpoints;
     this.emit('breakpointchange', {breakpoints}); return breakpoints;
@@ -120,7 +120,7 @@ export class PhpDebugger extends EventTarget {
   }
   handleEvent(event) {
     if(event.type === 'fatal') {if(this.active) void this.finish('error', {error:event.error}); else {void this.teardown(); this.transition('error'); this.emit('diagnostic', errorRecord(event.error));}}
-    else if(event.type === 'state') this.transition(event.state);
+    else if(event.type === 'state') {if(event.state==='running')this.location=null; this.transition(event.state);}
     else if(event.type === 'output') {
       if(this.active && (event.channel === 'stdout' || event.channel === 'stderr')) {
         this.active[event.channel] += event.text;

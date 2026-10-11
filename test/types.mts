@@ -13,3 +13,4 @@ void [result, element, createAceAdapter, createCodeMirror6Adapter];
 new PhpDebugger({version:'7.4'});
 // @ts-expect-error execution mode
 new PhpDebugger({execution:'node'});
+dbg.addEventListener('complete', event => {const result: RunResult = event.detail; void result;});

@@ -6,19 +6,19 @@ import {build} from 'esbuild';
 
 const root=path.resolve(fileURLToPath(new URL('..',import.meta.url)));
 const runtimeRoot=path.resolve(process.env.PHP_WASM_ROOT || '/app');
+const bundle=process.env.RUNTIME_BUNDLE && path.resolve(process.env.RUNTIME_BUNDLE);
 const counts=new Map();
 await fs.mkdir(path.join(root,'.cache'),{recursive:true});
 await build({stdin:{contents:`export {EditorState} from '@codemirror/state'; export {EditorView, lineNumbers} from '@codemirror/view'; export {createCodeMirror6Adapter} from './src/adapters/codemirror6.mjs';`,resolveDir:root},bundle:true,format:'esm',outfile:path.join(root,'.cache/editors.mjs')});
 const types={'.mjs':'text/javascript','.js':'text/javascript','.json':'application/json','.html':'text/html','.css':'text/css','.wasm':'application/wasm','.so':'application/wasm'};
-const aliases={libyaml:'yaml'};
 const server=http.createServer(async(req,res)=>{
   try {
     const url=new URL(req.url,'http://localhost');
     if(url.pathname==='/__requests'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(Object.fromEntries(counts)));return;}
     let pathname=decodeURIComponent(url.pathname);let base=root;
-    if(pathname.startsWith('/runtime/')){base=path.join(runtimeRoot,'packages/php-dbg-wasm');pathname=pathname.slice('/runtime'.length);}
+    if(pathname.startsWith('/runtime/')){base=bundle?path.join(bundle,'runtime'):path.join(runtimeRoot,'packages/php-dbg-wasm');pathname=pathname.slice('/runtime'.length);}
     const extension=pathname.match(/^\/php-wasm-([a-z0-9-]+)\//);
-    if(extension){base=path.join(runtimeRoot,'packages',extension[1]==='yaml'?'libyaml':extension[1]);pathname=pathname.slice(extension[0].length-1);}
+    if(extension){base=bundle?path.join(bundle,`php-wasm-${extension[1]}`):path.join(runtimeRoot,'packages',extension[1]==='yaml'?'libyaml':extension[1]);pathname=pathname.slice(extension[0].length-1);}
     if(pathname==='/')pathname='/examples/index.html';
     if(pathname==='/editors.mjs')pathname='/.cache/editors.mjs';
     if(pathname.split('/').some(part=>part==='..'||part==='.git'||part==='.env'))throw Error('Invalid path');

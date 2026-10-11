@@ -150,3 +150,18 @@ test('selected extension native dependencies are discovered without loading unre
   },version);
   expect(result.stdout).toBe('yes');expect(requests.filter(p=>p.endsWith('.so')).sort()).toEqual([`/php-wasm-dom/php${version}-dom.so`,'/php-wasm-libxml/libxml2.so'].sort());
 });
+
+test('main-thread cooperative stop and explicit pause in test mode settle',async({page})=>{
+  await setup(page);
+  const results=await page.evaluate(async version=>{
+    const results=[];
+    for(const execution of ['main','worker']) {
+      const d=new PhpDebugger({runtimeBaseUrl:'/runtime/',version,execution,code:'<?php $keep=true; while($keep) {} echo "resumed";'});
+      const running=new Promise(resolve=>d.addEventListener('statechange',function state(e){if(e.detail.state==='running'){d.removeEventListener('statechange',state);resolve();}}));
+      const done=d.run({mode:'test'});await running;const paused=await d.pause();await d.evaluate('$keep=false');await d.continue();results.push({pause:paused.reason,result:await done});
+      d.setCode('<?php while(true) {}');const stopped=d.run({mode:'test',timeoutMs:150});results.push({result:await stopped});await d.destroy();
+    }
+    return results;
+  },version);
+  expect(results.map(r=>r.result.status)).toEqual(['completed','timed-out','completed','timed-out']);expect(results[0].pause).toBe('pause');expect(results[2].pause).toBe('pause');
+});

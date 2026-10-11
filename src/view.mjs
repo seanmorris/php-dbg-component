@@ -53,7 +53,10 @@ export class DebuggerView {
     on('breakpointchange',()=>this.gutterUpdate());on('locationchange',location=>this.showLocation(location));
     on('sourcechange',()=>this.gutterUpdate());on('versionchange',()=>{this.version.value=dbg.options.version;});
     on('complete',result=>{if(result.test.status==='failed')this.message.textContent=result.test.failures.map(f=>`${f.field}: expected ${f.expected ?? f.message}, received ${f.actual ?? ''}`).join('\n');if(result.status==='error')this.message.textContent=result.diagnostics.map(d=>d.message).join('\n');});
-    this.adapterUnsubscribe=dbg.source?.onBreakpointChange?.(lines=>this.act(()=>dbg.setBreakpoints(lines)));
+    this.adapterUnsubscribe=dbg.source?.onBreakpointChange?.(lines=>this.act(()=>dbg.setBreakpoints([
+      ...dbg.breakpoints.filter(bp=>bp.file!==dbg.options.entrypoint || (!bp.enabled && !lines.some(line=>(typeof line==='number'?line:line.line)===bp.line))),
+      ...lines
+    ])));
     this.gutterUpdate();this.update();
   }
   async act(callback) {this.message.textContent='';try{return await callback();}catch(error){this.message.textContent=error.message || String(error);}}

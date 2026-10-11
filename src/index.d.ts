@@ -4,7 +4,7 @@ export type DebuggerState = 'idle' | 'loading' | 'ready' | 'running' | 'paused' 
 export type InspectionScope = 'variables' | 'globals' | 'constants' | 'functions' | 'classes' | 'files' | 'frames';
 export interface Breakpoint { line: number; file?: string; enabled?: boolean; id?: string }
 export interface Location { file: string; line: number; frame?: number; pauseId?: number }
-export interface Pause { location: Location; reason?: 'breakpoint' | 'step' | 'exception' }
+export interface Pause { location: Location; reason?: 'breakpoint' | 'step' | 'exception' | 'pause' }
 export interface Variable {
   name: string; type: string; displayValue: string; value?: string | number | boolean | bigint | null;
   reference?: string; writable: boolean; expandable: boolean; circular?: boolean;
@@ -46,6 +46,12 @@ export class AssetRegistry {
 }
 export function sharedAssets(): AssetRegistry;
 export interface DebuggerView { root: HTMLElement; destroy(): void }
+export interface DebuggerEvents {
+  statechange: {state: DebuggerState; previous: DebuggerState}; output: {channel: 'stdout' | 'stderr' | 'debug'; text: string};
+  pause: Pause; complete: RunResult; testresult: TestResult; diagnostic: Diagnostic; locationchange: Location | null;
+  framechange: {frame: number}; variablechange: {reference: string; value: Variable};
+  breakpointchange: {breakpoints: Breakpoint[]}; versionchange: {version: PhpVersion}; sourcechange: {code?: string; pending: boolean};
+}
 export class PhpDebugger extends EventTarget {
   constructor(options?: DebuggerOptions);
   readonly state: DebuggerState; readonly testStatus: TestResult['status']; readonly result: RunResult | null;
@@ -65,4 +71,8 @@ export class PhpDebugger extends EventTarget {
   evaluate(expression: string, options?: {frame?: number}): Promise<Variable>;
   setVariable(reference: string, expression: string): Promise<Variable>; selectFrame(frame: number): Promise<{frame: number}>;
   mount(host: Element): DebuggerView;
+  addEventListener<K extends keyof DebuggerEvents>(type: K, listener: (event: CustomEvent<DebuggerEvents[K]>) => void, options?: boolean | AddEventListenerOptions): void;
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions): void;
+  removeEventListener<K extends keyof DebuggerEvents>(type: K, listener: (event: CustomEvent<DebuggerEvents[K]>) => void, options?: boolean | EventListenerOptions): void;
+  removeEventListener(type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | EventListenerOptions): void;
 }

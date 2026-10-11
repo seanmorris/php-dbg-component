@@ -104,10 +104,12 @@ export class DebugEngine {
     this.emit({type:'state', state:'running'});
     await this.command(command);
     while(await this.php.isRunning()) {
-      if(this.config.mode === 'test') {await this.command('continue'); continue;}
+      if(this.config.mode === 'test' && !this.pauseRequested) {await this.command('continue'); continue;}
       this.paused = true;
       const location = {file:await this.php.currentFile(), line:await this.php.currentLine(), frame:0, pauseId:this.epoch};
-      this.emit({type:'paused', reason:this.exception ? 'exception' : command === 'continue' || command === 'run' ? 'breakpoint' : 'step', location});
+      const reason = this.pauseRequested ? 'pause' : this.exception ? 'exception' : command === 'continue' || command === 'run' ? 'breakpoint' : 'step';
+      this.pauseRequested = false;
+      this.emit({type:'paused', reason, location});
       return location;
     }
     return this.finish();
@@ -122,7 +124,7 @@ export class DebugEngine {
     }
     this.emit({type:'complete', exitCode:compilationExitCode ?? exitCode, diagnostics:this.diagnostics});
   }
-  pause() {if(this.closed) throw new Error('Debugger is closed'); this.binary.dbgPauseRequested = true;}
+  pause() {if(this.closed) throw new Error('Debugger is closed'); this.pauseRequested = true; this.binary.dbgPauseRequested = true;}
   async stop() {
     if(this.closed) return;
     if(!this.process) {this.closed = true; return;}
@@ -167,8 +169,14 @@ export class DebugEngine {
     if(options.frame !== undefined) await this.selectFrame(options.frame);
     const methods = {variables:'dumpVars', globals:'dumpGlobals', constants:'dumpConstants', functions:'dumpFunctions', classes:'dumpClasses', files:'dumpFiles', frames:'dumpBacktrace'};
     if(!methods[scope]) throw new TypeError(`Unknown inspection scope: ${scope}`);
-    const values = await this.php[methods[scope]]() || {};
-    if(['functions','classes','files','frames'].includes(scope)) return values;
+    let values = await this.php[methods[scope]]() || {};
+    if(scope === 'globals') {
+      // The low-level dump arms superglobals but filters out user-defined globals.
+      const globals = await this.evaluate('$GLOBALS');
+      values = this.references.get(globals.reference).value;
+    }
+    if(scope === 'files') return [...new Set([this.config.entrypoint, ...values])];
+    if(['functions','classes','frames'].includes(scope)) return values;
     return Object.entries(values).map(([name,value]) => this.describe(name, value,
       scope === 'constants' ? null : scope === 'globals' ? `$GLOBALS[${phpString(name)}]` : '${' + phpString(name) + '}', scope !== 'constants'));
   }
