@@ -165,3 +165,47 @@ test('main-thread cooperative stop and explicit pause in test mode settle',async
   },version);
   expect(results.map(r=>r.result.status)).toEqual(['completed','timed-out','completed','timed-out']);expect(results[0].pause).toBe('pause');expect(results[2].pause).toBe('pause');
 });
+
+test('changing PHP versions is lazy and uses the selected interpreter',async({page})=>{
+  await setup(page);const requests=[];page.on('request',r=>requests.push(new URL(r.url()).pathname));
+  const result=await page.evaluate(async version=>{
+    const other=version==='8.4'?'8.0':'8.4';
+    const d=new PhpDebugger({runtimeBaseUrl:'/runtime/',version,code:'<?php echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;'});
+    const first=await d.run({mode:'test'});await d.setVersion(other);window.versionSwitchDebugger=d;return {first,other};
+  },version);
+  expect(result.first.stdout).toBe(version);
+  expect(requests.some(p=>p.includes(`php${result.other}-dbg-worker`))).toBe(false);
+  const second=await page.evaluate(async()=>{const d=window.versionSwitchDebugger;const result=await d.run({mode:'test'});await d.destroy();return result;});
+  expect(second.stdout).toBe(result.other);expect(second.version).toBe(result.other);
+});
+
+test('variable handles cannot be reused after restarting a runtime',async({page})=>{
+  await setup(page);await create(page,{code:'<?php\n$n=1;\necho $n;',breakpoints:[3]});
+  const result=await page.evaluate(async()=>{
+    const first=dbg.run();await dbg.whenPaused();const old=(await dbg.inspect()).find(v=>v.name==='n').reference;await dbg.stop();await first;
+    const done=dbg.run();await dbg.whenPaused();await dbg.inspect();let rejected=false;try{await dbg.setVariable(old,'99');}catch{rejected=true;}
+    await dbg.continue();return {rejected,result:await done};
+  });
+  expect(result.rejected).toBe(true);expect(result.result.stdout).toBe('1');
+});
+
+test('virtual files, supplied stdin, Unicode and shutdown output reach the result',async({page})=>{
+  await setup(page);await create(page,{code:'<?php echo strtoupper(trim(fgets(STDIN))); require "/helper.php"; register_shutdown_function(function() { echo ":shutdown"; });',files:{'/helper.php':'<?php echo ":λ";'},stdin:'input\n'});
+  const result=await page.evaluate(()=>dbg.run({mode:'test',expect:{stdout:'INPUT:λ:shutdown',exitCode:0}}));
+  expect(result.test.status).toBe('passed');
+});
+
+test('shutdown callbacks, destructors, output handlers and early exits complete exactly once',async({page})=>{
+  await setup(page);await create(page);
+  const results=await page.evaluate(async()=>{
+    const sources=[
+      '<?php ob_start(function($s){return strtoupper($s);}); class Gone { function __destruct(){echo ":destroy";} } $o=new Gone; register_shutdown_function(function(){echo ":shutdown";}); echo "body";',
+      '<?php register_shutdown_function(function(){echo "last";}); exit(7);',
+      '<?php register_shutdown_function(function(){throw new RuntimeException("shutdown failure");});'
+    ];
+    const results=[];for(const code of sources){dbg.setCode(code);results.push(await dbg.run({mode:'test'}));}return results;
+  });
+  expect(results[0].stdout).toBe('BODY:SHUTDOWN:DESTROY');expect(results[0].exitCode).toBe(0);
+  expect(results[1].stdout).toBe('last');expect(results[1].exitCode).toBe(7);
+  expect(results[2].exitCode).toBe(255);expect(results[2].diagnostics.map(d=>d.message).join('\n')).toContain('shutdown failure');
+});

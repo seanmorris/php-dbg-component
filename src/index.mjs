@@ -38,7 +38,7 @@ export class PhpDebugger extends EventTarget {
     if(typeof this.source?.getCode === 'function') code = await this.source.getCode();
     else if(this.source?.nodeType) code = 'value' in this.source ? this.source.value : this.source.textContent;
     else if(typeof this.source === 'function') code = await this.source();
-    else code = typeof this.options.code === 'function' ? await this.options.code() : this.options.code || '';
+    else code = typeof this.options.code === 'function' ? await this.options.code() : this.options.code ?? '';
     if(typeof code !== 'string') throw new TypeError('PHP source must be a string');
     return code;
   }

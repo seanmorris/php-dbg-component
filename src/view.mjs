@@ -132,5 +132,5 @@ export class DebuggerView {
     }
     return row;
   }
-  destroy() {this.abort.abort();this.adapterUnsubscribe?.();this.dbg.source?.showLocation?.(null);this.dbg.source?.setReadOnly?.(false);if(this.dbg.source===this.textarea){this.dbg.options.code=this.textarea.value;this.dbg.source=null;}this.root.remove();}
+  destroy() {this.abort.abort();this.adapterUnsubscribe?.();this.dbg.source?.showLocation?.(null);this.dbg.source?.setBreakpoints?.([]);this.dbg.source?.setReadOnly?.(false);if(this.dbg.source===this.textarea){this.dbg.options.code=this.textarea.value;this.dbg.source=null;}this.root.remove();}
 }

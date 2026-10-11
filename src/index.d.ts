@@ -57,7 +57,7 @@ export class PhpDebugger extends EventTarget {
   readonly state: DebuggerState; readonly testStatus: TestResult['status']; readonly result: RunResult | null;
   readonly location: Location | null; readonly breakpoints: Breakpoint[]; readonly options: DebuggerOptions;
   readonly capabilities: {hardStop: boolean; pause: boolean; variableEditing: boolean};
-  readCode(): Promise<string>; setCode(code: DebuggerOptions['code']): void;
+  readCode(): Promise<string>; setCode(code: NonNullable<DebuggerOptions['code']>): void;
   setBreakpoints(breakpoints: Array<number | Breakpoint>): Promise<Breakpoint[]>;
   setVersion(version: PhpVersion): Promise<void>; prepare(): Promise<void>;
   run(options?: RunOptions): Promise<RunResult>; restart(options?: RunOptions): Promise<RunResult>;

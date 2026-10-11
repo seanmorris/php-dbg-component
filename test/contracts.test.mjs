@@ -56,3 +56,12 @@ test('WASM dependency metadata is read without executing library code', async ()
   assert.throws(()=>wasmDependencies(binary.slice(0,-1)),/Truncated/);
   assert.throws(()=>wasmDependencies(new Uint8Array([1])),/Invalid/);
 });
+
+test('verified identical binaries share compilation and downloads across loader URLs', async()=>{
+  const {AssetRegistry}=await import('../src/assets.mjs');
+  const bytes=new Uint8Array([0,97,115,109,1,0,0,0]);
+  const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(b=>b.toString(16).padStart(2,'0')).join('');
+  let fetched=0;const registry=new AssetRegistry({fetch:async()=>{fetched++;return new Response(bytes);}});
+  const [worker,main]=await Promise.all([registry.module('https://example.test/worker.wasm',hash),registry.module('https://example.test/web.wasm',hash)]);
+  assert.equal(worker,main);assert.equal(fetched,1);
+});

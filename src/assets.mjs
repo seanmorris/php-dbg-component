@@ -25,7 +25,8 @@ export class AssetRegistry {
     catch(error) {this.downloads.delete(String(url)); throw error;}
   }
   async module(url, sha256) {
-    const key = String(url) + ':' + (sha256 || '');
+    // Web and worker loaders may use different URLs for the identical binary.
+    const key = sha256 ? `sha256:${sha256}` : String(url);
     if(!this.modules.has(key)) {
       const task = this._bytes(url).then(async bytes => {
         if(sha256) {

@@ -5,6 +5,7 @@ export class DebugEngine {
   constructor(emit) {
     this.emit = emit; this.sequence = 0; this.waiters = new Set(); this.references = new Map();
     this.epoch = 0; this.nextReference = 0; this.frame = 0; this.paused = false; this.closed = false;
+    this.sessionId = crypto.randomUUID();
     this.serial = Promise.resolve(); this.decoders = new Map(); this.diagnostics = [];
   }
   async open(assets, options) {
@@ -15,7 +16,7 @@ export class DebugEngine {
     const shared = {...(options.runtimeArgs?.shared || {}), __phpDebugger: {capture: value => {this.captured = {value};}}};
     const args = {
       ...(options.runtimeArgs || {}), version:options.version, persist:false, autoTransaction:false, shared,
-      dbgYieldInterval:8,
+      dbgYieldInterval:8, dbgManagedShutdown:true,
       instantiateWasm(imports, ready) {
         WebAssembly.instantiate(assets.module, imports).then(instance => ready(instance, assets.module), failed.reject);
         return {};
@@ -158,7 +159,7 @@ export class DebugEngine {
     const type = this.type(value);
     const identity = this.identity(value), circular = identity !== null && ancestors.includes(identity);
     const expandable = value !== null && typeof value === 'object' && !circular;
-    const reference = `${this.epoch}:${++this.nextReference}`;
+    const reference = `${this.sessionId}:${this.epoch}:${++this.nextReference}`;
     this.references.set(reference, {value, expression, writable, frame, ancestors:[...ancestors,identity]});
     return {name, type, reference, expandable, circular, writable:!!expression && writable && typeof value !== 'function',
       value:expandable || circular || typeof value === 'function' ? undefined : value,
