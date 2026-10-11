@@ -97,15 +97,14 @@ test('inspection pagination, cycles, readonly edit failure and multiline express
   expect(values.cycle.values[0].circular).toBe(true);expect(values.rejected).toBe(true);expect(values.valid.value).toBe(42);expect(values.result.stdout).toBe('2');
 });
 
-test('shared binary download is fetched once despite disabled HTTP cache',async({page,request})=>{
-  await setup(page);const before=await (await request.get('/__requests')).json();
+test('shared binary download is fetched once despite disabled HTTP cache',async({page})=>{
+  await setup(page);const requests=[];page.on('request',request=>{if(new URL(request.url()).pathname.endsWith('.wasm'))requests.push(request.url());});
   const results=await page.evaluate(async version=>{
     const components=Array.from({length:3},(_,i)=>new PhpDebugger({runtimeBaseUrl:'/runtime/',version,code:`<?php file_put_contents('/own.txt', '${i}'); echo file_get_contents('/own.txt');`}));
     const results=await Promise.all(components.map(d=>d.run({mode:'test'})));await Promise.all(components.map(d=>d.destroy()));return results;
   },version);
   expect(results.map(r=>r.stdout)).toEqual(['0','1','2']);
-  const after=await (await request.get('/__requests')).json();const wasm=Object.keys(after).filter(k=>k.endsWith('.wasm') && (after[k]-(before[k]||0))>0);
-  expect(wasm).toHaveLength(1);expect(after[wasm[0]]-(before[wasm[0]]||0)).toBe(1);
+  expect(requests).toHaveLength(1);
 });
 
 test('explicit extension selection loads just the requested package and retries failed manifests',async({page})=>{
@@ -208,4 +207,18 @@ test('shutdown callbacks, destructors, output handlers and early exits complete 
   expect(results[0].stdout).toBe('BODY:SHUTDOWN:DESTROY');expect(results[0].exitCode).toBe(0);
   expect(results[1].stdout).toBe('last');expect(results[1].exitCode).toBe(7);
   expect(results[2].exitCode).toBe(255);expect(results[2].diagnostics.map(d=>d.message).join('\n')).toContain('shutdown failure');
+});
+
+
+test('shutdown processing remains cancellable in both execution modes',async({page})=>{
+  await setup(page);
+  const results=await page.evaluate(async version=>{
+    const results=[];
+    for(const execution of ['main','worker']) {
+      const d=new PhpDebugger({runtimeBaseUrl:'/runtime/',version,execution,code:'<?php register_shutdown_function(function(){while(true) {}});'});
+      results.push(await d.run({mode:'test',timeoutMs:200}));await d.destroy();
+    }
+    return results;
+  },version);
+  expect(results.map(r=>r.status)).toEqual(['timed-out','timed-out']);
 });

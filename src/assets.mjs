@@ -30,6 +30,7 @@ export class AssetRegistry {
     if(!this.modules.has(key)) {
       const task = this._bytes(url).then(async bytes => {
         if(sha256) {
+          if(!globalThis.crypto?.subtle)throw new Error('WASM integrity verification requires HTTPS or localhost.');
           const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(b => b.toString(16).padStart(2,'0')).join('');
           if(digest !== sha256) {this.downloads.delete(String(url)); throw new Error(`WASM integrity mismatch: ${url}`);}
         }

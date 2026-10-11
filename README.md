@@ -105,7 +105,7 @@ console.log(result.test.status); // passed, failed, or unchecked
 
 `run()` returns `{runId,version,status,exitCode,stdout,stderr,diagnostics,durationMs,test}`. Status is `completed`, `cancelled`, `timed-out`, or `error`; a completed PHP process can still have a nonzero exit code. The promise resolves with failures as data. Invalid API arguments and overlapping runs throw.
 
-Expectations accept exact strings or RegExp for `stdout`, `stderr`, and diagnostic `error`, plus an explicit `exitCode`. Output whitespace is preserved. With expectations, successful exit zero is required by default; specify the expected nonzero code for negative tests. An optional async `assert(result)` may return false or throw to fail the test. With no expectations/assertion, status is `unchecked`. Test mode skips breakpoints and continues through exception stops. Cancellation, timeouts, and infrastructure errors cannot pass expectations.
+Expectations accept exact strings or RegExp for `stdout`, `stderr`, and diagnostic `error`, plus an explicit `exitCode`. Output whitespace is preserved, including output from shutdown functions, destructors, and output handlers. With expectations, successful exit zero is required by default; specify the expected nonzero code for negative tests. An optional async `assert(result)` may return false or throw to fail the test. With no expectations/assertion, status is `unchecked`. Test mode skips breakpoints and continues through exception stops. Cancellation, timeouts, and infrastructure errors cannot pass expectations.
 
 `timeoutMs` counts time running PHP, excluding loading and time paused. `loadTimeoutMs` defaults to 120 seconds. `signal` accepts an AbortSignal. `outputLimit` defaults to 10 million characters. A run gets fresh runtime memory and virtual files; downloads and compiled modules are shared. Put your own sequential or batch scheduler around `await run()` / `Promise.all()`.
 
@@ -147,7 +147,9 @@ There is no shadow root. All classes start with `php-debugger-`; the root is `.p
 
 ## Runtime assets, versions, and extensions
 
-Build bridge v1 from the `feat/php-dbg-component` branch of php-wasm:
+The [pinned runtime bundle](runtime-lock.json) used by the live demo includes all six PHP versions and the curl, DOM, and libxml extensions. Run `node scripts/download-runtime.mjs` from this checkout to download and verify it, then deploy the resulting directories together. Downloads in your page remain lazy.
+
+To build your own bridge v1 artifacts from the `feat/php-dbg-component` branch of php-wasm:
 
 ```sh
 git clone --branch feat/php-dbg-component https://github.com/seanmorris/php-wasm.git
@@ -161,7 +163,7 @@ Repeat for the versions you offer. Serve `packages/php-dbg-wasm/` at `runtimeBas
 
 `extensions:['curl','dom']` explicitly loads version-specific extension packages. The default URL is `../php-wasm-NAME/VERSION.mjs` relative to the runtime directory; deploy the package's complete directory there, including dependencies referenced by its modules. Override with `extensionUrls: {curl:'https://example.test/curl/8.4.mjs'}` or `extensions:[{module:'https://example.test/custom/8.4.mjs'}]`. Selection is explicit: code is never scanned to guess dependencies.
 
-The default registry shares download promises, immutable bytes, blob URLs for shared libraries, and compiled WebAssembly modules across components on a page. Each worker instantiates its own memory. Failed downloads are evicted for retry. `assetRegistry` can supply a separate `AssetRegistry`. Call `sharedAssets().clear()` only after all components stop. Network access follows browser CORS and CSP rules; allow your asset origins, module workers, WASM compilation, and blob asset fetches. No SharedArrayBuffer or cross-origin isolation is required.
+The default registry shares download promises, immutable bytes, blob URLs for shared libraries, and compiled WebAssembly modules across components on a page. Each worker instantiates its own memory. Failed downloads are evicted for retry. `assetRegistry` can supply a separate `AssetRegistry`. Call `sharedAssets().clear()` only after all components stop. Serve the component over HTTPS or localhost for browser checksum verification. Network access follows browser CORS and CSP rules; allow your asset origins, module workers, WASM compilation, and blob asset fetches. No SharedArrayBuffer or cross-origin isolation is required.
 
 ## Worker and main-thread execution
 
@@ -171,11 +173,15 @@ The default registry shares download promises, immutable bytes, blob URLs for sh
 
 ```sh
 npm ci
+npm run setup:runtime
 npm test
 npm run test:types
-PHP_WASM_ROOT=/path/to/php-wasm PHP_VERSION=8.4 npm run test:browser
-PHP_WASM_ROOT=/path/to/php-wasm npm start
+RUNTIME_BUNDLE=./runtime-bundle npm run build:docs
+PHP_VERSION=8.4 npm run test:browser
+npm start
 ```
+
+The development server first uses a compatible installed `php-dbg-wasm` package. Until its next npm release includes bridge v1, the server falls back to the pinned demo build in `runtime-bundle/`, downloading it if needed. To use local native builds instead, set `PHP_WASM_ROOT=/path/to/php-wasm`. An explicit path with missing assets produces a setup error at startup.
 
 Install test browsers with `npx playwright install --with-deps`. Browser regressions exercise real native artifacts. `docs/` holds the GitHub Pages documentation/demo site; `npm run build:docs` stages the component, local editor packages, and matching runtime assets. See [docs deployment instructions](docs/DEPLOYMENT.md). Runtime binaries are build outputs and are not checked into source control.
 

@@ -1,0 +1,52 @@
+name: Validate component
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run test:types
+      - run: npm pack --dry-run
+  browsers:
+    needs: contracts
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
+    env:
+      PHP_VERSION: ${{ matrix.php }}
+      RUNTIME_BUNDLE: ${{ github.workspace }}/runtime-bundle
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node scripts/download-runtime.mjs
+      - run: npm run build:docs
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - name: Verify real PHP and browser integrations
+        run: |
+          if [ "$PHP_VERSION" = 8.4 ]; then
+            npm run test:browser
+          else
+            npx playwright test test/debugger.spec.mjs test/ui.spec.mjs --project=chromium
+          fi
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: browser-failures-${{ matrix.php }}
+          path: test-results/

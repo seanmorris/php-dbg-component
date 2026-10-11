@@ -1,0 +1,13 @@
+{
+  "url": "https://github.com/seanmorris/php-dbg-component/releases/download/demo-runtime-7b80019/runtime-bundle.tar.gz",
+  "sourceCommit": "7b80019e1bd6df2b28c7811f176e148e59c477f1",
+  "sha256": "256f459b1728035654491f696b27b18638295fcd4ea469d1c02d6ef91ec7ee6a",
+  "versions": [
+    "8.0",
+    "8.1",
+    "8.2",
+    "8.3",
+    "8.4",
+    "8.5"
+  ]
+}

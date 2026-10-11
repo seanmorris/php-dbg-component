@@ -3,6 +3,8 @@ import path from 'node:path';
 import {build} from 'esbuild';
 import {stageRuntime} from './runtime-assets.mjs';
 const root=path.resolve(import.meta.dirname,'..');const output=path.join(root,'docs/assets');
+if(process.env.RUNTIME_BUNDLE && path.resolve(process.env.RUNTIME_BUNDLE)===output)throw Error('Keep RUNTIME_BUNDLE outside the generated docs/assets directory');
+await fs.rm(output,{recursive:true,force:true});
 await fs.mkdir(output,{recursive:true});
 await fs.cp(path.join(root,'src'),path.join(output,'component'),{recursive:true,filter:filename=>!filename.endsWith('.ts')&&!filename.endsWith('.mts')});
 if(process.env.RUNTIME_BUNDLE)await fs.cp(path.resolve(process.env.RUNTIME_BUNDLE),output,{recursive:true});

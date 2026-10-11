@@ -32,17 +32,22 @@
     "test:browser": "playwright test",
     "test:types": "tsc --noEmit --strict --module nodenext --target es2022 --lib es2022,dom test/types.mts",
     "start": "node test/server.mjs",
-    "build:docs": "node scripts/build-docs.mjs"
+    "build:docs": "node scripts/build-docs.mjs",
+    "setup:runtime": "node scripts/download-runtime.mjs"
   },
   "peerDependencies": {
     "@codemirror/state": "^6.0.0",
-    "@codemirror/view": "^6.0.0"
+    "@codemirror/view": "^6.0.0",
+    "php-dbg-wasm": "^0.2.0"
   },
   "peerDependenciesMeta": {
     "@codemirror/state": {
       "optional": true
     },
     "@codemirror/view": {
+      "optional": true
+    },
+    "php-dbg-wasm": {
       "optional": true
     }
   },
