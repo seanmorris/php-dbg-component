@@ -1,0 +1,47 @@
+@layer php-debugger {
+  :where(.php-debugger) {
+    --php-debugger-bg: #fff;
+    --php-debugger-fg: #202734;
+    --php-debugger-muted: #5b6472;
+    --php-debugger-border: #cbd2dc;
+    --php-debugger-accent: #185adb;
+    --php-debugger-error: #b52132;
+    --php-debugger-active: #fff2b0;
+    --php-debugger-radius: .35rem;
+    --php-debugger-font: ui-monospace, SFMono-Regular, Consolas, monospace;
+    display: grid; gap: .65rem; padding: 1rem; min-width: 0; color: var(--php-debugger-fg);
+    background: var(--php-debugger-bg); border: 1px solid var(--php-debugger-border); border-radius: var(--php-debugger-radius); font: inherit;
+  }
+  :where(.php-debugger-toolbar,.php-debugger-tabs,.php-debugger-expression-form) {display:flex;flex-wrap:wrap;gap:.35rem;align-items:center}
+  :where(.php-debugger button,.php-debugger input,.php-debugger select,.php-debugger textarea) {font:inherit;color:inherit;background:var(--php-debugger-bg);border:1px solid var(--php-debugger-border);border-radius:var(--php-debugger-radius);padding:.3rem .5rem}
+  :where(.php-debugger button) {cursor:pointer}
+  :where(.php-debugger button:disabled) {opacity:.45;cursor:default}
+  :where(.php-debugger :focus-visible) {outline:2px solid var(--php-debugger-accent);outline-offset:2px}
+  :where(.php-debugger-status) {color:var(--php-debugger-muted)}
+  :where(.php-debugger-message,.php-debugger-output-stderr) {color:var(--php-debugger-error);white-space:pre-wrap}
+  :where(.php-debugger-editor) {display:flex;max-height:24rem;overflow:auto;border:1px solid var(--php-debugger-border)}
+  :where(.php-debugger-source) {flex:1;min-width:0;min-height:12rem;resize:vertical;white-space:pre;font-family:var(--php-debugger-font);line-height:1.5rem}
+  :where(.php-debugger-gutter) {display:flex;flex-direction:column;padding:.3rem 0;min-width:3rem;font-family:var(--php-debugger-font)}
+  :where(.php-debugger-gutter .php-debugger-line) {padding:0 .4rem;border:0;border-radius:0;line-height:1.5rem;text-align:right}
+  :where(.php-debugger-line[data-breakpoint=true]) {color:var(--php-debugger-error);font-weight:bold}
+  :where(.php-debugger-line[data-active=true]) {background:var(--php-debugger-active)}
+  :where(.php-debugger-body) {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:.75rem;min-width:0}
+  :where(.php-debugger-console) {margin:0;min-height:10rem;max-height:24rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--php-debugger-font);border:1px solid var(--php-debugger-border);padding:.6rem}
+  :where(.php-debugger-output-debug) {color:var(--php-debugger-muted)}
+  :where(.php-debugger-inspector) {min-width:0;max-height:28rem;overflow:auto}
+  :where(.php-debugger-values) {font-family:var(--php-debugger-font);overflow-wrap:anywhere}
+  :where(.php-debugger-value) {padding:.3rem 0}
+  :where(.php-debugger-value-name) {font-weight:600}
+  :where(.php-debugger-children) {padding-left:1rem;border-left:1px solid var(--php-debugger-border)}
+  :where(.php-debugger-value button) {margin-left:.4rem;font-size:.8em}
+  :where(.php-debugger-symbol) {display:block;margin:.3rem 0;text-align:left}
+  :where(.php-debugger-expression) {flex:1;min-width:10rem;font-family:var(--php-debugger-font)}
+  :where(.php-debugger-breakpoint-list) {list-style:none;margin:0;padding:0}
+  :where(.php-debugger-tab[aria-pressed=true]) {color:var(--php-debugger-accent);border-color:currentColor}
+  :where(.php-debugger[data-test-status=passed] .php-debugger-status) {color:#14773b}
+  :where(.php-debugger[data-test-status=failed] .php-debugger-status) {color:var(--php-debugger-error)}
+  :where(.php-debugger-active-line) {background:var(--php-debugger-active,#fff2b0)}
+  :where(.php-debugger-breakpoint-marker) {color:var(--php-debugger-error,#b52132);background-color:color-mix(in srgb,currentColor 15%,transparent)}
+  :where(.php-debugger-cm5-gutter,.php-debugger-cm6-gutter) {min-width:1.2rem}
+  @media(max-width:640px) {:where(.php-debugger-body){grid-template-columns:minmax(0,1fr)}}
+}
