@@ -19,13 +19,14 @@ export class DebuggerView {
     this.version.value=dbg.options.version; this.version.addEventListener('change',()=>this.act(()=>dbg.setVersion(this.version.value)),{signal:this.abort.signal}); this.toolbar.append(this.version);
     this.status=node('output','php-debugger-status'); this.status.setAttribute('aria-live','polite'); this.root.append(this.status);
     this.message=node('div','php-debugger-message'); this.message.setAttribute('role','alert'); this.root.append(this.message);
-    if(!dbg.source) {
+    if(!dbg.source && typeof dbg.options.code !== 'function') {
       const editor=node('div','php-debugger-editor'); this.gutter=node('div','php-debugger-gutter');
       this.textarea=node('textarea','php-debugger-source'); this.textarea.setAttribute('aria-label','PHP source'); this.textarea.spellcheck=false;
       this.textarea.value=typeof dbg.options.code==='string' ? dbg.options.code : '';
       // Keep getters authoritative; the textarea is only an editor for string sources.
       if(typeof dbg.options.code!=='function') dbg.source=this.textarea;
       this.textarea.addEventListener('input',()=>this.gutterUpdate(),{signal:this.abort.signal});
+      this.textarea.addEventListener('scroll',()=>{this.gutter.scrollTop=this.textarea.scrollTop;},{signal:this.abort.signal});
       editor.append(this.gutter,this.textarea); this.root.append(editor);
     }
     this.breakpoints=node('div','php-debugger-breakpoints');
@@ -62,7 +63,7 @@ export class DebuggerView {
     for(const [label,button] of this.buttons) button.disabled=label==='Run' ? !!this.dbg.active : label==='Pause' ? state!=='running' : label==='Stop' || label==='Restart' ? !this.dbg.active : state!=='paused';
     if(this.textarea)this.textarea.readOnly=!!this.dbg.active;
     this.dbg.source?.setReadOnly?.(!!this.dbg.active);
-    if(!this.dbg.location)this.dbg.source?.showLocation?.(null);
+    if(!this.dbg.location)this.showLocation(null);
     if(state!=='paused') {this.refreshNumber++;this.content.replaceChildren(node('p','php-debugger-empty','Pause execution to inspect values.'));}
   }
   gutterUpdate() {
@@ -83,6 +84,7 @@ export class DebuggerView {
   }
   showLocation(location) {
     this.dbg.source?.showLocation?.(location);
+    if(!location && this.gutter) for(const line of this.gutter.children) line.dataset.active='false';
     if(this.textarea && location?.file===this.dbg.options.entrypoint) {
       const lines=this.textarea.value.split('\n');const start=lines.slice(0,location.line-1).reduce((a,b)=>a+b.length+1,0);
       this.textarea.setSelectionRange(start,start+(lines[location.line-1]?.length||0));
@@ -90,6 +92,7 @@ export class DebuggerView {
     }
   }
   appendOutput({channel,text}) {
+    if(channel==='debug' && !text.endsWith('\n'))text+='\n';
     const span=node('span',`php-debugger-output php-debugger-output-${channel}`,text);this.console.append(span);
     while(this.console.childNodes.length>1000)this.console.firstChild.remove();this.console.scrollTop=this.console.scrollHeight;
   }

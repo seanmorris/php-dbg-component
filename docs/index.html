@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="An embeddable PHP debugger for the browser. Step through real PHP, edit live variables, and run page-driven tests with vanilla JavaScript.">
+<title>php-dbg-component — PHP, one step at a time</title>
+<link rel="stylesheet" href="./site.css"><link rel="stylesheet" href="./assets/component/styles.css">
+</head>
+<body>
+<header class="site-header"><a class="brand" href="#">php<span>dbg</span><small>component</small></a><nav aria-label="Main"><a href="#playground">Playground</a><a href="#integration">Integrate</a><a href="#reference">API</a><a href="https://github.com/seanmorris/php-dbg-component">GitHub ↗</a></nav></header>
+<main>
+<section class="hero"><p class="eyebrow">VANILLA JAVASCRIPT · REAL PHP · YOUR PAGE</p><h1>PHP, one step<br>at a time<span>.</span></h1><p class="lede">Put a debugger beside your code. Pause, inspect, change a value, and see what happens next. No framework or editor required.</p><div class="hero-links"><a class="primary" href="#playground">Open the debugger ↓</a><a href="https://github.com/seanmorris/php-dbg-component#quick-start">Read the guide ↗</a></div><div class="facts"><span>PHP 8.0–8.5</span><span>Workers by default</span><span>Shared WASM downloads</span><span>Style it your way</span></div></section>
+<section id="playground"><div class="section-heading"><div><p class="eyebrow">01 / PLAYGROUND</p><h2>A working debugger.<br>Your choice of editor.</h2></div><p>Press <strong>Run</strong> to pause inside a function. Expand <code>$cart</code>, edit its price, or select a caller frame. Step over to watch the result change.</p></div>
+<div class="demo-settings"><label>Source editor <select id="editor-kind"><option value="textarea">Plain textarea</option><option value="ace">Ace</option><option value="codemirror5">CodeMirror 5</option><option value="codemirror6">CodeMirror 6</option></select></label><label>Page motif <select id="theme"><option value="light">Paper</option><option value="dark">Midnight</option><option value="warm">Terracotta</option></select></label><button id="reset" type="button">Reset example</button></div>
+<p id="asset-status" role="status">Preparing the demo interface. PHP downloads only when you run it.</p><div id="editor-host"></div><div id="debugger-host"></div><p class="caption">The optional editors load when selected. Each PHP version loads only on demand. All demos share the page's download cache.</p>
+</section>
+<section id="tests"><div class="section-heading"><div><p class="eyebrow">02 / SCRIPTABLE EXECUTION</p><h2>A page can be a test.</h2></div><p>Ordinary promises and structured results let your application decide what runs next. Test mode continues past breakpoints.</p></div><div class="test-grid"><div><pre><code>const result = await dbg.run({
+  mode: 'test',
+  expect: { stdout: '42\n', exitCode: 0 },
+  timeoutMs: 5000
+});
+console.log(result.test.status);</code></pre><button id="run-test" type="button">Run PHP assertion</button><output id="test-result" aria-live="polite">Not run yet</output></div><div class="note"><h3>Same component. Different role.</h3><p>Use an async code getter, a textarea, a DOM element, or an editor adapter. Await a run, inspect its result, then schedule the next one however you like.</p><p><code>autorun mode="test"</code> makes visiting a page run a declarative test. Autorun is always explicit.</p><details><summary>See a declarative test</summary><pre><code>&lt;php-debugger autorun mode="test"&gt;
+  &lt;textarea&gt;&lt;?php echo "ok";&lt;/textarea&gt;
+  &lt;script type="application/json" data-expect&gt;
+    {"stdout":"ok","exitCode":0}
+  &lt;/script&gt;
+&lt;/php-debugger&gt;</code></pre></details></div></div></section>
+<section id="integration"><p class="eyebrow">03 / INTEGRATE</p><h2>Small surface. Full control.</h2><div class="cards"><article><span class="card-number">01</span><h3>Bring your code</h3><p>Pass a string or async getter. Bind any element, or attach the optional Ace and CodeMirror adapters to an editor you already own.</p></article><article><span class="card-number">02</span><h3>Pick a runtime</h3><p>Choose a PHP version and explicit extensions. The manifest identifies the binary; one shared registry downloads it once for the page.</p></article><article><span class="card-number">03</span><h3>Make it yours</h3><p>Light DOM and ordinary CSS. Use the included stylesheet as a starting point, or give every control your own page's style.</p></article></div><pre><code>import {PhpDebugger} from 'php-dbg-component';
+import 'php-dbg-component/styles.css';
+
+const dbg = new PhpDebugger({
+  runtimeBaseUrl: './runtime/',
+  code: '&lt;?php\n$n = 2;\n$n += 3;\necho $n;',
+  breakpoints: [3]
+});
+dbg.mount(document.querySelector('#debugger'));</code></pre><p class="caption">Use matching bridge v1 artifacts from php-wasm. <a href="https://github.com/seanmorris/php-dbg-component#runtime-assets-versions-and-extensions">Build and hosting instructions ↗</a></p></section>
+<section id="reference"><p class="eyebrow">04 / REFERENCE</p><h2>The verbs you need.</h2><div class="reference-grid"><article><h3>Execute</h3><p><code>prepare</code> · <code>run</code> · <code>restart</code><br><code>pause</code> · <code>whenPaused</code> · <code>continue</code><br><code>stepInto</code> · <code>stepOver</code> · <code>stepOut</code><br><code>until</code> · <code>leave</code> · <code>stop</code></p></article><article><h3>Inspect & change</h3><p><code>inspect</code> · <code>children</code><br><code>evaluate</code> · <code>setVariable</code><br><code>selectFrame</code> · <code>setBreakpoints</code><br><code>setCode</code> · <code>setVersion</code></p></article><article><h3>Compose</h3><p><code>mount</code> · <code>destroy</code><br><code>statechange</code> · <code>output</code> · <code>pause</code><br><code>complete</code> · <code>testresult</code><br>AbortSignal · timeouts · expectations</p></article></div><details><summary>Editing values while paused</summary><pre><code>const done = dbg.run();
+await dbg.whenPaused();
+const vars = await dbg.inspect('variables');
+await dbg.setVariable(vars.find(v =&gt; v.name === 'n').reference, '42');
+await dbg.evaluate('$cart["price"] = 12.50');
+await dbg.continue();
+const result = await done;</code></pre><p>Variable references expire on resume. Assignments use PHP expressions in the selected frame, with PHP's normal visibility, types, and readonly rules.</p></details><details><summary>Workers, DOM access, and termination</summary><p>A worker keeps the page responsive and can be terminated even during a blocking native call. To access the page DOM through vrzno, opt into <code>execution:'main'</code>. Main-thread pause and stop are cooperative, so a blocking native call may block the page. Treat executed PHP as trusted code; workers are not a security boundary.</p></details><details><summary>Loading extensions</summary><p>Set <code>extensions:['curl']</code> to load only that version's curl package. The loader uses extension metadata for required libraries and files. Browser CORS still applies to PHP HTTP requests.</p><button id="run-curl" type="button">Load curl & check availability</button><output id="curl-result" aria-live="polite">Not loaded</output></details><p><a href="https://github.com/seanmorris/php-dbg-component#debugging-from-javascript">Complete API, events, runtime hosting, and lifecycle guide ↗</a></p></section>
+</main><footer><a class="brand" href="#">php<span>dbg</span><small>component</small></a><p>Built on php-wasm and phpdbg. Open source.</p><a href="https://github.com/seanmorris/php-dbg-component">Source on GitHub ↗</a></footer><script type="module" src="./site.mjs"></script>
+</body></html>

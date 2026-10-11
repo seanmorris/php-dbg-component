@@ -22,9 +22,9 @@ export class DebugEngine {
       },
       getPreloadedPackage(name) {return assets.data[String(name).split('/').pop()];},
       sharedLibs:assets.libraries,
-      locateFile: name => assets.libraries.find(lib => lib.name === name)?.url ?? new URL(name, assets.base).href,
+      locateFile: name => assets.libraries.find(lib => lib.name === name)?.url,
       onDbgOutput: event => this.output(event),
-      onDbgEvent: event => {if(event.type === 'exception') {this.exception = event; this.diagnostics.push(event); this.emit({type:'diagnostic', ...event, type:'diagnostic'});}},
+      onDbgEvent: event => {if(event.type === 'exception') {this.exception = event; this.diagnostics.push(event); this.emit({...event, type:'diagnostic'});}},
       onAbort: reason => failed.reject(new Error(String(reason))),
     };
     this.php = new Runtime(args);
@@ -85,7 +85,7 @@ export class DebugEngine {
     this.writeFile(config.entrypoint, config.code);
     this.php.inputString(config.stdin || '');
     await this.command(`exec ${config.entrypoint}`);
-    if(!this.binary.ccall('php_wasm_dbg_has_context','number',[],[])) return this.finish();
+    if(!this.binary.ccall('php_wasm_dbg_has_context','number',[],[])) return this.finish(255);
     await this.breakpoints(config.breakpoints);
     return this.resume('run');
   }
@@ -112,7 +112,7 @@ export class DebugEngine {
     }
     return this.finish();
   }
-  async finish() {
+  async finish(compilationExitCode) {
     if(this.closed) return;
     await this.php.provideInput('quit');
     const exitCode = await this.process;
@@ -120,11 +120,12 @@ export class DebugEngine {
     for(const [key, decoder] of this.decoders) {
       const text = decoder.decode(); if(text) this.emit({type:'output', channel:key.split(':')[0], text});
     }
-    this.emit({type:'complete', exitCode, diagnostics:this.diagnostics});
+    this.emit({type:'complete', exitCode:compilationExitCode ?? exitCode, diagnostics:this.diagnostics});
   }
   pause() {if(this.closed) throw new Error('Debugger is closed'); this.binary.dbgPauseRequested = true;}
   async stop() {
     if(this.closed) return;
+    if(!this.process) {this.closed = true; return;}
     if(this.paused || !await this.php.isRunning()) {await this.php.provideInput('quit'); await this.process;}
     else {this.binary.dbgStopRequested = true; await this.process;}
     this.closed = true; this.invalidate();
@@ -146,14 +147,20 @@ export class DebugEngine {
     }
     return Array.isArray(value) ? 'array' : 'object';
   }
-  describe(name, value, expression, writable = true) {
+  identity(value) {
+    if(!value || typeof value !== 'object') return null;
+    const symbol = Object.getOwnPropertySymbols(value).find(s => s.description === 'origZval');
+    return symbol ? `${this.type(value)}:${this.binary.getValue(value[symbol], 'i32')}` : value;
+  }
+  describe(name, value, expression, writable = true, frame = this.frame, ancestors = []) {
     const type = this.type(value);
-    const expandable = value !== null && typeof value === 'object';
+    const identity = this.identity(value), circular = identity !== null && ancestors.includes(identity);
+    const expandable = value !== null && typeof value === 'object' && !circular;
     const reference = `${this.epoch}:${++this.nextReference}`;
-    this.references.set(reference, {value, expression, writable, frame:this.frame});
-    return {name, type, reference, expandable, writable:!!expression && writable && typeof value !== 'function',
-      value:expandable || typeof value === 'function' ? undefined : value,
-      displayValue:expandable ? (type === 'array' ? 'Array' : 'Object') : typeof value === 'string' ? JSON.stringify(value) : String(value)};
+    this.references.set(reference, {value, expression, writable, frame, ancestors:[...ancestors,identity]});
+    return {name, type, reference, expandable, circular, writable:!!expression && writable && typeof value !== 'function',
+      value:expandable || circular || typeof value === 'function' ? undefined : value,
+      displayValue:circular ? '[Circular]' : expandable ? (type === 'array' ? 'Array' : 'Object') : typeof value === 'string' ? JSON.stringify(value) : String(value)};
   }
   async inspect(scope = 'variables', options = {}) {
     this.assertPaused();
@@ -174,7 +181,7 @@ export class DebugEngine {
     const names = Object.keys(parent.value);
     const values = names.slice(offset, offset + limit).map(name => {
       const expression = !parent.expression ? null : type === 'array' ? `${parent.expression}[${phpString(name)}]` : `${parent.expression}->{${phpString(name.split('\0').pop())}}`;
-      try {return this.describe(name, parent.value[name], expression, parent.writable);}
+      try {return this.describe(name, parent.value[name], expression, parent.writable, parent.frame, parent.ancestors);}
       catch(error) {return {name,type:'unavailable',displayValue:error.message,writable:false,expandable:false};}
     });
     return {values, total:names.length, offset};

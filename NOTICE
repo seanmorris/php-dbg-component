@@ -1,0 +1,8 @@
+php-dbg-component
+Copyright 2026 Sean Morris and contributors.
+
+This component integrates with php-wasm/phpdbg but does not bundle a PHP binary in its npm package.
+PHP is licensed under the PHP License; phpdbg has its upstream license notices.
+php-wasm runtime wrapper code is licensed under Apache-2.0 or GPL-2.0-only.
+Ace and CodeMirror are optional integrations; their upstream licenses apply.
+Generated documentation assets include the corresponding upstream license files.

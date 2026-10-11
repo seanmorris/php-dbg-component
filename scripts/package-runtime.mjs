@@ -1,0 +1,12 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {execFileSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {stageRuntime} from './runtime-assets.mjs';
+const root=path.resolve(process.env.PHP_WASM_ROOT||'/app'),output=path.resolve('runtime-bundle');
+const versions=(process.env.DOCS_PHP_VERSIONS||'8.0,8.1,8.2,8.3,8.4,8.5').split(',');
+await fs.rm(output,{recursive:true,force:true});await stageRuntime(root,output,versions);
+const source=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+await fs.writeFile(path.join(output,'build.json'),JSON.stringify({source:'https://github.com/seanmorris/php-wasm',commit:source,bridgeVersion:1,profile:'.github/.env_VERSION.dynamic.ci',versions},null,2)+'\n');
+execFileSync('tar',['-czf','runtime-bundle.tar.gz','-C',output,'.']);
+console.log(JSON.stringify({sourceCommit:source,sha256:createHash('sha256').update(await fs.readFile('runtime-bundle.tar.gz')).digest('hex'),versions},null,2));

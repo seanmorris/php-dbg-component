@@ -67,8 +67,8 @@ export class PhpDebugger extends EventTarget {
   }
   async prepare() {
     this.assertAlive();
-    if(this.transport) return;
     if(this.opening) return this.opening;
+    if(this.transport) return;
     const generation = this.generation;
     const options = {...this.options};
     this.transition('loading');
@@ -95,6 +95,7 @@ export class PhpDebugger extends EventTarget {
     if(!['debug','test'].includes(mode)) throw new TypeError('mode must be debug or test');
     const timeoutMs = options.timeoutMs ?? this.options.timeoutMs ?? 0;
     if(!Number.isFinite(timeoutMs) || timeoutMs < 0) throw new RangeError('timeoutMs must be nonnegative');
+    const files = structuredClone(options.files ?? this.options.files ?? {});
     const wait = deferred();
     const active = this.active = {id:++this.runNumber, wait, started:performance.now(), runningMs:0, timeoutMs, stdout:'', stderr:'',
       version:this.options.version, expectations:options.expect ?? this.options.expect, assertion:options.assert ?? this.options.assert,
@@ -103,12 +104,12 @@ export class PhpDebugger extends EventTarget {
     active.abort = () => void this.finish('cancelled');
     options.signal?.addEventListener('abort', active.abort, {once:true});
     if(options.signal?.aborted) {void this.finish('cancelled'); return wait.promise;}
-    const files = structuredClone(options.files ?? this.options.files ?? {});
     const breakpoints = this.breakpoints.map(bp => ({...bp}));
     const source = this.readCode();
     active.loadTimer = setTimeout(() => void this.finish('error', {error:new Error('Debugger startup timed out')}), this.options.loadTimeoutMs ?? 120000);
     void (async () => {
       const code = await source;
+      if(this.active !== active || active.finishing) return;
       await this.prepare();
       if(this.active !== active || active.finishing) return;
       clearTimeout(active.loadTimer);
@@ -118,7 +119,8 @@ export class PhpDebugger extends EventTarget {
     return wait.promise;
   }
   handleEvent(event) {
-    if(event.type === 'state') this.transition(event.state);
+    if(event.type === 'fatal') {if(this.active) void this.finish('error', {error:event.error}); else {void this.teardown(); this.transition('error'); this.emit('diagnostic', errorRecord(event.error));}}
+    else if(event.type === 'state') this.transition(event.state);
     else if(event.type === 'output') {
       if(this.active && (event.channel === 'stdout' || event.channel === 'stderr')) {
         this.active[event.channel] += event.text;
@@ -158,7 +160,16 @@ export class PhpDebugger extends EventTarget {
     const wait = deferred(); this.pauseWaiters.add(wait); return wait.promise;
   }
   async pause() {this.assertAlive(); if(this.state !== 'running') throw new Error('Execution is not running'); await this.transport.call('pause'); return this.whenPaused();}
-  command(method, ...args) {this.assertAlive(); if(this.state !== 'paused') return Promise.reject(new Error('Execution must be paused')); return this.transport.call(method,...args);}
+  async command(method, ...args) {
+    this.assertAlive(); if(this.state !== 'paused') throw new Error('Execution must be paused');
+    const active = this.active;
+    try {return await this.transport.call(method,...args);}
+    catch(error) {
+      // Completion can arrive before the worker's response to the resume RPC.
+      if(method === 'resume' && active?.finishing && (await active.wait.promise).status === 'completed') return;
+      throw error;
+    }
+  }
   continue() {return this.command('resume','continue');}
   stepInto() {return this.command('resume','step');}
   stepOver() {return this.command('resume','next');}

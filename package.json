@@ -6,22 +6,46 @@
   "license": "(Apache-2.0 OR GPL-2.0-only)",
   "repository": "https://github.com/seanmorris/php-dbg-component",
   "exports": {
-    ".": {"types": "./src/index.d.ts", "default": "./src/index.mjs"},
-    "./element": {"types": "./src/element.d.ts", "default": "./src/element.mjs"},
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.mjs"
+    },
+    "./element": {
+      "types": "./src/element.d.ts",
+      "default": "./src/element.mjs"
+    },
     "./adapters/ace": "./src/adapters/ace.mjs",
     "./adapters/codemirror5": "./src/adapters/codemirror5.mjs",
     "./adapters/codemirror6": "./src/adapters/codemirror6.mjs",
     "./styles.css": "./src/styles.css"
   },
-  "files": ["src", "README.md", "LICENSE", "LICENSE-GPL", "NOTICE", "examples"],
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE",
+    "LICENSE-GPL",
+    "NOTICE",
+    "examples"
+  ],
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "test:browser": "playwright test",
     "test:types": "tsc --noEmit --strict --module nodenext --target es2022 --lib es2022,dom test/types.mts",
-    "start": "node test/server.mjs"
+    "start": "node test/server.mjs",
+    "build:docs": "node scripts/build-docs.mjs"
   },
-  "peerDependencies": {"@codemirror/state": "^6.0.0", "@codemirror/view": "^6.0.0"},
-  "peerDependenciesMeta": {"@codemirror/state": {"optional": true}, "@codemirror/view": {"optional": true}},
+  "peerDependencies": {
+    "@codemirror/state": "^6.0.0",
+    "@codemirror/view": "^6.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@codemirror/state": {
+      "optional": true
+    },
+    "@codemirror/view": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
     "@codemirror/state": "^6.0.0",

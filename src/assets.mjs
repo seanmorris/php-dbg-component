@@ -1,3 +1,4 @@
+import {wasmDependencies} from './wasm.mjs';
 const registryKey = Symbol.for('php-dbg-component.assets.v1');
 
 /** Immutable, shared downloads. Callers receive copies, never the cached buffer. */
@@ -19,7 +20,10 @@ export class AssetRegistry {
     return this.downloads.get(key);
   }
   async bytes(url) { return (await this._bytes(url)).slice(0); }
-  async json(url) { return JSON.parse(new TextDecoder().decode(await this._bytes(url))); }
+  async json(url) {
+    try {return JSON.parse(new TextDecoder().decode(await this._bytes(url)));}
+    catch(error) {this.downloads.delete(String(url)); throw error;}
+  }
   async module(url, sha256) {
     const key = String(url) + ':' + (sha256 || '');
     if(!this.modules.has(key)) {
@@ -65,30 +69,39 @@ export async function prepareAssets(options) {
     throw new Error('The runtime asset manifest is incompatible with this debugger. Build the matching php-dbg-wasm worker/web artifacts.');
   const modules = await Promise.all((options.extensions || []).map(async extension => {
     const url = typeof extension === 'string'
-      ? options.extensionUrls?.[extension] || new URL(`../php-wasm-${extension}/${options.version}.mjs`, base).href
+      ? options.extensionUrls?.[extension] || new URL(`../php-wasm-${extension}/${['libxml','zlib'].includes(extension)?'index':options.version}.mjs`, base).href
       : extension.module;
     if(!url) throw new TypeError('An extension needs a name or module URL');
-    return (await import(/* webpackIgnore: true */ String(url))).default;
+    return (await import(/* webpackIgnore: true */ new URL(url, globalThis.location?.href || base).href)).default;
   }));
   const wrapper = {phpVersion: options.version};
   const libraries = modules.flatMap(module => module.getLibs?.(wrapper) || []);
   const files = modules.flatMap(module => module.getFiles?.(wrapper) || []);
-  for(const name of manifest.libraries || []) {
-    if(libraries.some(lib => lib.name === name)) continue;
+  const addRequired = name => {
+    if(libraries.some(lib => lib.name === name)) return;
     const stem = name.replace(/\.so$/, '');
     const pkg = supportPackages[stem] || (stem.startsWith('libicu') ? 'intl' : null);
-    if(!pkg) throw new Error(`No asset location for required library ${name}`);
-    libraries.push({name, url: new URL(`../php-wasm-${pkg}/${name}`, base).href, ini:false});
+    const url = options.libraryUrls?.[name] || (pkg && new URL(`../php-wasm-${pkg}/${name}`, base).href);
+    if(!url) throw new Error(`No asset location for required library ${name}; provide libraryUrls[${JSON.stringify(name)}]`);
+    libraries.push({name, url, ini:false});
+  };
+  for(const name of manifest.libraries || []) addRequired(name);
+  // Package helpers do not all enumerate their native dependencies (e.g. DOM/libxml).
+  // Follow the actual selected binaries, recursively, through the shared byte cache.
+  for(let index=0; index<libraries.length; index++) {
+    const lib = libraries[index];
+    lib.name ||= String(lib.url).split('/').pop();
+    for(const name of wasmDependencies(await registry.bytes(lib.url))) addRequired(name);
   }
   const assets = {base:base.href, environment, module:null, libraries:[], files:[], data:{}};
   await Promise.all([
     registry.module(new URL(manifest.wasm, base), manifest.sha256).then(module => {assets.module = module;}),
-    ...libraries.map(async lib => {
+    ...libraries.map(async (lib, index) => {
       const url = await registry.objectUrl(lib.url);
-      assets.libraries.push({name:lib.name || String(lib.url).split('/').pop(), url, ini:!!lib.ini});
+      assets.libraries[index] = {name:lib.name || String(lib.url).split('/').pop(), url, ini:!!lib.ini};
     }),
-    ...files.map(async file => {
-      assets.files.push({path:file.path || `${file.parent}/${file.name}`, bytes:await registry.bytes(file.url)});
+    ...files.map(async (file, index) => {
+      assets.files[index] = {path:file.path || `${file.parent}/${file.name}`, bytes:await registry.bytes(file.url)};
     }),
     ...(manifest.data || []).map(async name => {assets.data[name] = await registry.bytes(new URL(name, base));})
   ]);

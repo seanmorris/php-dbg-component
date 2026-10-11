@@ -8,7 +8,7 @@ export function definePhpDebugger(name = 'php-debugger', registry = customElemen
     connectedCallback() {
       if(this.debugger) return;
       const sourceSelector = this.getAttribute('source');
-      const source = this.source || (sourceSelector ? this.ownerDocument.querySelector(sourceSelector) : this.querySelector('textarea,pre,code,script[type="text/php"]'));
+      const source = this.source || this.options?.source || (sourceSelector ? this.ownerDocument.querySelector(sourceSelector) : this.querySelector('textarea,pre,code,script[type="text/php"]'));
       const options = {...this.options, version:this.getAttribute('version') || this.options?.version || '8.4',
         execution:this.getAttribute('execution') || this.options?.execution || 'worker', source,
         runtimeBaseUrl:this.getAttribute('runtime-base-url') || this.options?.runtimeBaseUrl};
@@ -39,6 +39,16 @@ export function definePhpDebugger(name = 'php-debugger', registry = customElemen
     stop() {return this.debugger.stop();}
     restart(options) {return this.debugger.restart(options);}
     whenPaused() {return this.debugger.whenPaused();}
+    pause() {return this.debugger.pause();}
+    continue() {return this.debugger.continue();}
+    stepInto() {return this.debugger.stepInto();}
+    stepOver() {return this.debugger.stepOver();}
+    stepOut() {return this.debugger.stepOut();}
+    until() {return this.debugger.until();}
+    leave() {return this.debugger.leave();}
+    inspectChildren(...args) {return this.debugger.children(...args);}
+    selectFrame(...args) {return this.debugger.selectFrame(...args);}
+    setVersion(...args) {return this.debugger.setVersion(...args);}
     inspect(...args) {return this.debugger.inspect(...args);}
     evaluate(...args) {return this.debugger.evaluate(...args);}
     setVariable(...args) {return this.debugger.setVariable(...args);}

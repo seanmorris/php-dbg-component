@@ -16,8 +16,9 @@ export async function createTransport(options, assets, emit) {
     if(data.error) wait.reject(Object.assign(new Error(data.error.message), {name:data.error.name}));
     else wait.resolve(data.value);
   };
-  worker.onerror = event => fail(new Error(event.message || 'Debugger worker failed'));
-  worker.onmessageerror = () => fail(new Error('Debugger worker returned an invalid message'));
+  const fatal = error => {fail(error); if(!destroyed) emit({type:'fatal',error});};
+  worker.onerror = event => fatal(new Error(event.message || 'Debugger worker failed'));
+  worker.onmessageerror = () => fatal(new Error('Debugger worker returned an invalid message'));
   function call(method, ...args) {
     if(destroyed) return Promise.reject(new Error('Debugger worker is closed'));
     const wait = deferred(); const request = ++id; pending.set(request, wait);
