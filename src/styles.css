@@ -20,10 +20,11 @@
   :where(.php-debugger-status) {color:var(--php-debugger-muted)}
   :where(.php-debugger-message,.php-debugger-output-stderr) {color:var(--php-debugger-error);white-space:pre-wrap}
   :where(.php-debugger-editor) {position:relative;display:flex;max-height:24rem;overflow:hidden;border:1px solid var(--php-debugger-border)}
-  :where(.php-debugger-source) {flex:1;margin-left:3rem;min-width:0;min-height:12rem;resize:vertical;white-space:pre;font-family:var(--php-debugger-font);line-height:1.5rem;border:0;overflow:auto}
-  :where(.php-debugger-gutter) {position:absolute;inset:0 auto 0 0;display:flex;flex-direction:column;overflow:hidden;padding:.3rem 0;width:3rem;font-family:var(--php-debugger-font)}
-  :where(.php-debugger-gutter .php-debugger-line) {flex-shrink:0;padding:0 .4rem;border:0;border-radius:0;line-height:1.5rem;text-align:right}
+  :where(.php-debugger-source) {flex:1;margin-left:3.5rem;min-width:0;min-height:12rem;resize:vertical;white-space:pre;font-family:var(--php-debugger-font);line-height:1.5rem;border:0;overflow:auto}
+  :where(.php-debugger-gutter) {position:absolute;inset:0 auto 0 0;display:flex;flex-direction:column;overflow:hidden;padding:.3rem 0;width:3.5rem;font-family:var(--php-debugger-font)}
+  :where(.php-debugger-gutter .php-debugger-line) {position:relative;flex-shrink:0;padding:0 .4rem 0 1rem;border:0;border-radius:0;line-height:1.5rem;text-align:right}
   :where(.php-debugger-line[data-breakpoint=true]) {color:var(--php-debugger-error);font-weight:bold}
+  :where(.php-debugger-line[data-breakpoint=true])::before {content:'';position:absolute;left:.3rem;top:50%;width:.45rem;height:.45rem;border-radius:50%;background:currentColor;transform:translateY(-50%);pointer-events:none}
   :where(.php-debugger-line[data-active=true]) {background:var(--php-debugger-active)}
   :where(.php-debugger-body) {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:.75rem;min-width:0}
   :where(.php-debugger-console) {margin:0;min-height:10rem;max-height:24rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--php-debugger-font);border:1px solid var(--php-debugger-border);padding:.6rem}
