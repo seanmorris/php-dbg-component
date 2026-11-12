@@ -6,20 +6,20 @@ export default defineConfig({
 	, workers: 1
 	, timeout: 120000
 	, expect: {timeout: 30000}
-	, outputDir: `test-results/php-${process.env.PHP_VERSION||'8.4'}`
-	, use: {baseURL: 'http://127.0.0.1:9120',trace: 'retain-on-failure'}
+	, outputDir: `test-results/php-${process.env.PHP_VERSION || '8.4'}`
+	, use: {baseURL: 'http://127.0.0.1:9120', trace: 'retain-on-failure'}
 	, projects: [
 		{
 			name: 'chromium'
 			, use: {
 				browserName: 'chromium'
 				, launchOptions: fs.existsSync('/usr/bin/chromium')
-					? {executablePath: '/usr/bin/chromium',args: ['--no-sandbox']}
+					? {executablePath: '/usr/bin/chromium', args: ['--no-sandbox']}
 					: undefined
 			}
 		}
-		, {name: 'firefox',use: {browserName: 'firefox'}}
-		, {name: 'webkit',use: {browserName: 'webkit'}}
+		, {name: 'firefox', use: {browserName: 'firefox'}}
+		, {name: 'webkit', use: {browserName: 'webkit'}}
 	]
-	, webServer: {command: 'node test/server.mjs',port: 9120,reuseExistingServer: !process.env.CI}
+	, webServer: {command: 'node test/server.mjs', port: 9120, reuseExistingServer: !process.env.CI}
 });

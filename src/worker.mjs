@@ -14,7 +14,10 @@ self.onmessage = async ({data}) => {
 			engine = new DebugEngine(event => postMessage({event}));
 			value = await engine.open(...args);
 		}
-		else value = await engine.invoke(method, args);
+		else
+		{
+			value = await engine.invoke(method, args);
+		}
 
 		postMessage({id, value});
 	}

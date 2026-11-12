@@ -11,7 +11,10 @@ test(
 			fetch: async () => {
 				requests++;
 
-				if(requests === 1) throw Error('offline');
+				if(requests === 1)
+				{
+					throw Error('offline');
+				}
 
 				await new Promise(resolve => setTimeout(resolve, 5));
 
@@ -73,8 +76,8 @@ test('source paths and breakpoints have unambiguous command boundaries', async (
 		normalizeBreakpoints(
 			[3, 3, {file: '/other.php', line: 4, enabled: false}]
 			, '/main.php'
-		).map(b => [b.file,b.line,b.enabled])
-		, [['/main.php',3,true],['/other.php',4,false]]
+		).map(b => [b.file, b.line, b.enabled])
+		, [['/main.php', 3, true], ['/other.php', 4, false]]
 	);
 
 	assert.throws(() => normalizeBreakpoints([0], '/main.php'));
@@ -92,16 +95,19 @@ test('controller import and construction are DOM-free and do not load a runtime'
 
 test('verified identical binaries share compilation and downloads across loader URLs', async() => {
 	const {AssetRegistry} = await import('../src/assets.mjs');
-	const bytes = new Uint8Array([0,97,115,109,1,0,0,0]);
+	const bytes = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]);
 
 	const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(
 		b => b.toString(16).padStart(2, '0')
 	).join('');
 
 	let fetched = 0;
-	const registry = new AssetRegistry({fetch: async() => {fetched++;return new Response(bytes);}});
 
-	const [worker,main] = await Promise.all(
+	const registry = new AssetRegistry(
+		{fetch: async() => {fetched++; return new Response(bytes);}}
+	);
+
+	const [worker, main] = await Promise.all(
 		[registry.module('https://example.test/worker.wasm', hash)
 			, registry.module('https://example.test/web.wasm', hash)
 		]
@@ -123,7 +129,10 @@ test(
 		engine.php = {
 
 			async switchFrame(frame) {
-				if(frame >= stack.length) return -1;
+				if(frame >= stack.length)
+				{
+					return -1;
+				}
 
 				const previous = selected;
 				selected = frame;
@@ -182,7 +191,11 @@ test('downloads report progress and still deliver every byte', async () => {
 		{
 
 			start(controller) {
-				for(const part of parts) controller.enqueue(part);
+				for(const part of parts)
+				{
+					controller.enqueue(part);
+				}
+
 				controller.close();
 			}
 		}
@@ -245,7 +258,8 @@ test(
 
 		engine.paused = true;
 		engine.dbgApi = 2;
-		const list = {0: 'a', 1: 'b'}, item = {label: 'x', ratio: 2};
+		const list = {0: 'a', 1: 'b'};
+		const item = {label: 'x', ratio: 2};
 
 		const scalar = value => ({
 			type: typeof value === 'string' ? 'string' : Number.isInteger(value) ? 'int' : 'float'
@@ -474,7 +488,10 @@ test(
 			assert.equal(fetched.length, 1, 'the binary is downloaded once');
 
 			for(const progress of seen)
-			assert.deepEqual(progress.at(-1), {loaded: bytes.length, total: bytes.length});
+			{
+				assert.deepEqual(progress.at(-1), {loaded: bytes.length, total: bytes.length});
+			}
+
 			assert.equal(registry.moduleSource(new URL('php.wasm', bases[1]), sha256), fetched[0]);
 		}
 		finally

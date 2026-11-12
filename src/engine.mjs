@@ -73,7 +73,8 @@ export class DebugEngine
 					this.exception = event;
 					this.diagnostics.push(event);
 					this.emit({...event, type: 'diagnostic'});
-				}}
+				}
+			}
 
 			, onAbort: reason => failed.reject(new Error(String(reason)))
 		};
@@ -83,10 +84,11 @@ export class DebugEngine
 
 		if(typeof this.binary._php_wasm_dbg_bridge_version !== 'function'
 		|| this.binary.ccall('php_wasm_dbg_bridge_version', 'number', [], []) !== 1
-		)
-		throw new Error(
-			'This php-dbg-wasm build lacks debugger bridge v1. Rebuild its native worker/web artifacts.'
-		);
+		){
+			throw new Error(
+				'This php-dbg-wasm build lacks debugger bridge v1. Rebuild its native worker/web artifacts.'
+			);
+		}
 
 		// API 2 runtimes report PHP types, frame names and user globals themselves; older ones need
 		// the fallbacks below.
@@ -102,7 +104,11 @@ export class DebugEngine
 				() => {
 					this.sequence++;
 
-					for(const waiter of this.waiters) waiter.resolve();
+					for(const waiter of this.waiters)
+					{
+						waiter.resolve();
+					}
+
 					this.waiters.clear();
 				}
 				, 0
@@ -112,7 +118,10 @@ export class DebugEngine
 		const prompt = this.waitPrompt();
 
 		this.process = this.php.run().catch(error => {
-			if(typeof error?.status === 'number') return error.status;
+			if(typeof error?.status === 'number')
+			{
+				return error.status;
+			}
 
 			throw error;
 		});
@@ -144,10 +153,12 @@ export class DebugEngine
 		let stream = this.decoders.get(key);
 
 		if(!stream)
-		this.decoders.set(key, stream = {
-			decoder: new TextDecoder()
-			, event: kind ? {channel, kind} : {channel}
-		});
+		{
+			this.decoders.set(key, stream = {
+				decoder: new TextDecoder()
+				, event: kind ? {channel, kind} : {channel}
+			});
+		}
 
 		const text = stream.decoder.decode(bytes, {stream: true});
 
@@ -156,12 +167,18 @@ export class DebugEngine
 			const diagnostic = {message: text, phase: evaluating ? 'evaluation' : 'execution'};
 			this.commandErrors?.push(diagnostic);
 
-			if(!evaluating) this.diagnostics.push(diagnostic);
+			if(!evaluating)
+			{
+				this.diagnostics.push(diagnostic);
+			}
 
 			this.emit({type: 'diagnostic', ...diagnostic});
 		}
 
-		if(text) this.emit({type: 'output', ...stream.event, text});
+		if(text)
+		{
+			this.emit({type: 'output', ...stream.event, text});
+		}
 	}
 
 	writeFile(path, content)
@@ -172,11 +189,17 @@ export class DebugEngine
 
 		for(const part of parts)
 		{
-			if(!part) continue;
+			if(!part)
+			{
+				continue;
+			}
 
 			dir += '/' + part;
 
-			if(!this.binary.FS.analyzePath(dir).exists) this.binary.FS.mkdir(dir);
+			if(!this.binary.FS.analyzePath(dir).exists)
+			{
+				this.binary.FS.mkdir(dir);
+			}
 		}
 
 		this.binary.FS.writeFile(path, content);
@@ -186,7 +209,10 @@ export class DebugEngine
 
 	async command(line)
 	{
-		if(this.closed) throw new Error('Debugger is closed');
+		if(this.closed)
+		{
+			throw new Error('Debugger is closed');
+		}
 
 		const prompt = this.waitPrompt();
 		await this.php.provideInput(line);
@@ -201,13 +227,18 @@ export class DebugEngine
 		this.exception = null;
 
 		for(const [path, content] of Object.entries(config.files || {}))
-		this.writeFile(normalizePath(path), content);
+		{
+			this.writeFile(normalizePath(path), content);
+		}
+
 		this.writeFile(config.entrypoint, config.code);
 		this.php.inputString(config.stdin || '');
 		await this.command(`exec ${config.entrypoint}`);
 
 		if(!this.binary.ccall('php_wasm_dbg_has_context', 'number', [], []))
-		return this.finish(255);
+		{
+			return this.finish(255);
+		}
 
 		await this.breakpoints(config.breakpoints);
 
@@ -220,9 +251,14 @@ export class DebugEngine
 		await this.command('clear');
 
 		if(this.config?.mode !== 'test')
-		for(const bp of breakpoints)
 		{
-			if(bp.enabled) await this.command(`break ${bp.file}:${bp.line}`);
+			for(const bp of breakpoints)
+			{
+				if(bp.enabled)
+				{
+					await this.command(`break ${bp.file}:${bp.line}`);
+				}
+			}
 		}
 	}
 
@@ -230,7 +266,10 @@ export class DebugEngine
 
 	async resume(command = 'continue')
 	{
-		if(command !== 'run' && !this.paused) throw new Error('The debugger is not paused');
+		if(command !== 'run' && !this.paused)
+		{
+			throw new Error('The debugger is not paused');
+		}
 
 		this.paused = false;
 		this.frame = 0;
@@ -273,7 +312,10 @@ export class DebugEngine
 
 	async finish(compilationExitCode)
 	{
-		if(this.closed) return;
+		if(this.closed)
+		{
+			return;
+		}
 
 		await this.php.provideInput('quit');
 		const exitCode = await this.process;
@@ -286,7 +328,10 @@ export class DebugEngine
 		{
 			const text = decoder.decode();
 
-			if(text) this.emit({type: 'output', ...event, text});
+			if(text)
+			{
+				this.emit({type: 'output', ...event, text});
+			}
 		}
 
 		this.emit(
@@ -300,7 +345,10 @@ export class DebugEngine
 
 	pause()
 	{
-		if(this.closed) throw new Error('Debugger is closed');
+		if(this.closed)
+		{
+			throw new Error('Debugger is closed');
+		}
 
 		this.pauseRequested = true;
 		this.binary.dbgPauseRequested = true;
@@ -308,7 +356,10 @@ export class DebugEngine
 
 	async stop()
 	{
-		if(this.closed) return;
+		if(this.closed)
+		{
+			return;
+		}
 
 		if(!this.process)
 		{
@@ -334,7 +385,10 @@ export class DebugEngine
 
 	assertPaused()
 	{
-		if(!this.paused || this.closed) throw new Error('Inspection requires paused execution');
+		if(!this.paused || this.closed)
+		{
+			throw new Error('Inspection requires paused execution');
+		}
 	}
 
 	async selectFrame(frame)
@@ -342,7 +396,9 @@ export class DebugEngine
 		this.assertPaused();
 
 		if(!Number.isInteger(frame) || frame < 0 || await this.php.switchFrame(frame) < 0)
-		throw new RangeError('Invalid frame');
+		{
+			throw new RangeError('Invalid frame');
+		}
 
 		this.frame = frame;
 
@@ -351,13 +407,19 @@ export class DebugEngine
 
 	async frames()
 	{
-		if(this.dbgApi >= 2) return this.php.dumpBacktrace();
+		if(this.dbgApi >= 2)
+		{
+			return this.php.dumpBacktrace();
+		}
 
 		// An older runtime lists frames starting at the selected one; list from the top so indexes
 		// match selectFrame().
 		const selected = this.frame;
 
-		if(selected) await this.php.switchFrame(0);
+		if(selected)
+		{
+			await this.php.switchFrame(0);
+		}
 
 		try
 		{
@@ -368,15 +430,24 @@ export class DebugEngine
 		}
 		finally
 		{
-			if(selected) await this.php.switchFrame(selected);
+			if(selected)
+			{
+				await this.php.switchFrame(selected);
+			}
 		}
 	}
 
 	type(value)
 	{
-		if(value === null) return 'null';
+		if(value === null)
+		{
+			return 'null';
+		}
 
-		if(typeof value !== 'object') return typeof value;
+		if(typeof value !== 'object')
+		{
+			return typeof value;
+		}
 
 		const symbol = Object.getOwnPropertySymbols(value).find(s => s.description === 'origZval');
 
@@ -384,7 +455,10 @@ export class DebugEngine
 		{
 			const type = this.binary.getValue(value[symbol] + 8, 'i32') & 255;
 
-			if(type === 7) return 'array';
+			if(type === 7)
+			{
+				return 'array';
+			}
 		}
 
 		return Array.isArray(value) ? 'array' : 'object';
@@ -392,7 +466,10 @@ export class DebugEngine
 
 	identity(value)
 	{
-		if(!value || typeof value !== 'object') return null;
+		if(!value || typeof value !== 'object')
+		{
+			return null;
+		}
 
 		const symbol = Object.getOwnPropertySymbols(value).find(s => s.description === 'origZval');
 
@@ -401,14 +478,26 @@ export class DebugEngine
 
 	display({type, className, count}, value)
 	{
-		if(type === 'array') return `array(${count})`;
+		if(type === 'array')
+		{
+			return `array(${count})`;
+		}
 
-		if(type === 'object') return className ? phpClassLabel(className) : 'object';
+		if(type === 'object')
+		{
+			return className ? phpClassLabel(className) : 'object';
+		}
 
-		if(type === 'string') return JSON.stringify(value);
+		if(type === 'string')
+		{
+			return JSON.stringify(value);
+		}
 
 		// PHP prints 3.0 as 3; keep the float visible.
-		if(type === 'float' && Number.isInteger(value)) return value.toFixed(1);
+		if(type === 'float' && Number.isInteger(value))
+		{
+			return value.toFixed(1);
+		}
 
 		return type === 'null' ? 'null' : String(value);
 	}
@@ -437,7 +526,7 @@ export class DebugEngine
 
 		this.references.set(
 			reference
-			, {name, value, expression, writable, frame, ancestors: [...ancestors,identity], type}
+			, {name, value, expression, writable, frame, ancestors: [...ancestors, identity], type}
 		);
 
 		return {
@@ -465,7 +554,10 @@ export class DebugEngine
 	{
 		this.assertPaused();
 
-		if(options.frame !== undefined) await this.selectFrame(options.frame);
+		if(options.frame !== undefined)
+		{
+			await this.selectFrame(options.frame);
+		}
 
 		const methods = {
 			variables: 'dumpVars'
@@ -477,9 +569,12 @@ export class DebugEngine
 			, frames: 'dumpBacktrace'
 		};
 
-		if(!methods[scope]) throw new TypeError(`Unknown inspection scope: ${scope}`);
+		if(!methods[scope])
+		{
+			throw new TypeError(`Unknown inspection scope: ${scope}`);
+		}
 
-		if(this.dbgApi >= 2 && ['variables','globals','constants'].includes(scope))
+		if(this.dbgApi >= 2 && ['variables', 'globals', 'constants'].includes(scope))
 		{
 			const symbols = await (scope === 'variables'
 				? this.php.describeVars()
@@ -512,12 +607,18 @@ export class DebugEngine
 			values = this.references.get(globals.reference).value;
 		}
 
-		if(scope === 'files') return [...new Set([this.config.entrypoint, ...values])];
+		if(scope === 'files')
+		{
+			return [...new Set([this.config.entrypoint, ...values])];
+		}
 
-		if(['functions','classes','frames'].includes(scope)) return values;
+		if(['functions', 'classes', 'frames'].includes(scope))
+		{
+			return values;
+		}
 
 		return Object.entries(values).map(
-			([name,value]) => this.describe(
+			([name, value]) => this.describe(
 				name
 				, value
 				, this.symbolExpression(scope, name)
@@ -531,12 +632,16 @@ export class DebugEngine
 		this.assertPaused();
 		const parent = this.references.get(reference);
 
-		if(!parent) throw new Error('Stale variable reference');
+		if(!parent)
+		{
+			throw new Error('Stale variable reference');
+		}
 
 		if(!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1
 		|| limit > 1000
-		)
-		throw new RangeError('Invalid inspection page');
+		){
+			throw new RangeError('Invalid inspection page');
+		}
 
 		const type = parent.type;
 		// Object.keys() gives an object's public properties. Its own keys also include the private
@@ -551,7 +656,8 @@ export class DebugEngine
 		for(const key of names.slice(offset, offset + limit))
 		{
 			// Only a property name is mangled. An array key is shown whole, NUL bytes included.
-			const parts = type === 'object' ? key.split('\0') : [key], name = parts.pop();
+			const parts = type === 'object' ? key.split('\0') : [key];
+			const name = parts.pop();
 			const visibility = type !== 'object'
 				? undefined
 				: parts.length < 2 ? 'public' : parts[1] === '*' ? 'protected' : 'private';
@@ -606,7 +712,9 @@ export class DebugEngine
 		this.assertPaused();
 
 		if(typeof expression !== 'string' || !expression.trim())
-		throw new TypeError('Enter a PHP expression');
+		{
+			throw new TypeError('Enter a PHP expression');
+		}
 
 		const previous = this.frame;
 		await this.selectFrame(frame);
@@ -629,10 +737,12 @@ export class DebugEngine
 			);
 
 			if(!this.captured)
-			throw new Error(
-				this.commandErrors.map(d => d.message).join('\n')
+			{
+				throw new Error(
+					this.commandErrors.map(d => d.message).join('\n')
 					|| 'PHP expression evaluation failed'
-			);
+				);
+			}
 
 			const info = boxed ? await this.php.describeChild(this.captured.value, '0') : null;
 
@@ -658,9 +768,15 @@ export class DebugEngine
 		this.assertPaused();
 		const variable = this.references.get(reference);
 
-		if(!variable) throw new Error('Stale variable reference');
+		if(!variable)
+		{
+			throw new Error('Stale variable reference');
+		}
 
-		if(!variable.expression || !variable.writable) throw new Error('This value is read-only');
+		if(!variable.expression || !variable.writable)
+		{
+			throw new Error('This value is read-only');
+		}
 
 		const evaluated = await this.evaluate(
 			`${variable.expression} = (${expression})`
@@ -694,14 +810,19 @@ export class DebugEngine
 			, 'stop'
 			, 'inspect'
 			, 'children'
-			, 'selectFrame','evaluate','setVariable'
+			, 'selectFrame', 'evaluate', 'setVariable'
 		];
 
 		if(!allowed.includes(method))
-		return Promise.reject(new Error('Unknown debugger operation'));
+		{
+			return Promise.reject(new Error('Unknown debugger operation'));
+		}
 
 		// Pause/stop must be able to arrive while an execution command is waiting.
-		if(method === 'pause' || method === 'stop') return Promise.resolve(this[method](...args));
+		if(method === 'pause' || method === 'stop')
+		{
+			return Promise.resolve(this[method](...args));
+		}
 
 		const task = this.serial.then(() => this[method](...args));
 		this.serial = task.catch(() => {});

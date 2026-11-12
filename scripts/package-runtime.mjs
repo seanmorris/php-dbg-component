@@ -4,20 +4,21 @@ import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {stageRuntime} from './runtime-assets.mjs';
 
-const root = path.resolve(process.env.PHP_WASM_ROOT||'/app');
+const root = path.resolve(process.env.PHP_WASM_ROOT || '/app');
 
 const output = path.resolve('runtime-bundle');
 
 if(execFileSync(
 	'git'
-	, ['status','--porcelain','--untracked-files=no']
-	, {cwd: root,encoding: 'utf8'}
-).trim())
-throw Error('Commit tracked runtime changes before creating a provenance-pinned bundle');
+	, ['status', '--porcelain', '--untracked-files=no']
+	, {cwd: root, encoding: 'utf8'}
+).trim()){
+	throw Error('Commit tracked runtime changes before creating a provenance-pinned bundle');
+}
 
-const versions = (process.env.DOCS_PHP_VERSIONS||'8.0,8.1,8.2,8.3,8.4,8.5').split(',');
-await fs.rm(output, {recursive: true,force: true});await stageRuntime(root, output, versions);
-const source = execFileSync('git', ['rev-parse','HEAD'], {cwd: root,encoding: 'utf8'}).trim();
+const versions = (process.env.DOCS_PHP_VERSIONS || '8.0,8.1,8.2,8.3,8.4,8.5').split(',');
+await fs.rm(output, {recursive: true, force: true}); await stageRuntime(root, output, versions);
+const source = execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim();
 
 await fs.writeFile(
 	path.join(output, 'build.json')
@@ -34,7 +35,7 @@ await fs.writeFile(
 	) + '\n'
 );
 
-execFileSync('tar', ['-czf','runtime-bundle.tar.gz','-C',output,'.']);
+execFileSync('tar', ['-czf', 'runtime-bundle.tar.gz', '-C', output, '.']);
 
 console.log(
 	JSON.stringify(

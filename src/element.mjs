@@ -3,7 +3,10 @@ import {PhpDebugger} from './index.mjs';
 /** Registration is explicit, so importing this module has no DOM side effects. */
 export function definePhpDebugger(name = 'php-debugger', registry = customElements)
 {
-	if(registry.get(name)) return registry.get(name);
+	if(registry.get(name))
+	{
+		return registry.get(name);
+	}
 
 	class PhpDebuggerElement extends HTMLElement
 	{
@@ -11,7 +14,10 @@ export function definePhpDebugger(name = 'php-debugger', registry = customElemen
 
 		connectedCallback()
 		{
-			if(this.debugger) return;
+			if(this.debugger)
+			{
+				return;
+			}
 
 			const sourceSelector = this.getAttribute('source');
 			const source = this.source || this.options?.source || (sourceSelector
@@ -35,16 +41,28 @@ export function definePhpDebugger(name = 'php-debugger', registry = customElemen
 			}
 
 			if(this.hasAttribute('breakpoints'))
-			options.breakpoints = JSON.parse(this.getAttribute('breakpoints'));
+			{
+				options.breakpoints = JSON.parse(this.getAttribute('breakpoints'));
+			}
 
 			if(this.hasAttribute('extensions'))
-			options.extensions = this.getAttribute('extensions').split(/[\s,]+/).filter(Boolean);
+			{
+				options.extensions = this.getAttribute('extensions').split(/[\s,]+/).filter(
+					Boolean
+				);
+			}
 
 			const expectation = this.querySelector('script[type="application/json"][data-expect]');
 
-			if(expectation) options.expect = JSON.parse(expectation.textContent);
+			if(expectation)
+			{
+				options.expect = JSON.parse(expectation.textContent);
+			}
 
-			if(this.expect !== undefined) options.expect = this.expect;
+			if(this.expect !== undefined)
+			{
+				options.expect = this.expect;
+			}
 
 			this.debugger = new PhpDebugger(options);
 			this.forwarding = new AbortController();
@@ -55,21 +73,28 @@ export function definePhpDebugger(name = 'php-debugger', registry = customElemen
 				, 'complete'
 				, 'testresult'
 				, 'variablechange'
-				, 'breakpointchange','locationchange','diagnostic','progress'
-			])
-			this.debugger.addEventListener(
-				name
-				, event => this.dispatchEvent(
-					new CustomEvent(`phpdbg-${name}`, {detail: event.detail,bubbles: true})
-				)
-				, {signal: this.forwarding.signal}
-			);
+				, 'breakpointchange', 'locationchange', 'diagnostic', 'progress'
+			]){
+				this.debugger.addEventListener(
+					name
+					, event => this.dispatchEvent(
+						new CustomEvent(`phpdbg-${name}`, {detail: event.detail, bubbles: true})
+					)
+					, {signal: this.forwarding.signal}
+				);
+			}
+
 			this.debugger.mount(this);
 
 			if(this.hasAttribute('autorun'))
-			queueMicrotask(() => {
-				if(this.isConnected)void this.run({mode: this.getAttribute('mode') || 'debug'});
-			});
+			{
+				queueMicrotask(() => {
+					if(this.isConnected)
+					{
+						void this.run({mode: this.getAttribute('mode') || 'debug'});
+					}
+				});
+			}
 		}
 
 		disconnectedCallback()
@@ -82,21 +107,26 @@ export function definePhpDebugger(name = 'php-debugger', registry = customElemen
 						this.forwarding?.abort();
 						void this.debugger?.destroy();
 						this.debugger = null;
-					}}
+					}
+				}
 			);
 		}
 
 		attributeChangedCallback(name, old, value)
 		{
-			if(name==='version' && old!==value && this.debugger)
-void this.debugger.setVersion(value).catch(
-	error => this.dispatchEvent(new CustomEvent('phpdbg-error', {detail: error,bubbles: true}))
-);
+			if(name === 'version' && old !== value && this.debugger)
+			{
+				void this.debugger.setVersion(value).catch(
+					error => this.dispatchEvent(
+						new CustomEvent('phpdbg-error', {detail: error, bubbles: true})
+					)
+				);
+			}
 		}
 
 		get code() {return this._code;}
 
-		set code(value) {this._code = value;this.debugger?.setCode(value);}
+		set code(value) {this._code = value; this.debugger?.setCode(value);}
 
 		get state() {return this.debugger?.state || 'idle';}
 
