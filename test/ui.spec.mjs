@@ -195,11 +195,13 @@ test('GUI edits a live value and exposes symbols, globals, constants and frames'
 	const frames = page.locator('.php-debugger-symbol');
 	await expect(frames).toHaveCount(2);
 	await expect(frames.nth(0)).toHaveAttribute('aria-current', 'true');
+
 	await frames.nth(1).click();
 	await expect(frames.nth(1)).toHaveAttribute('aria-current', 'true');
 	await expect(frames).toHaveCount(2);
 	await expect(frames.nth(0)).toHaveText(/^Frame 0( · example\(\))? — \/main\.php:7$/);
 	await expect(frames.nth(0)).not.toHaveAttribute('aria-current', 'true');
+
 	await expect(page.locator('.php-debugger-line[data-active=true]')).toHaveText('9');
 	await page.getByRole('button', {name: 'Continue',exact: true}).click();
 	await expect(page.getByRole('status')).toHaveText('completed');

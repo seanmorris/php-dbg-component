@@ -25,25 +25,27 @@ export class DebuggerView
 		this.refreshNumber = 0;
 		this.watches = [];
 		const dbg = this.dbg;
+
 		this.root = node('section', 'php-debugger');
 		this.root.setAttribute('aria-label', 'PHP debugger');
 		host.append(this.root);
+
 		this.toolbar = node('div', 'php-debugger-toolbar');
 		this.root.append(this.toolbar);
 		this.buttons = new Map();
-		const controls = [['Run',() => dbg.run()]
-			, ['Continue',() => dbg.continue()]
-			, ['Pause',() => dbg.pause()]
-			, ['Stop',() => dbg.stop()]
-			, ['Restart',() => dbg.restart()]
-			, ['Step into',() => dbg.stepInto(
-			)]
-			, ['Step over',() => dbg.stepOver()],['Step out',() => dbg.stepOut()]
-			, ['Until'
-				, () =>
-					dbg.until()
-			]
-			, ['Leave',() => dbg.leave()]
+
+		const controls = [
+			['Run', () => dbg.run()]
+			, ['Continue', () => dbg.continue()]
+			, ['Pause', () => dbg.pause()]
+			, ['Stop', () => dbg.stop()]
+			, ['Restart', () => dbg.restart()]
+
+			, ['Step into', () => dbg.stepInto()]
+			, ['Step over', () => dbg.stepOver()]
+			, ['Step out', () => dbg.stepOut()]
+			, ['Until', () => dbg.until()]
+			, ['Leave', () => dbg.leave()]
 		];
 
 		for(const [label,action] of controls)
@@ -133,14 +135,17 @@ export class DebuggerView
 		this.breakpointList = node('ul', 'php-debugger-breakpoint-list');
 		this.breakpoints.append(lineInput, add, this.breakpointList);
 		this.root.append(this.breakpoints);
+
 		const body = node('div', 'php-debugger-body');
 		this.root.append(body);
 		const output = node('div', 'php-debugger-console-panel');
 		body.append(output);
+
 		const log = node('label', 'php-debugger-log-toggle');
 		this.debugLog = node('input');
 		this.debugLog.type = 'checkbox';
 		log.append(this.debugLog, ' Debugger log');
+
 		this.console = node('pre', 'php-debugger-console');
 		this.console.setAttribute('aria-label', 'PHP and debugger output');
 		this.console.tabIndex = 0;
@@ -188,14 +193,17 @@ export class DebuggerView
 
 		this.content = node('div', 'php-debugger-values');
 		right.append(this.content);
+
 		const form = node('form', 'php-debugger-expression-form');
 		this.expression = node('input', 'php-debugger-expression');
 		this.expression.setAttribute('aria-label', 'PHP expression');
 		this.expression.placeholder = 'PHP expression';
+
 		const evaluate = node('button', 'php-debugger-button', 'Evaluate');
 		evaluate.type = 'submit';
 		const watch = node('button', 'php-debugger-button', 'Watch');
 		watch.type = 'button';
+
 		form.append(this.expression, evaluate, watch);
 		this.root.append(form);
 
@@ -237,9 +245,11 @@ export class DebuggerView
 		on('testresult', () => this.update());
 		on('output', event => this.appendOutput(event));
 		on('progress', progress => this.showProgress(progress));
+
 		on('pause', () => void this.refresh());
 		on('framechange', () => void this.refresh());
 		on('variablechange', () => void this.refresh());
+
 		on('breakpointchange', () => this.gutterUpdate());
 		on('locationchange', location => this.showLocation(location));
 		on('sourcechange', () => this.gutterUpdate());

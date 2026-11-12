@@ -143,6 +143,7 @@ const server = http.createServer(async(req, res) => {
 
 		const bytes = await fs.readFile(filename);
 		counts.set(url.pathname, (counts.get(url.pathname)||0)+1);
+
 		res.setHeader('Content-Type', types[path.extname(filename)]||'application/octet-stream');
 		res.setHeader('Cache-Control', 'no-store');
 		res.end(bytes);

@@ -9,12 +9,15 @@ export class DebugEngine
 		this.emit = emit;
 		this.sequence = 0;
 		this.waiters = new Set();
+
 		this.references = new Map();
 		this.epoch = 0;
 		this.nextReference = 0;
 		this.frame = 0;
+
 		this.paused = false;
 		this.closed = false;
+
 		this.sessionId = crypto.randomUUID();
 		this.serial = Promise.resolve();
 		this.decoders = new Map();
@@ -62,6 +65,7 @@ export class DebugEngine
 			, dynamicLibs: assets.dynamicLibs
 			, files: assets.files
 			, locateFile: name => assets.libraryUrls[name]
+
 			, onDbgOutput: event => this.output(event)
 			, onDbgEvent: event => {
 				if(event.type === 'exception')
@@ -70,6 +74,7 @@ export class DebugEngine
 					this.diagnostics.push(event);
 					this.emit({...event, type: 'diagnostic'});
 				}}
+
 			, onAbort: reason => failed.reject(new Error(String(reason)))
 		};
 

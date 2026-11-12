@@ -98,6 +98,7 @@ value = effect.value===null
 		, setCode: code => view.dispatch(
 			{changes: {from: 0,to: view.state.doc.length,insert: code}}
 		)
+
 		, setReadOnly: value => view.dispatch(
 			{
 				effects: readOnlyCompartment.reconfigure(

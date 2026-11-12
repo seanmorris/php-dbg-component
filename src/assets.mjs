@@ -304,12 +304,14 @@ export async function prepareAssets(options)
 					new URL(options.libraryUrls?.[name] || url, sourceBase)
 				);
 			})
+
 			, ...files.map(async (file, index) => {
 				assets.files[index] = {
 					...file
 					, url: await registry.objectUrl(new URL(file.url, sourceBase))
 				};
 			})
+
 			, ...(manifest.data || []).map(
 				async name => {assets.data[name] = await registry.bytes(new URL(name, base));}
 			)

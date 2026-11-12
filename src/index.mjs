@@ -220,14 +220,17 @@ export class PhpDebugger extends EventTarget
 
 		const files = structuredClone(options.files ?? this.options.files ?? {});
 		const wait = deferred();
+
 		const active = this.active = {
 			id: ++this.runNumber
 			, wait
 			, started: performance.now()
 			, runningMs: 0
 			, timeoutMs
+
 			, stdout: ''
 			, stderr: ''
+
 			, version: this.options.version
 			, expectations: options.expect ?? this.options.expect
 			, assertion: options.assert ?? this.options.assert
@@ -340,17 +343,20 @@ void this.finish('error', {error: event.error}); else
 		clearTimeout(active.timer);
 		clearTimeout(active.loadTimer);
 		active.signal?.removeEventListener('abort', active.abort);
+
 		const result = {
 			runId: active.id
 			, version: active.version
 			, status
 			, exitCode: details.exitCode ?? null
+
 			, stdout: active.stdout
 			, stderr: active.stderr
 			, diagnostics: details.diagnostics || (details.error
 				? [errorRecord(details.error)]
 				: []
 			)
+
 			, durationMs: performance.now()-active.started
 		};
 
