@@ -31,6 +31,7 @@
     "test": "node --test test/*.test.mjs",
     "test:browser": "playwright test",
     "test:types": "tsc --noEmit --strict --module nodenext --target es2022 --lib es2022,dom test/types.mts",
+    "lint": "eslint .",
     "start": "node test/server.mjs",
     "build:docs": "node scripts/build-docs.mjs",
     "setup:runtime": "node scripts/download-runtime.mjs"
@@ -52,12 +53,14 @@
     }
   },
   "devDependencies": {
-    "@playwright/test": "^1.55.0",
     "@codemirror/state": "^6.0.0",
     "@codemirror/view": "^6.0.0",
-    "codemirror": "^5.65.0",
+    "@playwright/test": "^1.55.0",
     "ace-builds": "^1.43.0",
+    "codemirror": "^5.65.0",
     "esbuild": "^0.25.0",
+    "eslint": "^10.14.0",
+    "sm-no-saccade-style": "^0.2.2",
     "typescript": "^5.9.0"
   }
 }

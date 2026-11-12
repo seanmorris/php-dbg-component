@@ -195,6 +195,7 @@ npm ci
 npm run setup:runtime
 npm test
 npm run test:types
+npm run lint
 RUNTIME_BUNDLE=./runtime-bundle npm run build:docs
 PHP_VERSION=8.4 npm run test:browser
 npm start
