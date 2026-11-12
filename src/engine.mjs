@@ -223,8 +223,9 @@ export class DebugEngine {
     for(const name of names.slice(offset, offset + limit)) {
       const expression = !parent.expression ? null : type === 'array' ? `${parent.expression}[${phpString(name)}]` : `${parent.expression}->{${phpString(name.split('\0').pop())}}`;
       try {
-        const child = parent.value[name];
-        values.push(this.describe(name, child, expression, parent.writable, parent.frame, parent.ancestors, this.dbgApi >= 2 ? await this.php.describeValue(child) : null));
+        // Asking by key keeps the child's own PHP type; a float of 3.0 is just the number 3 once converted.
+        const info = this.dbgApi >= 2 ? await this.php.describeChild(parent.value, name) : null;
+        values.push(this.describe(name, info ? info.value : parent.value[name], expression, parent.writable, parent.frame, parent.ancestors, info));
       } catch(error) {values.push({name,type:'unavailable',displayValue:error.message,writable:false,expandable:false});}
     }
     return {values, total:names.length, offset};

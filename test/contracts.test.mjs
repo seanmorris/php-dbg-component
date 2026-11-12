@@ -121,7 +121,7 @@ test('engine uses the runtime\'s own types, frame names and globals when it prov
       {name:'item', type:'object', className:'App\\Item', count:null, reference:false, value:item}];},
     async describeGlobals(options) {calls.push(['globals', options]); return [{name:'config', type:'string', className:null, count:2, reference:false, value:'on'}];},
     async describeConstants() {return [{name:'LIMIT', type:'int', className:null, count:null, reference:false, value:9}];},
-    async describeValue(value) {return scalar(value);},
+    async describeChild(parent, key) {return key === 'ratio' ? {...scalar(parent[key]), type:'float'} : scalar(parent[key]);},
     async dumpBacktrace() {calls.push('frames'); return [{filename:'/main.php', lineNo:7, frame:0, selected:true, functionName:'inner', className:''}];},
     async switchFrame() {throw new Error('an API 2 runtime lists frames without switching');},
   };
@@ -135,7 +135,7 @@ test('engine uses the runtime\'s own types, frame names and globals when it prov
   assert.deepEqual(calls.find(call => call[0] === 'globals')[1], {user:true});
   assert.equal((await engine.inspect('constants'))[0].writable, false);
   const properties = await engine.children(locals[4].reference);
-  assert.deepEqual(properties.values.map(v => [v.name, v.type, v.displayValue]), [['label', 'string', '"x"'], ['ratio', 'int', '2']]);
+  assert.deepEqual(properties.values.map(v => [v.name, v.type, v.displayValue]), [['label', 'string', '"x"'], ['ratio', 'float', '2.0']]);
   assert.deepEqual((await engine.inspect('frames'))[0].functionName, 'inner');
 });
 
