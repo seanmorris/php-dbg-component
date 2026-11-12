@@ -59,15 +59,20 @@ export function phpString(value)
 /**
  * Splits an object's property key, as PHP stores it, into the name and its
  * visibility. A private property is stored as a NUL byte, the declaring class,
- * a NUL byte, then the name; a protected one has "*" for the class. Only a key
- * that starts with a NUL byte is mangled: PHP refuses a property name that
- * starts with one, but a public name may hold NUL bytes after its first character.
+ * a NUL byte, then the name; a protected one has "*" for the class.
+ *
+ * Only a key that starts with a NUL byte is mangled: PHP refuses a property
+ * name that starts with one, but a public, dynamic name may hold NUL bytes
+ * after its first character. In a mangled key the name is what follows the
+ * last NUL byte. A private or protected property is always a declared one, so
+ * its name is an identifier, while the class in front of it may be an
+ * anonymous class, whose own name contains a NUL byte.
  */
 export function phpPropertyName(key)
 {
-	const end = key.startsWith('\0') ? key.indexOf('\0', 1) : -1;
+	const end = key.startsWith('\0') ? key.lastIndexOf('\0') : 0;
 
-	if(end < 0)
+	if(end < 1)
 	{
 		return {name: key, visibility: 'public'};
 	}
