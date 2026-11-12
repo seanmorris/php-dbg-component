@@ -239,9 +239,13 @@ export class DebugEngine {
     try {
       // A file avoids phpdbg's line-length limit and preserves multiline expressions.
       this.writeFile('/.php-debugger/eval.php', `return (${expression});`);
-      await this.command("ev vrzno_shared('__phpDebugger')->capture(eval(file_get_contents('/.php-debugger/eval.php')))");
+      // Handed over directly, a float of 3.0 arrives as the number 3 and its PHP type is gone. Inside an array it
+      // stays a PHP value, and the runtime can describe that element as it describes any other child.
+      const boxed = this.dbgApi >= 2;
+      await this.command(`ev vrzno_shared('__phpDebugger')->capture(${boxed ? '[' : ''}eval(file_get_contents('/.php-debugger/eval.php'))${boxed ? ']' : ''})`);
       if(!this.captured) throw new Error(this.commandErrors.map(d => d.message).join('\n') || 'PHP expression evaluation failed');
-      return this.describe(expression, this.captured.value, expression, true, this.frame, [], this.dbgApi >= 2 ? await this.php.describeValue(this.captured.value) : null);
+      const info = boxed ? await this.php.describeChild(this.captured.value, '0') : null;
+      return this.describe(expression, info ? info.value : this.captured.value, expression, true, this.frame, [], info);
     } finally {this.commandErrors = null; await this.selectFrame(previous);}
   }
   async setVariable(reference, expression) {

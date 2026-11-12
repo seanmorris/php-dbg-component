@@ -21,7 +21,7 @@ async function readBody(response, report) {
 /** Immutable, shared downloads. Callers receive copies, never the cached buffer. */
 export class AssetRegistry {
   constructor({fetch: fetcher = (...args) => globalThis.fetch(...args)} = {}) {
-    this.fetch = fetcher; this.downloads = new Map(); this.modules = new Map(); this.urls = new Map(); this.listeners = new Set();
+    this.fetch = fetcher; this.downloads = new Map(); this.modules = new Map(); this.moduleUrls = new Map(); this.urls = new Map(); this.listeners = new Set();
   }
   /** Calls listener({url, loaded, total}) as downloads arrive; total is null when the size is unknown. Returns a function that stops it. */
   onProgress(listener) {this.listeners.add(listener); return () => void this.listeners.delete(listener);}
@@ -55,11 +55,13 @@ export class AssetRegistry {
         }
         return WebAssembly.compile(bytes);
       });
-      this.modules.set(key, task);
-      task.catch(() => {if(this.modules.get(key) === task) this.modules.delete(key);});
+      this.modules.set(key, task); this.moduleUrls.set(key, String(url));
+      task.catch(() => {if(this.modules.get(key) === task) {this.modules.delete(key); this.moduleUrls.delete(key);}});
     }
     return this.modules.get(key);
   }
+  /** The URL whose download backs module(url, sha256): another caller's, when it asked for the identical binary first. */
+  moduleSource(url, sha256) {return this.moduleUrls.get(sha256 ? `sha256:${sha256}` : String(url)) ?? String(url);}
   async objectUrl(url) {
     const key = String(url);
     if(!this.urls.has(key)) {
@@ -71,7 +73,7 @@ export class AssetRegistry {
   }
   /** Clear between sessions only; active runtimes may still use these URLs. */
   async clear() {
-    const urls = [...this.urls.values()]; this.downloads.clear(); this.modules.clear(); this.urls.clear();
+    const urls = [...this.urls.values()]; this.downloads.clear(); this.modules.clear(); this.moduleUrls.clear(); this.urls.clear();
     for(const task of urls) {try {URL.revokeObjectURL(await task);} catch { /* failed downloads have no URL */ }}
   }
 }
@@ -112,18 +114,24 @@ export async function prepareAssets(options) {
     sharedLibs:shared.libs, dynamicLibs:dynamic.libs, libraryUrls:{}, files:[], data:{}};
   // The interpreter binary is nearly all of the download, so its progress stands for the whole.
   const binary = new URL(manifest.wasm, base);
+  // Another debugger may already be fetching the identical binary from its own URL; that download's progress is this one's too.
+  let source = binary.href;
   const stopProgress = options.onProgress && registry.onProgress?.(event => {
-    if(event.url === binary.href) options.onProgress({loaded:event.loaded, total:event.total});
+    if(event.url === source) options.onProgress({loaded:event.loaded, total:event.total});
   });
-  try {await Promise.all([
-    registry.module(binary, manifest.sha256).then(module => {assets.module = module;}),
-    ...Object.entries(urls).map(async ([name, url]) => {
-      assets.libraryUrls[name] = await registry.objectUrl(new URL(options.libraryUrls?.[name] || url, sourceBase));
-    }),
-    ...files.map(async (file, index) => {
-      assets.files[index] = {...file, url:await registry.objectUrl(new URL(file.url, sourceBase))};
-    }),
-    ...(manifest.data || []).map(async name => {assets.data[name] = await registry.bytes(new URL(name, base));})
-  ]);} finally {stopProgress?.();}
+  try {
+    const module = registry.module(binary, manifest.sha256);
+    source = registry.moduleSource?.(binary, manifest.sha256) ?? source;
+    await Promise.all([
+      module.then(module => {assets.module = module;}),
+      ...Object.entries(urls).map(async ([name, url]) => {
+        assets.libraryUrls[name] = await registry.objectUrl(new URL(options.libraryUrls?.[name] || url, sourceBase));
+      }),
+      ...files.map(async (file, index) => {
+        assets.files[index] = {...file, url:await registry.objectUrl(new URL(file.url, sourceBase))};
+      }),
+      ...(manifest.data || []).map(async name => {assets.data[name] = await registry.bytes(new URL(name, base));})
+    ]);
+  } finally {stopProgress?.();}
   return assets;
 }

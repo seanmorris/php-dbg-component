@@ -96,9 +96,11 @@ test('inspection pagination, cycles, readonly edit failure and multiline express
     const array=vars.find(v=>v.name==='a');const chunk=await dbg.children(array.reference,{offset:100,limit:100});
     const cycle=await dbg.children(vars.find(v=>v.name==='cycle').reference);
     let rejected=false;try {await dbg.evaluate('$o->n = "invalid"');}catch {rejected=true;}
-    const valid=await dbg.evaluate('(\n  6 * 7\n)');await dbg.continue();return {chunk,cycle,rejected,valid,later:vars.find(v=>v.name==='later'),result:await done};
+    const valid=await dbg.evaluate('(\n  6 * 7\n)');const ratio=await dbg.evaluate('1.5 * 2');await dbg.continue();return {chunk,cycle,rejected,valid,ratio,later:vars.find(v=>v.name==='later'),result:await done};
   });
   expect([values.later.type,values.later.displayValue]).toEqual(['unset','unset']);
+  // A runtime that reports PHP types keeps a whole-number float a float; an older one only has JavaScript's number.
+  expect([values.ratio.type,values.ratio.displayValue]).toEqual(values.valid.type==='int'?['float','3.0']:['number','3']);
   expect(values.chunk.total).toBe(205);expect(values.chunk.values).toHaveLength(100);
   expect(values.cycle.values[0].circular).toBe(true);expect(values.rejected).toBe(true);expect(values.valid.value).toBe(42);expect(values.result.stdout).toBe('2');
 });

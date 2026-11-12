@@ -60,3 +60,17 @@ test('GUI edits a live value and exposes symbols, globals, constants and frames'
   expect(await visible()).toContain('42');expect(await visible()).not.toContain('Breakpoint #0');
   await page.getByRole('checkbox',{name:'Debugger log',exact:true}).check();expect(await visible()).toContain('Breakpoint #0');
 });
+
+test('editing an array starts from an empty expression, a number from its value',async({page})=>{
+  await page.goto('/test/harness.html');await page.waitForFunction(()=>window.PhpDebugger);
+  await page.evaluate(()=>{
+    window.dbg=new PhpDebugger({version:window.phpVersionUnderTest,runtimeBaseUrl:'/runtime/',code:'<?php\n$list = ["a", "b"];\n$n = 2;\necho implode(",", $list);',breakpoints:[4]});dbg.mount(document.querySelector('#host'));
+  });
+  await page.getByRole('button',{name:'Run',exact:true}).click();await expect(page.getByRole('status')).toHaveText('paused');
+  // An array's preview, such as "array(2)", is valid PHP for a different array, so applying it unchanged would replace the contents.
+  await page.getByRole('button',{name:'Edit list',exact:true}).click();
+  await expect(page.getByRole('textbox',{name:'New PHP expression for list',exact:true})).toHaveValue('');
+  await page.getByRole('button',{name:'Edit n',exact:true}).click();
+  await expect(page.getByRole('textbox',{name:'New PHP expression for n',exact:true})).toHaveValue('2');
+  await page.getByRole('button',{name:'Continue',exact:true}).click();await expect(page.getByRole('status')).toHaveText('completed');expect(await page.evaluate(()=>dbg.result.stdout)).toBe('a,b');
+});

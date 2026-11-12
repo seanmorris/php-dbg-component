@@ -153,7 +153,7 @@ export class DebuggerView {
     if(value.writable) {
       const edit=node('button','php-debugger-edit','Edit');edit.type='button';edit.setAttribute('aria-label',`Edit ${value.name}`);row.append(edit);
       edit.addEventListener('click',()=>{
-        const input=node('input','php-debugger-edit-expression');input.setAttribute('aria-label',`New PHP expression for ${value.name}`);input.value=value.type==='string'?"'"+String(value.value).replaceAll('\\','\\\\').replaceAll("'","\\'")+"'":value.type==='unset'?'':value.displayValue;
+        const input=node('input','php-debugger-edit-expression');input.setAttribute('aria-label',`New PHP expression for ${value.name}`);input.value=value.type==='string'?"'"+String(value.value).replaceAll('\\','\\\\').replaceAll("'","\\'")+"'":value.type==='unset'||value.expandable||value.circular?'':value.displayValue;
         const save=node('button','php-debugger-button','Apply');save.type='button';row.append(input,save);edit.disabled=true;input.focus();
         save.addEventListener('click',()=>this.act(async()=>{await this.dbg.setVariable(value.reference,input.value);await this.refresh();}));
       });

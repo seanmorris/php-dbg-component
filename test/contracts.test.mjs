@@ -139,3 +139,64 @@ test('engine uses the runtime\'s own types, frame names and globals when it prov
   assert.deepEqual((await engine.inspect('frames'))[0].functionName, 'inner');
 });
 
+test('two debuggers that load the identical binary from different URLs both see its progress', async () => {
+  const {AssetRegistry, prepareAssets} = await import('../src/assets.mjs');
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path'); const {pathToFileURL} = await import('node:url');
+  const bytes = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]);
+  const sha256 = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(b => b.toString(16).padStart(2, '0')).join('');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'php-debugger-assets-'));
+  try {
+    // prepareAssets imports the runtime's dependency resolver from the runtime directory.
+    const bases = ['worker-host', 'page-host'].map(name => {
+      fs.mkdirSync(path.join(root, name));
+      fs.writeFileSync(path.join(root, name, 'resolveDependencies.mjs'), 'export const resolveDependencies = () => ({files:[], libs:[], urlLibs:{}});\n');
+      return pathToFileURL(path.join(root, name) + path.sep).href;
+    });
+    const fetched = [];
+    const registry = new AssetRegistry({fetch:async url => {
+      if(url.endsWith('.assets.json')) {
+        const environment = url.includes('-dbg-worker.') ? 'worker' : 'web';
+        return new Response(JSON.stringify({schemaVersion:1, bridgeVersion:1, version:'8.4', environment, wasm:'php.wasm', sha256}));
+      }
+      fetched.push(url);
+      const body = new ReadableStream({async start(controller) {
+        for(const part of [bytes.slice(0, 3), bytes.slice(3)]) {await new Promise(resolve => setTimeout(resolve, 5)); controller.enqueue(part);}
+        controller.close();
+      }});
+      return new Response(body, {headers:{'content-length':String(bytes.length)}});
+    }});
+    const seen = [[], []];
+    const [worker, page] = await Promise.all(bases.map((runtimeBaseUrl, index) => prepareAssets({
+      version:'8.4', execution:index ? 'main' : 'worker', runtimeBaseUrl, assetRegistry:registry, onProgress:progress => seen[index].push(progress),
+    })));
+    assert.equal(worker.module, page.module);
+    assert.equal(fetched.length, 1, 'the binary is downloaded once');
+    for(const progress of seen) assert.deepEqual(progress.at(-1), {loaded:bytes.length, total:bytes.length});
+    assert.equal(registry.moduleSource(new URL('php.wasm', bases[1]), sha256), fetched[0]);
+  } finally {fs.rmSync(root, {recursive:true, force:true});}
+});
+
+test('an evaluated value keeps its PHP type when the runtime provides debugger API 2', async () => {
+  const {DebugEngine} = await import('../src/engine.mjs');
+  const evaluate = async (api, expression) => {
+    const engine = new DebugEngine(() => {}); engine.paused = true; engine.dbgApi = api;
+    const commands = [];
+    // Stands in for PHP: a float of 3.0 reaches JavaScript as the number 3, alone or inside an array.
+    engine.writeFile = () => {};
+    engine.command = async line => {commands.push(line); engine.captured = {value:line.includes('capture([') ? {0:3} : 3};};
+    engine.php = {
+      async switchFrame() {return 0;},
+      async describeValue(value) {return {type:Number.isInteger(value) ? 'int' : 'float', className:null, count:null, reference:false, value};},
+      async describeChild(parent, key) {return {type:'float', className:null, count:null, reference:false, value:parent[key]};},
+    };
+    const value = await engine.evaluate(expression);
+    return {value, command:commands[0], stored:engine.references.get(value.reference).value};
+  };
+  const typed = await evaluate(2, '3.0');
+  assert.deepEqual([typed.value.type, typed.value.displayValue, typed.value.value, typed.stored], ['float', '3.0', 3, 3]);
+  assert.match(typed.command, /capture\(\[eval\(.*\)\]\)$/);
+  // An older runtime cannot describe values, so nothing is boxed and the type is JavaScript's.
+  const plain = await evaluate(1, '3.0');
+  assert.deepEqual([plain.value.type, plain.value.displayValue], ['number', '3']);
+  assert.match(plain.command, /capture\(eval\(.*\)\)$/);
+});
