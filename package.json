@@ -60,7 +60,7 @@
     "codemirror": "^5.65.0",
     "esbuild": "^0.25.0",
     "eslint": "^10.14.0",
-    "sm-no-saccade-style": "^0.2.2",
+    "sm-no-saccade-style": "^0.2.3",
     "typescript": "^5.9.0"
   }
 }
