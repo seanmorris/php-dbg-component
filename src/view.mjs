@@ -144,7 +144,7 @@ export class DebuggerView {
     });
   }
   valueNode(value, depth=0) {
-    const row=node('div','php-debugger-value');const name=node('span','php-debugger-value-name',value.name+': ');const preview=node('span','php-debugger-value-preview',value.displayValue);row.append(name,preview);
+    const row=node('div','php-debugger-value');const name=node('span','php-debugger-value-name',value.name+(value.visibility&&value.visibility!=='public'?` (${value.visibility})`:'')+': ');const preview=node('span','php-debugger-value-preview',value.displayValue);row.append(name,preview);
     if(value.type){preview.dataset.type=value.type;preview.title=(value.className&&phpClassLabel(value.className))||(value.type==='string'&&value.count!=null?`string(${value.count})`:value.type);}
     if(value.expandable && depth<30) {
       const expand=node('button','php-debugger-expand','Expand');expand.type='button';expand.setAttribute('aria-label',`Expand ${value.name}`);const children=node('div','php-debugger-children');row.append(expand,children);let offset=0;

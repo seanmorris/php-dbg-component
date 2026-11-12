@@ -9,6 +9,8 @@ export interface Variable {
   name: string; type: string; displayValue: string; value?: string | number | boolean | bigint | null;
   /** Set by runtimes with debugger API 2: the class of an object, and the size of an array or string. */
   className?: string | null; count?: number | null;
+  /** For a property of an object. Private and protected properties are listed when the runtime provides debugger API 2, and are read-only. */
+  visibility?: 'public' | 'protected' | 'private';
   reference?: string; writable: boolean; expandable: boolean; circular?: boolean;
 }
 /** A stack frame. `frame` is zero for the innermost frame, whichever frame is selected. */

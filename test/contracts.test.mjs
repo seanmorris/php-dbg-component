@@ -222,3 +222,39 @@ test('an anonymous class is labelled with the file and line that declare it', as
 
 	assert.deepEqual([value.className, value.displayValue], [name, 'class@anonymous (main.php:3)']);
 });
+
+test('private and protected properties are listed, read-only, when the runtime provides debugger API 2', async () => {
+	const {DebugEngine} = await import('../src/engine.mjs');
+	const keys = ['\0App\\Job\0secret', '\0*\0guarded', 'open'];
+	const stored = {[keys[0]]: 4, [keys[1]]: 'kept', open: 7};
+	// Stands in for the runtime's object: every property is an own key, and only public ones are enumerable.
+	const job = new Proxy({}, {
+		ownKeys: () => keys
+		, getOwnPropertyDescriptor: (target, key) => key === 'open' ? {value: 7, enumerable: true, configurable: true} : undefined
+		, get: (target, key) => key === 'open' ? 7 : undefined
+	});
+	const list = async api => {
+		const engine = new DebugEngine(() => {});
+
+		engine.paused = true;
+		engine.dbgApi = api;
+		engine.php = {
+			describeChild: async (parent, key) => ({
+				type: typeof stored[key] === 'string' ? 'string' : key === keys[0] ? 'float' : 'int'
+				, className: null, count: null, reference: false, value: stored[key]
+			})
+		};
+
+		const parent = engine.describe('job', job, "${'job'}", true, 0, [], api >= 2 ? {type: 'object', className: 'App\\Job', count: null} : null);
+
+		return (await engine.children(parent.reference)).values.map(value => [value.name, value.visibility, value.displayValue, value.writable]);
+	};
+
+	assert.deepEqual(await list(2), [
+		['secret', 'private', '4.0', false]
+		, ['guarded', 'protected', '"kept"', false]
+		, ['open', 'public', '7', true]
+	]);
+	// An older runtime cannot read a property by its mangled name, so only public ones are shown.
+	assert.deepEqual(await list(1), [['open', 'public', '7', true]]);
+});

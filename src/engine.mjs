@@ -218,14 +218,20 @@ export class DebugEngine {
     if(!parent) throw new Error('Stale variable reference');
     if(!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 1000) throw new RangeError('Invalid inspection page');
     const type = parent.type;
-    const names = Object.keys(parent.value);
+    // Object.keys() gives an object's public properties. Its own keys also include the private and protected ones,
+    // under PHP's mangled names ("\0Class\0name", "\0*\0name"), and a runtime with debugger API 2 can read those by key.
+    const names = this.dbgApi >= 2 && type === 'object' ? Reflect.ownKeys(parent.value).filter(name => typeof name === 'string') : Object.keys(parent.value);
     const values = [];
-    for(const name of names.slice(offset, offset + limit)) {
-      const expression = !parent.expression ? null : type === 'array' ? `${parent.expression}[${phpString(name)}]` : `${parent.expression}->{${phpString(name.split('\0').pop())}}`;
+    for(const key of names.slice(offset, offset + limit)) {
+      const parts = key.split('\0'), name = parts.pop();
+      const visibility = type !== 'object' ? undefined : parts.length < 2 ? 'public' : parts[1] === '*' ? 'protected' : 'private';
+      const expression = !parent.expression ? null : type === 'array' ? `${parent.expression}[${phpString(key)}]` : `${parent.expression}->{${phpString(name)}}`;
       try {
         // Asking by key keeps the child's own PHP type; a float of 3.0 is just the number 3 once converted.
-        const info = this.dbgApi >= 2 ? await this.php.describeChild(parent.value, name) : null;
-        values.push(this.describe(name, info ? info.value : parent.value[name], expression, parent.writable, parent.frame, parent.ancestors, info));
+        const info = this.dbgApi >= 2 ? await this.php.describeChild(parent.value, key) : null;
+        // An expression evaluated from outside the class cannot assign a private or protected property.
+        const value = this.describe(name, info ? info.value : parent.value[key], expression, parent.writable && (visibility ?? 'public') === 'public', parent.frame, parent.ancestors, info);
+        values.push(visibility ? {...value, visibility} : value);
       } catch(error) {values.push({name,type:'unavailable',displayValue:error.message,writable:false,expandable:false});}
     }
     return {values, total:names.length, offset};

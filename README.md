@@ -81,7 +81,7 @@ const result = await done;
 | `continue()`, `stepInto()`, `stepOver()`, `stepOut()`, `until()`, `leave()` | phpdbg execution controls. |
 | `inspect(scope, {frame})` | `variables`, `globals`, `constants`, `functions`, `classes`, `files`, or `frames`. Frames are `{frame, filename, lineNo, selected}` and are always listed from the innermost frame. A variable the frame has not assigned yet has type `unset`. With a runtime that provides debugger API 2, frames also carry `functionName` and `className`, and values carry PHP types (`int`, `float`, `bool`, `string`, `array`, `object`, `null`), `className` and `count`; older runtimes report JavaScript-derived types (`number`, `boolean`, …). |
 | `selectFrame(index)` | Change the inspected/evaluated frame. Zero is the innermost frame. |
-| `children(reference, {offset, limit})` | Expand a value, default 100 entries; maximum page size 1000. |
+| `children(reference, {offset, limit})` | Expand a value, default 100 entries; maximum page size 1000. A property of an object carries `visibility`. With a runtime that provides debugger API 2, private and protected properties are listed as well, read-only; older runtimes list public properties only. |
 | `evaluate(expression, {frame})` | Evaluate a PHP expression, including assignments and multiline expressions. |
 | `setVariable(reference, expression)` | Assign a PHP expression to a variable or child value. |
 | `setBreakpoints([...])` | Replace breakpoints while idle or paused. Integers or `{file,line,enabled}`. |
