@@ -257,4 +257,19 @@ test('private and protected properties are listed, read-only, when the runtime p
 	]);
 	// An older runtime cannot read a property by its mangled name, so only public ones are shown.
 	assert.deepEqual(await list(1), [['open', 'public', '7', true]]);
+
+	// Casting an object to an array gives keys that look mangled. They are array keys, shown whole.
+	const engine = new DebugEngine(() => {});
+	const cast = {'\0App\\Job\0secret': 4, secret: 5};
+
+	engine.paused = true;
+	engine.dbgApi = 2;
+	engine.php = {describeChild: async (parent, key) => ({type: 'int', className: null, count: null, reference: false, value: parent[key]})};
+
+	const array = engine.describe('cast', cast, "${'cast'}", true, 0, [], {type: 'array', className: null, count: 2});
+
+	assert.deepEqual(
+		(await engine.children(array.reference)).values.map(value => [value.name, value.visibility, value.displayValue])
+		, [['\0App\\Job\0secret', undefined, '4'], ['secret', undefined, '5']]
+	);
 });

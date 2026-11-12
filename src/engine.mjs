@@ -223,7 +223,8 @@ export class DebugEngine {
     const names = this.dbgApi >= 2 && type === 'object' ? Reflect.ownKeys(parent.value).filter(name => typeof name === 'string') : Object.keys(parent.value);
     const values = [];
     for(const key of names.slice(offset, offset + limit)) {
-      const parts = key.split('\0'), name = parts.pop();
+      // Only a property name is mangled. An array key is shown whole, NUL bytes included.
+      const parts = type === 'object' ? key.split('\0') : [key], name = parts.pop();
       const visibility = type !== 'object' ? undefined : parts.length < 2 ? 'public' : parts[1] === '*' ? 'protected' : 'private';
       const expression = !parent.expression ? null : type === 'array' ? `${parent.expression}[${phpString(key)}]` : `${parent.expression}->{${phpString(name)}}`;
       try {
