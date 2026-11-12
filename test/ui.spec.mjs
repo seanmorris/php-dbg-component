@@ -483,3 +483,68 @@ test('the breakpoint dot clears long line numbers; colours follow a dark page', 
 	await expect(breakpoint).toHaveCSS('color', 'rgb(255, 142, 142)');
 	await page.evaluate(() => dbg.destroy());
 });
+
+test('Evaluate answers beside its box and keeps the exchange in the console', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	await page.evaluate(() => {
+		window.dbg = new PhpDebugger(
+			{
+				version: window.phpVersionUnderTest
+				, runtimeBaseUrl: '/runtime/'
+				, code: '<?php\n$n = 2;\necho $n;'
+				, breakpoints: [3]
+			}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+	});
+
+	const expression = page.getByRole('textbox', {name: 'PHP expression', exact: true});
+	const problem = page.locator('.php-debugger-expression-error');
+	const output = page.locator('.php-debugger-console');
+	const evaluate = page.getByRole('button', {name: 'Evaluate', exact: true});
+
+	// Before a pause there is nothing to evaluate in, and the box says so itself.
+	await expression.fill('$n');
+	await evaluate.click();
+	await expect(problem).toContainText('where execution is paused');
+	await expect(output).toHaveText('');
+
+	await page.getByRole('button', {name: 'Run', exact: true}).click();
+	await expect(page.getByRole('status')).toHaveText('paused');
+
+	await expression.fill('$n +');
+	await expression.press('Enter');
+	await expect(problem).toHaveText('syntax error, unexpected end of expression');
+	await expect(expression).toHaveAttribute('aria-invalid', 'true');
+	await expect(page.locator('.php-debugger-message')).toHaveText('');
+
+	// The message sits under the box it is about, not at the top of the debugger.
+
+	const gap = await page.evaluate(() => {
+
+		const top = selector => document.querySelector(selector).getBoundingClientRect();
+
+		return top('.php-debugger-expression-error').top - top('.php-debugger-expression').bottom;
+	});
+
+	expect(gap).toBeGreaterThanOrEqual(0);
+	expect(gap).toBeLessThan(24);
+
+	await expression.fill('$n + 40');
+	await expect(problem).toHaveText('');
+	await expression.press('Enter');
+	await expect(output).toContainText('> $n + 40\n42');
+
+	expect(await output.evaluate(element => element.innerText)).toBe(
+		'> $n +\nsyntax error, unexpected end of expression\n> $n + 40\n42\n'
+	);
+
+	await page.getByRole('button', {name: 'Continue', exact: true}).click();
+	await expect(page.getByRole('status')).toHaveText('completed');
+	expect(await page.evaluate(() => dbg.result.exitCode)).toBe(0);
+	await page.evaluate(() => dbg.destroy());
+});
+

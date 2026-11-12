@@ -211,6 +211,10 @@
 	color: var(--php-debugger-error);
 }
 
+.php-debugger .php-debugger-output-input {
+	color: var(--php-debugger-muted);
+}
+
 .php-debugger .php-debugger-inspector {
 	min-width: 0;
 	max-height: 28em;
@@ -261,6 +265,21 @@
 	flex: 1;
 	min-width: 10em;
 	font-family: var(--php-debugger-font);
+}
+
+.php-debugger .php-debugger-expression[aria-invalid=true] {
+	border-color: var(--php-debugger-error);
+}
+
+.php-debugger .php-debugger-expression-error {
+	flex-basis: 100%;
+	color: var(--php-debugger-error);
+	white-space: pre-wrap;
+}
+
+.php-debugger .php-debugger-expression-error:empty,
+.php-debugger .php-debugger-message:empty {
+	display: none;
 }
 
 .php-debugger .php-debugger-breakpoint-list {

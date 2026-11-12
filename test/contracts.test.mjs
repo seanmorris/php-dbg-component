@@ -504,20 +504,21 @@ test(
 test('an evaluated value keeps its PHP type when the runtime provides debugger API 2', async () => {
 	const {DebugEngine} = await import('../src/engine.mjs');
 
-	const evaluate = async (api, expression) => {
+	const evaluate = async (api, expression, outcome = {0: true, 1: 3}) => {
 		const engine = new DebugEngine(() => {});
 
 		engine.paused = true;
 		engine.dbgApi = api;
 		const commands = [];
-		// Stands in for PHP: a float of 3.0 reaches JavaScript as the number 3, alone or inside an
-		// array.
+		const files = {};
+		// Stands in for PHP: the runner answers [true, value], and a float of 3.0 in it reaches
+		// JavaScript as the number 3.
 
-		engine.writeFile = () => {};
+		engine.writeFile = (path, content) => {files[path] = content;};
 
 		engine.command = async line => {
 			commands.push(line);
-			engine.captured = {value: line.includes('capture([') ? {0: 3} : 3};
+			engine.captured = {value: outcome};
 		};
 
 		engine.php = {
@@ -547,7 +548,12 @@ test('an evaluated value keeps its PHP type when the runtime provides debugger A
 
 		const value = await engine.evaluate(expression);
 
-		return {value, command: commands[0], stored: engine.references.get(value.reference).value};
+		return {
+			value
+			, command: commands[0]
+			, code: files['/.php-debugger/eval.php']
+			, stored: engine.references.get(value.reference).value
+		};
 	};
 
 	const typed = await evaluate(2, '3.0');
@@ -557,11 +563,53 @@ test('an evaluated value keeps its PHP type when the runtime provides debugger A
 		, ['float', '3.0', 3, 3]
 	);
 
-	assert.match(typed.command, /capture\(\[eval\(.*\)\]\)$/);
-	// An older runtime cannot describe values, so nothing is boxed and the type is JavaScript's.
-	const plain = await evaluate(1, '3.0');
+	// The command is the same whatever was typed: the expression travels in a file, on lines of
+	// its own, and the runner evaluates it inside a try block.
+	assert.match(
+		typed.command
+		, /capture\(eval\(file_get_contents\('\/\.php-debugger\/run\.php'\)\)\)$/
+	);
+
+	assert.equal(typed.code, 'return (\n3.0\n);');
+	// An older runtime cannot describe values, so the type is JavaScript's.
+	const plain = await evaluate(1, '3.0;  ');
+
 	assert.deepEqual([plain.value.type, plain.value.displayValue], ['number', '3']);
-	assert.match(plain.command, /capture\(eval\(.*\)\)$/);
+	assert.equal(plain.code, 'return (\n3.0\n);');
+
+	// A failure is the runner's [false, class, message, line], reported in the user's terms.
+	await assert.rejects(
+		evaluate(2, 'nope()', {0: false, 1: 'Error', 2: 'Call to undefined function nope()', 3: 0})
+		, {message: 'Error: Call to undefined function nope()'}
+	);
+});
+
+test('a failed evaluation is worded for the expression that was typed', async () => {
+	const {evaluationError} = await import('../src/model.mjs');
+
+	const unexpected = token => `syntax error, unexpected token "${token}"`;
+
+	// Line 1 is the wrapper's opening, the expression starts on line 2, and the wrapper closes on
+	// the line after the expression's last.
+	assert.equal(
+		evaluationError('1 +', 'ParseError', unexpected(')'), 3)
+		, 'syntax error, unexpected end of expression'
+	);
+
+	assert.equal(evaluationError('$n +* 2', 'ParseError', unexpected('*'), 2), unexpected('*'));
+
+	// The user's own stray parenthesis closes the wrapper early; PHP's message is already right.
+	assert.equal(evaluationError('1)', 'ParseError', "Unmatched ')'", 3), "Unmatched ')'");
+
+	assert.equal(
+		evaluationError('[\n1,\n2 3\n]', 'ParseError', 'syntax error, unexpected integer "3"', 4)
+		, 'syntax error, unexpected integer "3" on line 3'
+	);
+
+	assert.equal(
+		evaluationError('intdiv(1, 0)', 'DivisionByZeroError', 'Division by zero', 0)
+		, 'DivisionByZeroError: Division by zero'
+	);
 });
 
 test('only a property key that starts with a NUL byte is read as a mangled name', async () => {

@@ -1,5 +1,7 @@
 import {versions, phpClassLabel} from './model.mjs';
 
+let views = 0;
+
 function node(tag, className, text)
 {
 	const n = document.createElement(tag);
@@ -29,6 +31,7 @@ export class DebuggerView
 
 		this.dbg = debuggerInstance;
 		this.host = host;
+		this.id = `php-debugger-${++views}`;
 		this.abort = new AbortController();
 		this.panel = 'variables';
 		this.refreshNumber = 0;
@@ -233,31 +236,38 @@ export class DebuggerView
 		const watch = node('button', 'php-debugger-button', 'Watch');
 		watch.type = 'button';
 
-		form.append(this.expression, evaluate, watch);
+		// What went wrong with an expression is said here, next to where it was typed.
+		this.expressionError = node('div', 'php-debugger-expression-error');
+		this.expressionError.id = `${this.id}-expression-error`;
+		this.expressionError.setAttribute('role', 'alert');
+		this.expression.setAttribute('aria-describedby', this.expressionError.id);
+
+		form.append(this.expression, evaluate, watch, this.expressionError);
 		this.root.append(form);
 
 		form.addEventListener(
 			'submit'
 			, event => {
 				event.preventDefault();
-
-				void this.act(
-					async() => {
-						const value = await dbg.evaluate(this.expression.value);
-						this.appendOutput({channel: 'evaluation', text: value.displayValue + '\n'});
-						await this.refresh();
-					}
-				);
+				void this.evaluateExpression();
 			}
+			, {signal: this.abort.signal}
+		);
+
+		this.expression.addEventListener(
+			'input'
+			, () => this.expressionProblem('')
 			, {signal: this.abort.signal}
 		);
 
 		watch.addEventListener(
 			'click'
 			, () => {
-				if(this.expression.value.trim())
+				const expression = this.expressionEntered();
+
+				if(expression)
 				{
-					this.watches.push(this.expression.value);
+					this.watches.push(expression);
 					this.panel = 'watches';
 					void this.refresh();
 				}
@@ -316,6 +326,72 @@ export class DebuggerView
 
 		this.gutterUpdate();
 		this.update();
+	}
+
+	expressionProblem(message)
+	{
+		this.expressionError.textContent = message;
+
+		if(message)
+		{
+			this.expression.setAttribute('aria-invalid', 'true');
+		}
+		else
+		{
+			this.expression.removeAttribute('aria-invalid');
+		}
+	}
+
+	/** The expression in the box, or nothing and a message beside the box when it is empty. */
+	expressionEntered()
+	{
+		const expression = this.expression.value.trim();
+
+		this.message.textContent = '';
+		this.expressionProblem(expression ? '' : 'Enter a PHP expression, such as $total * 2.');
+
+		return expression;
+	}
+
+	async evaluateExpression()
+	{
+		const expression = this.expressionEntered();
+
+		if(!expression)
+		{
+			return;
+		}
+
+		if(this.dbg.state !== 'paused')
+		{
+			this.expressionProblem(
+				'Expressions are evaluated where execution is paused. Set a breakpoint and run.'
+			);
+
+			return;
+		}
+
+		// The console keeps the exchange: the expression, anything it printed, then its value or
+		// its error.
+		this.appendOutput({channel: 'evaluation', kind: 'input', text: `> ${expression}\n`});
+
+		try
+		{
+			const value = await this.dbg.evaluate(expression);
+
+			this.appendOutput({channel: 'evaluation', text: value.displayValue + '\n'});
+		}
+		catch(error)
+		{
+			const message = error.message || String(error);
+
+			this.appendOutput({channel: 'evaluation', kind: 'error', text: message + '\n'});
+			this.expressionProblem(message);
+
+			return;
+		}
+
+		await this.refresh();
 	}
 
 	async act(callback)

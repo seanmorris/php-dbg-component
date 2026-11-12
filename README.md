@@ -82,7 +82,7 @@ const result = await done;
 | `inspect(scope, {frame})` | `variables`, `globals`, `constants`, `functions`, `classes`, `files`, or `frames`. Frames are `{frame, filename, lineNo, selected}` and are always listed from the innermost frame. A variable the frame has not assigned yet has type `unset`. With a runtime that provides debugger API 2, frames also carry `functionName` and `className`, and values carry PHP types (`int`, `float`, `bool`, `string`, `array`, `object`, `null`), `className` and `count`; older runtimes report JavaScript-derived types (`number`, `boolean`, …). |
 | `selectFrame(index)` | Change the inspected/evaluated frame. Zero is the innermost frame. |
 | `children(reference, {offset, limit})` | Expand a value, default 100 entries; maximum page size 1000. A property of an object carries `visibility`. With a runtime that provides debugger API 2, private and protected properties are listed as well, read-only; older runtimes list public properties only. |
-| `evaluate(expression, {frame})` | Evaluate a PHP expression, including assignments and multiline expressions. |
+| `evaluate(expression, {frame})` | Evaluate a PHP expression, including assignments and multiline expressions. A syntax error or an uncaught exception rejects with a message about the expression (`syntax error, unexpected end of expression`, `Error: Call to undefined function nope()`) and leaves the run and its exit code as they were. |
 | `setVariable(reference, expression)` | Assign a PHP expression to a variable or child value. |
 | `setBreakpoints([...])` | Replace breakpoints while idle or paused. Integers or `{file,line,enabled}`. |
 | `setVersion('8.5')` | Stop execution and select a version. Downloads begin on the next run. |
@@ -130,7 +130,7 @@ The element exposes `.debugger` and forwards execution/inspection methods. `insp
 
 ## Events and styling
 
-Controller events are `CustomEvent`s with `.detail`: `statechange`, `progress` (`loaded`, `total` bytes of the interpreter download; `total` is `null` when the server does not say), `output` (`channel`, `text`), `pause`, `locationchange`, `framechange`, `variablechange`, `breakpointchange`, `versionchange`, `sourcechange`, `diagnostic`, `testresult`, and `complete`. Custom element events bubble with a `phpdbg-` prefix. `stdout` and `stderr` are program output; `debug` is debugger console output, and its `kind` is `notice` (phpdbg's own messages), `error`, or `evaluation`. The built-in view shows program output, errors and evaluation output, and keeps notices hidden until "Debugger log" is ticked.
+Controller events are `CustomEvent`s with `.detail`: `statechange`, `progress` (`loaded`, `total` bytes of the interpreter download; `total` is `null` when the server does not say), `output` (`channel`, `text`), `pause`, `locationchange`, `framechange`, `variablechange`, `breakpointchange`, `versionchange`, `sourcechange`, `diagnostic`, `testresult`, and `complete`. Custom element events bubble with a `phpdbg-` prefix. `stdout` and `stderr` are program output; `debug` is debugger console output, and its `kind` is `notice` (phpdbg's own messages), `error`, or `evaluation`. The built-in view shows program output, errors and evaluation output, and keeps notices hidden until "Debugger log" is ticked. It echoes each evaluated expression before its result, and reports an expression's error beside the expression box.
 
 ```css
 .my-page .php-debugger {
