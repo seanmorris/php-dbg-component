@@ -16,6 +16,8 @@
  *    pitch, and hidden console lines stay hidden; without either the debugger
  *    points at the wrong line. Change the pitch with
  *    --php-debugger-line-height, a length.
+ *
+ * Colours have light and dark defaults and follow the page's color-scheme.
  */
 
 /* 1. Custom properties. */
@@ -29,17 +31,28 @@
 	--php-debugger-error: #b52132;
 	--php-debugger-success: #14773b;
 	--php-debugger-active: #fff2b0;
+	--php-debugger-paused: #b45309;
 	--php-debugger-radius: .35em;
 	--php-debugger-font: ui-monospace, SFMono-Regular, Consolas, monospace;
 	--php-debugger-line-height: 1.5em;
 }
 
-/* 2. Isolation. Two classes outrank a wrapper class with an element. */
-
-.php-debugger {
-	all: revert;
-	box-sizing: border-box;
+/* The same defaults, with their dark counterparts for a page whose color-scheme is dark. */
+@supports (color: light-dark(#000, #fff)) {
+	:where(.php-debugger) {
+		--php-debugger-bg: light-dark(#fff, #151b23);
+		--php-debugger-fg: light-dark(#202734, #e6edf3);
+		--php-debugger-muted: light-dark(#5b6472, #9aa5b1);
+		--php-debugger-border: light-dark(#cbd2dc, #3a4656);
+		--php-debugger-accent: light-dark(#185adb, #79b0ff);
+		--php-debugger-error: light-dark(#b52132, #ff8e8e);
+		--php-debugger-success: light-dark(#14773b, #6fd68f);
+		--php-debugger-active: light-dark(#fff2b0, #453a10);
+		--php-debugger-paused: light-dark(#b45309, #f5b83d);
+	}
 }
+
+/* 2. Isolation. Two classes outrank a wrapper class with an element. */
 
 .php-debugger.php-debugger * {
 	all: revert;
@@ -49,6 +62,7 @@
 /* 3. Appearance. */
 
 .php-debugger {
+	box-sizing: border-box;
 	display: grid;
 	gap: .65em;
 	min-width: 0;
@@ -105,28 +119,51 @@
 	max-height: 24em;
 	overflow: hidden;
 	font-family: var(--php-debugger-font);
+	background: var(--php-debugger-bg);
 	border: 1px solid var(--php-debugger-border);
 }
 
+/* Transparent, so the paused line's band shows through from the layer beneath. */
 .php-debugger .php-debugger-source {
 	min-height: 12em;
 	resize: vertical;
 	overflow: auto;
 	white-space: pre;
 	font-family: inherit;
+	background: transparent;
 	border-radius: 0;
 }
 
+.php-debugger .php-debugger-gutter {
+	color: var(--php-debugger-muted);
+}
+
+/* The breakpoint dot has its own column, left of the digits. */
 .php-debugger .php-debugger-line[data-breakpoint=true]::before {
 	content: '';
 	position: absolute;
-	left: .3rem;
+	left: .85em;
 	top: 50%;
-	width: .45rem;
-	height: .45rem;
+	width: .5em;
+	height: .5em;
 	border-radius: 50%;
 	background: currentColor;
-	transform: translateY(-50%);
+	transform: translate(-50%, -50%);
+	pointer-events: none;
+}
+
+/*
+ * The paused line: a band across the whole line with a bar at its left edge.
+ * The band is wider than any editor and is clipped at the editor's edge.
+ */
+.php-debugger .php-debugger-line[data-active=true]::after {
+	content: '';
+	position: absolute;
+	inset: 0 auto 0 0;
+	z-index: -1;
+	width: 100vw;
+	background: var(--php-debugger-active);
+	box-shadow: inset .25em 0 0 var(--php-debugger-paused);
 	pointer-events: none;
 }
 
@@ -254,16 +291,20 @@
 
 /*
  * The pitch is resolved once, here, and inherited as a length: a font size set
- * on the source or on the line numbers alone cannot pull them apart.
+ * on the source alone cannot pull the two apart. The first column holds the
+ * breakpoint dot, then as many digits as the last line number has.
  */
 .php-debugger .php-debugger-editor {
+	--php-debugger-gutter-width: calc(1.6em + var(--php-debugger-gutter-digits, 2) * 1ch + .6em);
 	position: relative !important;
 	display: grid !important;
-	grid-template-columns: 3.5em minmax(0, 1fr) !important;
+	grid-template-columns: var(--php-debugger-gutter-width) minmax(0, 1fr) !important;
 	line-height: var(--php-debugger-line-height) !important;
 }
 
 .php-debugger .php-debugger-source {
+	position: relative !important;
+	z-index: 1 !important;
 	grid-column: 2 !important;
 	box-sizing: border-box !important;
 	width: 100% !important;
@@ -273,17 +314,22 @@
 	border-width: 0 !important;
 }
 
-/* Out of flow, in the first column: the source alone sets the editor's height. */
+/*
+ * A layer under the whole editor, out of flow: the source alone sets the
+ * editor's height, and the paused line's band can reach across it. The font
+ * is the editor's, so the column width above means the same here. The room
+ * at the bottom lets it follow the source past a horizontal scrollbar.
+ */
 .php-debugger .php-debugger-gutter {
 	position: absolute !important;
 	inset: 0 !important;
-	grid-column: 1 !important;
+	z-index: 0 !important;
 	display: block !important;
 	box-sizing: border-box !important;
 	margin: 0 !important;
-	padding: .3rem 0 !important;
+	padding: .3rem 0 3em !important;
 	overflow: hidden !important;
-	line-height: inherit !important;
+	font: inherit !important;
 	border-width: 0 !important;
 }
 
@@ -292,10 +338,16 @@
 	position: relative !important;
 	display: block !important;
 	box-sizing: border-box !important;
-	padding: 0 .4rem 0 1rem !important;
+	width: var(--php-debugger-gutter-width) !important;
+	padding: 0 .6em 0 1.6em !important;
 	text-align: right !important;
 	white-space: nowrap !important;
 	cursor: pointer !important;
+}
+
+.php-debugger .php-debugger-gutter .php-debugger-line[data-active=true] {
+	font-weight: bold !important;
+	color: var(--php-debugger-fg) !important;
 }
 
 .php-debugger .php-debugger-gutter .php-debugger-line[data-breakpoint=true] {
@@ -303,24 +355,41 @@
 	color: var(--php-debugger-error) !important;
 }
 
-.php-debugger .php-debugger-gutter .php-debugger-line[data-active=true] {
-	background: var(--php-debugger-active) !important;
-}
-
 .php-debugger .php-debugger-gutter .php-debugger-line:focus-visible {
 	outline: 2px solid var(--php-debugger-accent) !important;
 	outline-offset: -2px !important;
 }
 
-/* Markers the adapters place inside Ace and CodeMirror, outside .php-debugger. */
+/*
+ * Markers the adapters place inside Ace and CodeMirror. Those editors sit
+ * outside .php-debugger with themes of their own, so the fallback colours are
+ * ones that show on a light theme and on a dark one. To change them, set the
+ * variables on the editor's container.
+ */
 
 .php-debugger-active-line {
-	background: var(--php-debugger-active, #fff2b0);
+	background: var(--php-debugger-active, color-mix(in srgb, #f5a524 30%, transparent));
+	box-shadow: inset 3px 0 0 var(--php-debugger-paused, #d97706);
 }
 
+/* Ace positions its own marker classes; a custom one has to say so itself. */
+.ace_marker-layer .php-debugger-active-line {
+	position: absolute;
+}
+
+/* The dot CodeMirror shows in the breakpoint gutter. */
 .php-debugger-breakpoint-marker {
-	color: var(--php-debugger-error, #b52132);
-	background-color: color-mix(in srgb, currentColor 15%, transparent);
+	color: var(--php-debugger-error, #e5484d);
+}
+
+/* Ace puts the class on the line number's cell: a dot beside the number, which keeps its colour. */
+.ace_gutter-cell.php-debugger-breakpoint-marker {
+	color: inherit;
+	background-image: radial-gradient(
+		circle at .75em 50%,
+		var(--php-debugger-error, #e5484d) 0 .3em,
+		transparent calc(.3em + 1px)
+	);
 }
 
 .php-debugger-cm5-gutter,

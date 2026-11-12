@@ -134,6 +134,7 @@ Controller events are `CustomEvent`s with `.detail`: `statechange`, `progress` (
 
 ```css
 .my-page .php-debugger {
+  color-scheme: dark;
   --php-debugger-bg: #131b27;
   --php-debugger-fg: #e7edf5;
   --php-debugger-accent: #8ce4cb;
@@ -145,7 +146,9 @@ Controller events are `CustomEvent`s with `.detail`: `statechange`, `progress` (
 
 There is no shadow root. All classes start with `php-debugger-`; the root is `.php-debugger`. Rendered PHP strings use text nodes.
 
-- **Variables** can be set from any rule, in a stylesheet loaded before or after the component's. Besides those above: `--php-debugger-muted`, `--php-debugger-error`, `--php-debugger-success`, `--php-debugger-active`, `--php-debugger-font`, and `--php-debugger-line-height` (a length; the pitch the line numbers and the source share).
+- **Variables** can be set from any rule, in a stylesheet loaded before or after the component's. Besides those above: `--php-debugger-muted`, `--php-debugger-error` (errors and breakpoints), `--php-debugger-success`, `--php-debugger-active` and `--php-debugger-paused` (the band across the line where execution is paused, and the bar at its left edge), `--php-debugger-font`, and `--php-debugger-line-height` (a length; the pitch the line numbers and the source share).
+- **Light and dark.** The default colours follow the page's `color-scheme`. A page with a dark design that has not declared one sets `color-scheme: dark` on `:root` or on `.php-debugger`, as above, and the variables it leaves alone take their dark defaults.
+- **Markers in Ace and CodeMirror** sit outside `.php-debugger`, in an editor with a theme of its own, so their default colours are ones that show on light and dark themes. Set `--php-debugger-active`, `--php-debugger-paused` and `--php-debugger-error` on the editor's container to change them.
 - **Page rules for bare elements stay out.** A reset (`* { padding: 0 }`), a classless framework's `button` rule or a typography wrapper's `.prose pre` does not restyle the debugger, so it looks the same on any page. Text takes the font and size of the element you mount it in.
 - **To restyle a part**, select it inside the root, as above, in a stylesheet loaded after the component's or with one more class in front. A `.php-debugger` rule loaded after the component's restyles the root.
 - **Editor geometry is fixed.** The line numbers' and the source's line height, padding and borders are `!important`, as is `display: none` on hidden console lines: with either changed the debugger points at the wrong line.

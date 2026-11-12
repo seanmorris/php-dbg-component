@@ -99,6 +99,7 @@ export class DebuggerView
 		{
 			const editor = node('div', 'php-debugger-editor');
 
+			this.editor = editor;
 			this.gutter = node('div', 'php-debugger-gutter');
 			this.textarea = node('textarea', 'php-debugger-source');
 			this.textarea.setAttribute('aria-label', 'PHP source');
@@ -120,6 +121,19 @@ export class DebuggerView
 			this.textarea.addEventListener(
 				'scroll'
 				, () => {this.gutter.scrollTop = this.textarea.scrollTop;}
+				, {signal: this.abort.signal}
+			);
+
+			// Focus moving to a line number outside the view scrolls the gutter; take the source
+			// along.
+			this.gutter.addEventListener(
+				'scroll'
+				, () => {
+					if(Math.abs(this.textarea.scrollTop - this.gutter.scrollTop) >= 1)
+					{
+						this.textarea.scrollTop = this.gutter.scrollTop;
+					}
+				}
 				, {signal: this.abort.signal}
 			);
 
@@ -449,6 +463,13 @@ export class DebuggerView
 		this.gutter.replaceChildren();
 		const lines = this.textarea.value.split('\n').length;
 
+		// The stylesheet sizes the number column from this, so the breakpoint dot stays clear of
+		// the digits however long the file is.
+		this.editor.style.setProperty(
+			'--php-debugger-gutter-digits'
+			, String(Math.max(2, String(lines).length))
+		);
+
 		for(let line = 1; line <= lines; line++)
 		{
 			const b = node('button', 'php-debugger-line', String(line));
@@ -505,7 +526,27 @@ export class DebuggerView
 			{
 				line.dataset.active = String(Number(line.textContent) === location.line);
 			}
+
+			this.reveal(location.line);
 		}
+	}
+
+	/** Scroll the built-in editor until a line is in view; a line already in view stays put. */
+	reveal(line)
+	{
+		const style = getComputedStyle(this.textarea);
+		const pitch = parseFloat(style.lineHeight);
+		const top = (line - 1) * pitch;
+
+		const height = this.textarea.clientHeight - parseFloat(style.paddingTop)
+			- parseFloat(style.paddingBottom);
+
+		if(top < this.textarea.scrollTop || top + pitch > this.textarea.scrollTop + height)
+		{
+			this.textarea.scrollTop = Math.max(0, top - (height - pitch) / 2);
+		}
+
+		this.gutter.scrollTop = this.textarea.scrollTop;
 	}
 
 	appendOutput({channel, text, kind})

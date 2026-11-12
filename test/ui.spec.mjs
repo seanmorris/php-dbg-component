@@ -151,6 +151,33 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 				dbg.mount(document.querySelector('#host'));
 				const done = dbg.run();
 				await dbg.whenPaused();
+
+				// Ace draws its markers on the next frame.
+				await new Promise(
+					resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))
+				);
+
+				// CodeMirror 6 keeps an invisible marker in its gutter to reserve the width.
+
+				const box = selector => [...host.querySelectorAll(selector)].find(
+					element => element.getClientRects().length
+						&& getComputedStyle(element).visibility === 'visible'
+				).getBoundingClientRect();
+
+				const line = [...host.querySelectorAll('.ace_line,.CodeMirror-line,.cm-line')].find(
+					element => element.textContent === '$n += 3;'
+				).getBoundingClientRect();
+
+				const paused = box('.php-debugger-active-line');
+				const dot = box('.php-debugger-breakpoint-marker');
+
+				const marks = {
+					paused: Math.abs(paused.top - line.top)
+					, pausedHeight: paused.height
+					, dot: Math.abs(dot.top + dot.height / 2 - line.top - line.height / 2)
+					, lineHeight: line.height
+				};
+
 				const values = await dbg.inspect('variables');
 				await dbg.setVariable(values.find(v => v.name === 'n').reference, '10');
 				await dbg.continue();
@@ -167,12 +194,17 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 				return {
 					result
 					, text
+					, marks
 				};
 			}, kind
 			);
 
 			expect(result.result.stdout).toBe('13');
 			expect(result.text).toContain('$n = 2;');
+			// The paused line's marker and the breakpoint's sit on line 3, where execution stopped.
+			expect(result.marks.paused).toBeLessThan(2);
+			expect(result.marks.pausedHeight).toBeGreaterThan(result.marks.lineHeight / 2);
+			expect(result.marks.dot).toBeLessThan(result.marks.lineHeight / 2);
 		}
 	);
 }
@@ -350,6 +382,29 @@ test('bare-element page rules cannot move line numbers or reveal hidden lines', 
 
 	expect(Math.max(...await drift())).toBeLessThan(.5);
 
+	// Line 11 is below the fold of a twelve-line file; pausing there scrolls it into view, and
+	// its band reaches across the source.
+	const paused = await page.evaluate(() => {
+		const editor = document.querySelector('.php-debugger-editor').getBoundingClientRect();
+		const line = document.querySelector('.php-debugger-line[data-active=true]');
+		const number = line.getBoundingClientRect();
+		const band = getComputedStyle(line, '::after');
+		const source = getComputedStyle(document.querySelector('.php-debugger-source'));
+
+		return {
+			inView: number.top >= editor.top && number.bottom <= editor.bottom
+			, bandWidth: parseFloat(band.width)
+			, editorWidth: editor.width
+			, band: band.backgroundColor
+			, source: source.backgroundColor
+		};
+	});
+
+	expect(paused.inView).toBe(true);
+	expect(paused.bandWidth).toBeGreaterThan(paused.editorWidth);
+	expect(paused.band).toBe('rgb(255, 242, 176)');
+	expect(paused.source).toBe('rgba(0, 0, 0, 0)');
+
 	// Rules for bare elements and for elements inside a wrapper stop at the root.
 	const run = page.getByRole('button', {name: 'Run', exact: true});
 	const output = page.locator('.php-debugger-console');
@@ -372,5 +427,59 @@ test('bare-element page rules cannot move line numbers or reveal hidden lines', 
 
 	await page.getByRole('checkbox', {name: 'Debugger log', exact: true}).check();
 	await expect(notices.first()).toBeVisible();
+	await page.evaluate(() => dbg.destroy());
+});
+
+test('the breakpoint dot clears long line numbers; colours follow a dark page', async({page}) => {
+	await page.emulateMedia({colorScheme: 'dark'});
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	await page.evaluate(() => {
+		window.dbg = new PhpDebugger(
+			{
+				version: window.phpVersionUnderTest
+				, runtimeBaseUrl: '/runtime/'
+				, code: '<?php\n' + '// filler\n'.repeat(1198) + 'echo "end";'
+				, breakpoints: [8, 1200]
+			}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+	});
+
+	// How far the digits start from the right edge of the dot, in pixels.
+
+	const clearance = text => page.evaluate(
+		text => {
+			const line = [...document.querySelectorAll('.php-debugger-line')].find(
+				element => element.textContent === text
+			);
+
+			const digits = document.createRange();
+			const dot = getComputedStyle(line, '::before');
+
+			digits.selectNodeContents(line);
+
+			return digits.getBoundingClientRect().left - line.getBoundingClientRect().left
+				- parseFloat(dot.left) - parseFloat(dot.width) / 2;
+		}
+		, text
+	);
+
+	expect(await clearance('8')).toBeGreaterThan(1);
+	expect(await clearance('1200')).toBeGreaterThan(1);
+
+	// A page that has not declared a colour scheme is a light page, whatever the system prefers.
+	const root = page.locator('.php-debugger');
+	const breakpoint = page.locator('.php-debugger-line[data-breakpoint=true]').first();
+
+	await expect(root).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+	await expect(breakpoint).toHaveCSS('color', 'rgb(181, 33, 50)');
+
+	await page.addStyleTag({content: ':root { color-scheme: light dark; }'});
+	await expect(root).toHaveCSS('background-color', 'rgb(21, 27, 35)');
+	await expect(root).toHaveCSS('color', 'rgb(230, 237, 243)');
+	await expect(breakpoint).toHaveCSS('color', 'rgb(255, 142, 142)');
 	await page.evaluate(() => dbg.destroy());
 });
