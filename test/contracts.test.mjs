@@ -104,6 +104,11 @@ test('downloads report progress and still deliver every byte', async () => {
   const totals = []; compressed.onProgress(progress => totals.push(progress.total));
   await compressed.bytes('https://example.test/php.wasm');
   assert.deepEqual([...new Set(totals)], [null]);
+  // Across origins the browser can hide the encoding and still show the compressed length.
+  const hidden = new AssetRegistry({fetch:async () => new Response(body(), {headers:{'content-length':'4'}})});
+  const steps = []; hidden.onProgress(progress => steps.push([progress.loaded, progress.total]));
+  await hidden.bytes('https://example.test/php.wasm');
+  assert.deepEqual(steps, [[3, 4], [5, null], [6, null]]);
 });
 
 test('engine uses the runtime\'s own types, frame names and globals when it provides debugger API 2', async () => {
@@ -199,4 +204,21 @@ test('an evaluated value keeps its PHP type when the runtime provides debugger A
   const plain = await evaluate(1, '3.0');
   assert.deepEqual([plain.value.type, plain.value.displayValue], ['number', '3']);
   assert.match(plain.command, /capture\(eval\(.*\)\)$/);
+});
+
+test('an anonymous class is labelled with the file and line that declare it', async () => {
+	const {phpClassLabel} = await import('../src/model.mjs');
+	const {DebugEngine} = await import('../src/engine.mjs');
+
+	assert.equal(phpClassLabel('App\\Item'), 'App\\Item');
+	assert.equal(phpClassLabel('class@anonymous'), 'class@anonymous');
+	assert.equal(phpClassLabel('class@anonymous\0/srv/app/jobs.php:12$0'), 'class@anonymous (jobs.php:12)');
+	assert.equal(phpClassLabel('Job@anonymous\0/main.php:3$1f'), 'Job@anonymous (main.php:3)');
+
+	// The value keeps PHP's own name; only what is shown is shortened.
+	const engine = new DebugEngine(() => {});
+	const name = 'class@anonymous\0/main.php:3$0';
+	const value = engine.describe('job', {}, "${'job'}", true, 0, [], {type:'object', className:name, count:null});
+
+	assert.deepEqual([value.className, value.displayValue], [name, 'class@anonymous (main.php:3)']);
 });

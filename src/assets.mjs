@@ -6,12 +6,16 @@ async function readBody(response, report) {
   if(!reader) return response.arrayBuffer();
   // With a content encoding, the declared length is the compressed size and says nothing about these bytes.
   const length = Number(response.headers?.get('content-length'));
-  const total = length > 0 && !response.headers?.get('content-encoding') ? length : null;
+  let total = length > 0 && !response.headers?.get('content-encoding') ? length : null;
   const chunks = []; let loaded = 0;
   for(;;) {
     const {done, value} = await reader.read();
     if(done) break;
-    chunks.push(value); loaded += value.length; report(loaded, total);
+    chunks.push(value); loaded += value.length;
+    // Across origins the encoding header can be hidden while the length is not, so the length may be the
+    // compressed size. More bytes than it declares means it never described these bytes.
+    if(total !== null && loaded > total) total = null;
+    report(loaded, total);
   }
   const bytes = new Uint8Array(loaded); let offset = 0;
   for(const chunk of chunks) {bytes.set(chunk, offset); offset += chunk.length;}

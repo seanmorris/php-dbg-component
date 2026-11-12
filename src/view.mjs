@@ -1,4 +1,4 @@
-import {versions} from './model.mjs';
+import {versions, phpClassLabel} from './model.mjs';
 
 function node(tag, className, text) {const n=document.createElement(tag); if(className)n.className=className; if(text!==undefined)n.textContent=text; return n;}
 
@@ -86,7 +86,7 @@ export class DebuggerView {
   }
   frameLabel(frame) {
     // Only an API 2 runtime names the function; an empty name there means top-level code.
-    const callee=frame.functionName===undefined?'':` · ${frame.functionName?`${frame.className?frame.className+'::':''}${frame.functionName}()`:'{main}'}`;
+    const callee=frame.functionName===undefined?'':` · ${frame.functionName?`${frame.className?phpClassLabel(frame.className)+'::':''}${frame.functionName}()`:'{main}'}`;
     return `Frame ${frame.frame}${callee} — ${frame.filename?`${frame.filename}:${frame.lineNo}`:'internal'}`;
   }
   gutterUpdate() {
@@ -145,7 +145,7 @@ export class DebuggerView {
   }
   valueNode(value, depth=0) {
     const row=node('div','php-debugger-value');const name=node('span','php-debugger-value-name',value.name+': ');const preview=node('span','php-debugger-value-preview',value.displayValue);row.append(name,preview);
-    if(value.type){preview.dataset.type=value.type;preview.title=value.className||(value.type==='string'&&value.count!=null?`string(${value.count})`:value.type);}
+    if(value.type){preview.dataset.type=value.type;preview.title=(value.className&&phpClassLabel(value.className))||(value.type==='string'&&value.count!=null?`string(${value.count})`:value.type);}
     if(value.expandable && depth<30) {
       const expand=node('button','php-debugger-expand','Expand');expand.type='button';expand.setAttribute('aria-label',`Expand ${value.name}`);const children=node('div','php-debugger-children');row.append(expand,children);let offset=0;
       expand.addEventListener('click',()=>this.act(async()=>{const page=await this.dbg.children(value.reference,{offset,limit:100});for(const child of page.values)children.append(this.valueNode(child,depth+1));offset+=page.values.length;expand.disabled=offset>=page.total;expand.textContent=expand.disabled?'Expanded':'More';}));

@@ -1,4 +1,4 @@
-import {deferred, phpString, normalizePath} from './model.mjs';
+import {deferred, phpString, normalizePath, phpClassLabel} from './model.mjs';
 
 /** Lives beside the runtime, in a worker by default. Live Zend values stay here. */
 export class DebugEngine {
@@ -170,7 +170,7 @@ export class DebugEngine {
   }
   display({type, className, count}, value) {
     if(type === 'array') return `array(${count})`;
-    if(type === 'object') return className || 'object';
+    if(type === 'object') return className ? phpClassLabel(className) : 'object';
     if(type === 'string') return JSON.stringify(value);
     // PHP prints 3.0 as 3; keep the float visible.
     if(type === 'float' && Number.isInteger(value)) return value.toFixed(1);

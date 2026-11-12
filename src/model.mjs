@@ -24,3 +24,20 @@ export function deferred() {
 }
 export function errorRecord(error) {return {name:error?.name || 'Error', message:error?.message || String(error)};}
 export function phpString(value) {return "'" + String(value).replaceAll('\\','\\\\').replaceAll("'","\\'") + "'";}
+
+/**
+ * A class name as people read it. PHP names an anonymous class
+ * "class@anonymous", a NUL byte, then the file and line that declare it;
+ * the declaring file's name and line are kept so two such classes differ.
+ */
+export function phpClassLabel(name)
+{
+	const [shown, declared] = String(name).split('\0');
+
+	if(!declared)
+	{
+		return shown;
+	}
+
+	return `${shown} (${declared.replace(/\$[0-9a-f]+$/, '').split('/').pop()})`;
+}
