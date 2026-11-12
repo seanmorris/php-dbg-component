@@ -776,3 +776,89 @@ test('status says where execution is; keys drive it; a version change owns up', 
 	await page.evaluate(() => dbg.destroy());
 });
 
+test('breakpoints list by line and add with Enter; a run clears the console', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	await page.evaluate(() => {
+		window.dbg = new PhpDebugger(
+			{
+				version: window.phpVersionUnderTest
+				, runtimeBaseUrl: '/runtime/'
+				, code: '<?php\n$n = 2;\necho "n is $n\\n";\necho "done";'
+				, breakpoints: [3]
+			}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+	});
+
+	const list = page.getByRole('list', {name: 'Breakpoints', exact: true});
+	const line = page.getByRole('spinbutton', {name: 'Breakpoint line', exact: true});
+	const problem = page.locator('.php-debugger-breakpoint-error');
+	const gutter = page.locator('.php-debugger-line');
+	const output = page.locator('.php-debugger-console');
+
+	const shown = () => output.evaluate(element => element.innerText);
+
+	// A breakpoint is named by its line; unticking keeps it without stopping there.
+	await expect(list.getByRole('listitem')).toHaveText(['Line 3×']);
+	await list.getByRole('checkbox', {name: 'Line 3', exact: true}).uncheck();
+	await expect(gutter.nth(2)).toHaveAttribute('data-breakpoint', 'false');
+	await expect(list.getByRole('listitem')).toHaveAttribute('data-enabled', 'false');
+	await list.getByRole('checkbox', {name: 'Line 3', exact: true}).check();
+	await expect(gutter.nth(2)).toHaveAttribute('data-breakpoint', 'true');
+
+	// Enter adds, and the box is ready for the next one.
+	await line.fill('2');
+	await line.press('Enter');
+	await expect(list.getByRole('listitem')).toHaveText(['Line 2×', 'Line 3×']);
+	await expect(line).toHaveValue('');
+	await expect(line).toBeFocused();
+
+	// What cannot be a breakpoint is refused beside the box, in the user's terms.
+	await line.press('Enter');
+	await expect(problem).toHaveText('Enter a line number.');
+	await line.fill('99');
+	await expect(problem).toHaveText('');
+	await line.press('Enter');
+	await expect(problem).toHaveText('This file has 4 lines.');
+	await line.fill('2');
+	await line.press('Enter');
+	await expect(problem).toHaveText('Line 2 already has a breakpoint.');
+	await expect(page.locator('.php-debugger-message')).toHaveText('');
+
+	// Removing one leaves focus on the next one's Remove, and on the box after the last.
+
+	const remove = number => list.getByRole(
+		'button'
+		, {name: `Remove breakpoint, line ${number}`, exact: true}
+	);
+
+	await remove(2).click();
+	await expect(list.getByRole('listitem')).toHaveText(['Line 3×']);
+	await expect(remove(3)).toBeFocused();
+	await page.keyboard.press('Enter');
+	await expect(list).toContainText('No breakpoints.');
+	await expect(line).toBeFocused();
+
+	// An empty console says what it is for; a second run does not pile onto the first.
+	await expect(output).toHaveAttribute('data-empty', 'true');
+
+	expect(
+		await output.evaluate(element => getComputedStyle(element, '::before').content)
+	).toContain('Output from the program appears here.');
+
+	await page.getByRole('button', {name: 'Run', exact: true}).click();
+	await expect(page.getByRole('status')).toContainText('Finished');
+	await expect.poll(shown).toBe('n is 2\ndone');
+	await expect(output).toHaveAttribute('data-empty', 'false');
+	await page.getByRole('button', {name: 'Run', exact: true}).click();
+	await expect(page.getByRole('status')).toContainText('Finished');
+	await expect.poll(shown).toBe('n is 2\ndone');
+
+	await page.getByRole('button', {name: 'Clear', exact: true}).click();
+	await expect(output).toHaveAttribute('data-empty', 'true');
+	await page.evaluate(() => dbg.destroy());
+});
+

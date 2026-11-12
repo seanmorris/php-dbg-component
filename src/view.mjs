@@ -259,24 +259,41 @@ export class DebuggerView
 		}
 
 		this.breakpoints = node('div', 'php-debugger-breakpoints');
+		const breakpointForm = node('form', 'php-debugger-breakpoint-form');
 		const lineInput = node('input', 'php-debugger-breakpoint-line');
+		const add = node('button', 'php-debugger-button', 'Add breakpoint');
+
+		this.breakpointLine = lineInput;
+		this.breakpointError = node('div', 'php-debugger-breakpoint-error');
+		this.breakpointError.id = `${this.id}-breakpoint-error`;
+		this.breakpointError.setAttribute('role', 'alert');
 		lineInput.type = 'number';
 		lineInput.min = '1';
 		lineInput.placeholder = 'Line';
 		lineInput.setAttribute('aria-label', 'Breakpoint line');
-		const add = node('button', 'php-debugger-button', 'Add breakpoint');
-		add.type = 'button';
+		lineInput.setAttribute('aria-describedby', this.breakpointError.id);
+		add.type = 'submit';
 
-		add.addEventListener(
-			'click'
-			, () => this.act(
-				() => dbg.setBreakpoints([...dbg.breakpoints, {line: Number(lineInput.value)}])
-			)
+		// A form, so Enter in the box adds the breakpoint.
+		breakpointForm.addEventListener(
+			'submit'
+			, event => {
+				event.preventDefault();
+				void this.addBreakpoint();
+			}
+			, {signal: this.abort.signal}
+		);
+
+		lineInput.addEventListener(
+			'input'
+			, () => this.breakpointProblem('')
 			, {signal: this.abort.signal}
 		);
 
 		this.breakpointList = node('ul', 'php-debugger-breakpoint-list');
-		this.breakpoints.append(lineInput, add, this.breakpointList);
+		this.breakpointList.setAttribute('aria-label', 'Breakpoints');
+		breakpointForm.append(lineInput, add);
+		this.breakpoints.append(breakpointForm, this.breakpointList, this.breakpointError);
 		this.root.append(this.breakpoints);
 
 		const body = node('div', 'php-debugger-body');
@@ -284,16 +301,25 @@ export class DebuggerView
 		const output = node('div', 'php-debugger-console-panel');
 		body.append(output);
 
+		const bar = node('div', 'php-debugger-console-bar');
 		const log = node('label', 'php-debugger-log-toggle');
+		const clear = node('button', 'php-debugger-clear', 'Clear');
+
 		this.debugLog = node('input');
 		this.debugLog.type = 'checkbox';
 		log.append(this.debugLog, ' Debugger log');
+		clear.type = 'button';
+		clear.title = 'Clear the output shown here';
+		clear.addEventListener('click', () => this.clearConsole(), {signal: this.abort.signal});
+		bar.append(log, clear);
 
 		this.console = node('pre', 'php-debugger-console');
 		this.console.setAttribute('aria-label', 'PHP and debugger output');
 		this.console.tabIndex = 0;
 		this.console.dataset.debug = 'false';
-		output.append(log, this.console);
+		this.console.dataset.placeholder = 'Output from the program appears here.';
+		this.console.dataset.empty = 'true';
+		output.append(bar, this.console);
 
 		// The hidden attribute, not a stylesheet rule, so hosts that bring their own CSS get the
 		// same default.
@@ -305,6 +331,7 @@ export class DebuggerView
 				notice.hidden = !this.debugLog.checked;
 			}
 
+			this.consoleShown();
 			this.console.scrollTop = this.console.scrollHeight;
 		}, {signal: this.abort.signal}
 		);
@@ -538,9 +565,81 @@ export class DebuggerView
 		}
 	}
 
+	breakpointProblem(message)
+	{
+		this.breakpointError.textContent = message;
+
+		if(message)
+		{
+			this.breakpointLine.setAttribute('aria-invalid', 'true');
+		}
+		else
+		{
+			this.breakpointLine.removeAttribute('aria-invalid');
+		}
+	}
+
+	/** Add the line in the box as a breakpoint, or say beside the box why it cannot be one. */
+	async addBreakpoint()
+	{
+		const dbg = this.dbg;
+		const text = this.breakpointLine.value.trim();
+		const line = Number(text);
+		const lines = this.textarea ? this.textarea.value.split('\n').length : Infinity;
+
+		const taken = dbg.breakpoints.some(
+			bp => bp.file === dbg.options.entrypoint && bp.line === line
+		);
+
+		const problem = !text
+			? 'Enter a line number.'
+			: !Number.isInteger(line) || line < 1
+				? 'Line numbers are whole numbers, starting at 1.'
+				: line > lines
+					? `This file has ${lines} lines.`
+					: taken ? `Line ${line} already has a breakpoint.` : '';
+
+		this.message.textContent = '';
+		this.breakpointProblem(problem);
+
+		if(problem)
+		{
+			return;
+		}
+
+		await this.act(() => dbg.setBreakpoints([...dbg.breakpoints, {line}]));
+
+		this.breakpointLine.value = '';
+	}
+
+	/** Start the console afresh: at the Clear button, and when a new run begins. */
+	clearConsole()
+	{
+		this.console.replaceChildren();
+		this.openLine = false;
+		this.openVisibleLine = false;
+		this.consoleShown();
+	}
+
+	/** Mark the console empty when nothing in it is showing, so it can say what it is for. */
+	consoleShown()
+	{
+		this.console.dataset.empty = String(
+			![...this.console.children].some(child => !child.hidden)
+		);
+	}
+
 	update()
 	{
 		const {state, testStatus} = this.dbg;
+
+		// Each run's output stands alone.
+		if(this.dbg.runNumber !== this.run)
+		{
+			this.run = this.dbg.runNumber;
+			this.clearConsole();
+		}
+
 		this.root.dataset.state = state;
 		this.root.dataset.testStatus = testStatus;
 
@@ -716,16 +815,38 @@ export class DebuggerView
 	gutterUpdate()
 	{
 		const dbg = this.dbg;
+		// Rebuilt whole; focus goes back to the neighbour of a removed breakpoint, or to the box.
+		const active = this.root.getRootNode().activeElement;
+		const focused = this.breakpointList.contains(active)
+			? [...this.breakpointList.querySelectorAll('input, button')].indexOf(active)
+			: -1;
+
 		this.breakpointList.replaceChildren();
 
-		for(const bp of dbg.breakpoints)
-		{
-			const item = node('li', 'php-debugger-breakpoint');
+		// In reading order: the file on screen first, then by line.
+		const listed = [...dbg.breakpoints].sort(
+			(a, b) => (a.file !== dbg.options.entrypoint) - (b.file !== dbg.options.entrypoint)
+				|| a.file.localeCompare(b.file)
+				|| a.line - b.line
+		);
 
+		for(const bp of listed)
+		{
+			// The file is named only when it is not the one on screen.
+			const where = bp.file === dbg.options.entrypoint
+				? `Line ${bp.line}`
+				: `${bp.file}:${bp.line}`;
+
+			const item = node('li', 'php-debugger-breakpoint');
+			const label = node('label', 'php-debugger-breakpoint-toggle');
 			const toggle = node('input');
+			const remove = node('button', 'php-debugger-breakpoint-remove', '\u00d7');
+
+			item.dataset.enabled = String(bp.enabled);
 			toggle.type = 'checkbox';
 			toggle.checked = bp.enabled;
-			toggle.setAttribute('aria-label', `Enable breakpoint ${bp.file}:${bp.line}`);
+			toggle.title = 'Untick to keep this breakpoint but not stop at it';
+			label.append(toggle, where);
 
 			toggle.addEventListener(
 				'change'
@@ -738,8 +859,9 @@ export class DebuggerView
 				)
 			);
 
-			const remove = node('button', 'php-debugger-button', `Remove ${bp.file}:${bp.line}`);
 			remove.type = 'button';
+			remove.title = 'Remove';
+			remove.setAttribute('aria-label', `Remove breakpoint, ${where.toLowerCase()}`);
 
 			remove.addEventListener(
 				'click'
@@ -748,9 +870,22 @@ export class DebuggerView
 				)
 			);
 
-			item.append(toggle, remove);
-
+			item.append(label, remove);
 			this.breakpointList.append(item);
+		}
+
+		if(!dbg.breakpoints.length)
+		{
+			this.breakpointList.append(
+				node('li', 'php-debugger-empty', 'No breakpoints. Click a line number to set one.')
+			);
+		}
+
+		if(focused >= 0)
+		{
+			const controls = [...this.breakpointList.querySelectorAll('input, button')];
+
+			(controls[Math.min(focused, controls.length - 1)] || this.breakpointLine).focus();
 		}
 
 		dbg.source?.setBreakpoints?.(
@@ -883,14 +1018,24 @@ export class DebuggerView
 		this.console.append(span);
 		this.openLine = !text.endsWith('\n');
 
+		if(!span.hidden)
+		{
+			this.console.dataset.empty = 'false';
+		}
+
 		if(!notice)
 		{
 			this.openVisibleLine = this.openLine;
 		}
 
-		while(this.console.childNodes.length > 1000)
+		if(this.console.childNodes.length > 1000)
 		{
-			this.console.firstChild.remove();
+			while(this.console.childNodes.length > 1000)
+			{
+				this.console.firstChild.remove();
+			}
+
+			this.consoleShown();
 		}
 
 		this.console.scrollTop = this.console.scrollHeight;

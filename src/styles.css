@@ -208,14 +208,31 @@
 	min-width: 0;
 }
 
+.php-debugger .php-debugger-console-bar {
+	display: flex;
+	gap: .75em;
+	align-items: center;
+	justify-content: space-between;
+}
+
 .php-debugger .php-debugger-log-toggle {
 	display: flex;
 	gap: .35em;
 	align-items: center;
-	justify-self: start;
 	font-size: .9em;
 	color: var(--php-debugger-muted);
 	cursor: pointer;
+}
+
+.php-debugger .php-debugger-clear {
+	padding: .1em .45em;
+	font-size: .8em;
+}
+
+/* An empty console says what will appear in it. */
+.php-debugger .php-debugger-console[data-empty=true]::before {
+	content: attr(data-placeholder);
+	color: var(--php-debugger-muted);
 }
 
 .php-debugger .php-debugger-console {
@@ -379,14 +396,76 @@
 
 .php-debugger .php-debugger-expression-error:empty,
 .php-debugger .php-debugger-edit-error:empty,
+.php-debugger .php-debugger-breakpoint-error:empty,
 .php-debugger .php-debugger-message:empty {
 	display: none;
+}
+
+/* The box to add a breakpoint, then the breakpoints there are, each a small chip. */
+.php-debugger .php-debugger-breakpoints,
+.php-debugger .php-debugger-breakpoint-form,
+.php-debugger .php-debugger-breakpoint-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .35em;
+	align-items: center;
+}
+
+.php-debugger .php-debugger-breakpoints {
+	gap: .35em .75em;
+}
+
+.php-debugger .php-debugger-breakpoint-line {
+	width: 6em;
+}
+
+.php-debugger .php-debugger-breakpoint-line[aria-invalid=true] {
+	border-color: var(--php-debugger-error);
 }
 
 .php-debugger .php-debugger-breakpoint-list {
 	margin: 0;
 	padding: 0;
 	list-style: none;
+}
+
+.php-debugger .php-debugger-breakpoint {
+	display: flex;
+	gap: .15em;
+	align-items: center;
+	padding: .05em .1em .05em .4em;
+	border: 1px solid var(--php-debugger-border);
+	border-radius: var(--php-debugger-radius);
+}
+
+.php-debugger .php-debugger-breakpoint-toggle {
+	display: flex;
+	gap: .3em;
+	align-items: center;
+	cursor: pointer;
+}
+
+.php-debugger .php-debugger-breakpoint[data-enabled=false] .php-debugger-breakpoint-toggle {
+	color: var(--php-debugger-muted);
+	text-decoration: line-through;
+}
+
+.php-debugger .php-debugger-breakpoint-remove {
+	padding: 0 .35em;
+	font-size: 1.1em;
+	line-height: 1.2;
+	color: var(--php-debugger-muted);
+	background: none;
+	border-color: transparent;
+}
+
+.php-debugger .php-debugger-breakpoint-remove:hover {
+	color: var(--php-debugger-error);
+}
+
+.php-debugger .php-debugger-breakpoint-error {
+	flex-basis: 100%;
+	color: var(--php-debugger-error);
 }
 
 .php-debugger[data-test-status=passed] .php-debugger-status {
