@@ -244,7 +244,8 @@ test(
 
 		expect([values.later.type,values.later.displayValue]).toEqual(['unset','unset']);
 
-		// A runtime that reports PHP types keeps a whole-number float a float; an older one only has JavaScript's number.
+		// A runtime that reports PHP types keeps a whole-number float a float; an older one only
+		// has JavaScript's number.
 		expect([values.ratio.type,values.ratio.displayValue]).toEqual(
 			values.valid.type==='int' ? ['float','3.0'] : ['number','3']
 		);

@@ -1,7 +1,15 @@
 export type PhpVersion = '8.0' | '8.1' | '8.2' | '8.3' | '8.4' | '8.5';
 export const versions: readonly PhpVersion[];
 export type DebuggerState =
-	'idle' | 'loading' | 'ready' | 'running' | 'paused' | 'completed' | 'stopped' | 'error' | 'destroyed';
+	'idle'
+	| 'loading'
+	| 'ready'
+	| 'running'
+	| 'paused'
+	| 'completed'
+	| 'stopped'
+	| 'error'
+	| 'destroyed';
 export type InspectionScope =
 	'variables' | 'globals' | 'constants' | 'functions' | 'classes' | 'files' | 'frames';
 export interface Breakpoint { line: number; file?: string; enabled?: boolean; id?: string }
@@ -12,9 +20,15 @@ export interface Pause { location: Location; reason?:
 export interface Variable {
 	name: string; type: string; displayValue: string; value?:
 	  string | number | boolean | bigint | null;
-	/** Set by runtimes with debugger API 2: the class of an object, and the size of an array or string. */
+	/**
+	 * Set by runtimes with debugger API 2: the class of an object, and the size of an array or
+	 * string.
+	 */
 	className?: string | null; count?: number | null;
-	/** For a property of an object. Private and protected properties are listed when the runtime provides debugger API 2, and are read-only. */
+	/**
+	 * For a property of an object. Private and protected properties are listed when the runtime
+	 * provides debugger API 2, and are read-only.
+	 */
 	visibility?: 'public' | 'protected' | 'private';
 	reference?: string; writable: boolean; expandable: boolean; circular?: boolean;
 }
@@ -93,7 +107,10 @@ export class AssetRegistry
 
 	objectUrl(url: string | URL): Promise<string>;
 
-	/** Reports downloads as they arrive. `total` is null when the size is unknown. Returns a function that stops the reports. */
+	/**
+	 * Reports downloads as they arrive. `total` is null when the size is unknown. Returns a
+	 * function that stops the reports.
+	 */
 	onProgress(listener: (progress: {url: string; loaded: number; total: number | null}) => void): (
 	) => void;
 

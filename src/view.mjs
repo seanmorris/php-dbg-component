@@ -147,7 +147,8 @@ export class DebuggerView
 		this.console.dataset.debug = 'false';
 		output.append(log, this.console);
 
-		// The hidden attribute, not a stylesheet rule, so hosts that bring their own CSS get the same default.
+		// The hidden attribute, not a stylesheet rule, so hosts that bring their own CSS get the
+		// same default.
 		this.debugLog.addEventListener('change', () => {
 			this.console.dataset.debug = String(this.debugLog.checked);
 
@@ -451,8 +452,9 @@ this.message.textContent = result.diagnostics.map(d => d.message).join('\n');
 
 		if(channel==='debug' && !text.endsWith('\n'))text += '\n';
 
-		// Debugger lines start on a fresh line even when program output stopped mid-line. Notices compare
-		// against everything; the rest compare against what is visible while notices are hidden.
+		// Debugger lines start on a fresh line even when program output stopped mid-line. Notices
+		// compare against everything; the rest compare against what is visible while notices are
+		// hidden.
 		if(!program && (notice ? this.openLine : this.openVisibleLine))text = '\n' + text;
 
 		const span = node(

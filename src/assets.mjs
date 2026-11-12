@@ -7,7 +7,8 @@ async function readBody(response, report)
 
 	if(!reader) return response.arrayBuffer();
 
-	// With a content encoding, the declared length is the compressed size and says nothing about these bytes.
+	// With a content encoding, the declared length is the compressed size and says nothing about
+	// these bytes.
 	const length = Number(response.headers?.get('content-length'));
 	let total = length > 0 && !response.headers?.get('content-encoding') ? length : null;
 	const chunks = [];
@@ -22,8 +23,9 @@ async function readBody(response, report)
 		chunks.push(value);
 		loaded += value.length;
 
-		// Across origins the encoding header can be hidden while the length is not, so the length may be the
-		// compressed size. More bytes than it declares means it never described these bytes.
+		// Across origins the encoding header can be hidden while the length is not, so the length
+		// may be the compressed size. More bytes than it declares means it never described these
+		// bytes.
 		if(total !== null && loaded > total) total = null;
 
 		report(loaded, total);
@@ -55,7 +57,10 @@ export class AssetRegistry
 		this.listeners = new Set();
 	}
 
-	/** Calls listener({url, loaded, total}) as downloads arrive; total is null when the size is unknown. Returns a function that stops it. */
+	/**
+	 * Calls listener({url, loaded, total}) as downloads arrive; total is null when the size is
+	 * unknown. Returns a function that stops it.
+	 */
 	onProgress(listener)
 	{
 		this.listeners.add(listener);
@@ -147,7 +152,10 @@ export class AssetRegistry
 		return this.modules.get(key);
 	}
 
-	/** The URL whose download backs module(url, sha256): another caller's, when it asked for the identical binary first. */
+	/**
+	 * The URL whose download backs module(url, sha256): another caller's, when it asked for the
+	 * identical binary first.
+	 */
 	moduleSource(url, sha256)
 	{
 		return this.moduleUrls.get(sha256 ? `sha256:${sha256}` : String(url)) ?? String(url);
@@ -276,7 +284,8 @@ export async function prepareAssets(options)
 
 	// The interpreter binary is nearly all of the download, so its progress stands for the whole.
 	const binary = new URL(manifest.wasm, base);
-	// Another debugger may already be fetching the identical binary from its own URL; that download's progress is this one's too.
+	// Another debugger may already be fetching the identical binary from its own URL; that
+	// download's progress is this one's too.
 	let source = binary.href;
 
 	const stopProgress = options.onProgress && registry.onProgress?.(event => {

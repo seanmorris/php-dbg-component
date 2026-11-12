@@ -190,7 +190,8 @@ test('GUI edits a live value and exposes symbols, globals, constants and frames'
 	await expect(page.locator('.php-debugger-values')).toContainText('/main.php');
 	await page.getByRole('button', {name: 'frames',exact: true}).click();
 	await expect(page.locator('.php-debugger-values')).toContainText('Frame 0');
-	// Selecting the caller keeps the whole stack listed, marks the selection and moves the highlight to the call site.
+	// Selecting the caller keeps the whole stack listed, marks the selection and moves the
+	// highlight to the call site.
 	const frames = page.locator('.php-debugger-symbol');
 	await expect(frames).toHaveCount(2);
 	await expect(frames.nth(0)).toHaveAttribute('aria-current', 'true');
@@ -203,7 +204,8 @@ test('GUI edits a live value and exposes symbols, globals, constants and frames'
 	await page.getByRole('button', {name: 'Continue',exact: true}).click();
 	await expect(page.getByRole('status')).toHaveText('completed');
 	expect(await page.evaluate(() => dbg.result.stdout)).toBe('42');
-	// Program output is visible by default; phpdbg's own notices appear only once the log is switched on.
+	// Program output is visible by default; phpdbg's own notices appear only once the log is
+	// switched on.
 
 	const visible = () => page.locator('.php-debugger-console').evaluate(
 		element => element.innerText
@@ -235,7 +237,8 @@ test('editing an array starts from an empty expression, a number from its value'
 
 	await page.getByRole('button', {name: 'Run',exact: true}).click();
 	await expect(page.getByRole('status')).toHaveText('paused');
-	// An array's preview, such as "array(2)", is valid PHP for a different array, so applying it unchanged would replace the contents.
+	// An array's preview, such as "array(2)", is valid PHP for a different array, so applying it
+	// unchanged would replace the contents.
 	await page.getByRole('button', {name: 'Edit list',exact: true}).click();
 
 	await expect(

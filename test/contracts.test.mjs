@@ -408,10 +408,10 @@ test(
 			const bases = ['worker-host', 'page-host'].map(name => {
 				fs.mkdirSync(path.join(root, name));
 
-				fs.writeFileSync(
-					path.join(root, name, 'resolveDependencies.mjs')
-					, 'export const resolveDependencies = () => ({files:[], libs:[], urlLibs:{}});\n'
-				);
+				const resolver
+					= 'export const resolveDependencies = () => ({files:[], libs:[], urlLibs:{}});';
+
+				fs.writeFileSync(path.join(root, name, 'resolveDependencies.mjs'), resolver + '\n');
 
 				return pathToFileURL(path.join(root, name) + path.sep).href;
 			});
@@ -493,7 +493,8 @@ test('an evaluated value keeps its PHP type when the runtime provides debugger A
 		engine.paused = true;
 		engine.dbgApi = api;
 		const commands = [];
-		// Stands in for PHP: a float of 3.0 reaches JavaScript as the number 3, alone or inside an array.
+		// Stands in for PHP: a float of 3.0 reaches JavaScript as the number 3, alone or inside an
+		// array.
 
 		engine.writeFile = () => {};
 
@@ -585,7 +586,8 @@ test(
 		const keys = ['\0App\\Job\0secret', '\0*\0guarded', 'open'];
 		const stored = {[keys[0]]: 4, [keys[1]]: 'kept', open: 7};
 
-		// Stands in for the runtime's object: every property is an own key, and only public ones are enumerable.
+		// Stands in for the runtime's object: every property is an own key, and only public ones
+		// are enumerable.
 		const job = new Proxy({}, {
 			ownKeys: () => keys
 			, getOwnPropertyDescriptor: (target, key) => key
@@ -634,10 +636,12 @@ test(
 			, ['open', 'public', '7', true]
 		]);
 
-		// An older runtime cannot read a property by its mangled name, so only public ones are shown.
+		// An older runtime cannot read a property by its mangled name, so only public ones are
+		// shown.
 		assert.deepEqual(await list(1), [['open', 'public', '7', true]]);
 
-		// Casting an object to an array gives keys that look mangled. They are array keys, shown whole.
+		// Casting an object to an array gives keys that look mangled. They are array keys, shown
+		// whole.
 		const engine = new DebugEngine(() => {});
 
 		const cast = {'\0App\\Job\0secret': 4, secret: 5};

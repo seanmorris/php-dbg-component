@@ -83,7 +83,8 @@ export class DebugEngine
 			'This php-dbg-wasm build lacks debugger bridge v1. Rebuild its native worker/web artifacts.'
 		);
 
-		// API 2 runtimes report PHP types, frame names and user globals themselves; older ones need the fallbacks below.
+		// API 2 runtimes report PHP types, frame names and user globals themselves; older ones need
+		// the fallbacks below.
 		this.dbgApi = typeof this.php.debuggerApiVersion === 'function'
 			? await this.php.debuggerApiVersion()
 			: 1;
@@ -128,7 +129,8 @@ export class DebugEngine
 			? 'stdout'
 			: type === 2 && !evaluating ? 'stderr' : 'debug';
 
-		// Notices are phpdbg's own chatter; errors and evaluation output answer something the user did.
+		// Notices are phpdbg's own chatter; errors and evaluation output answer something the user
+		// did.
 		const kind = channel !== 'debug'
 			? null
 			: type === 3 ? 'error' : evaluating ? 'evaluation' : 'notice';
@@ -346,7 +348,8 @@ export class DebugEngine
 	{
 		if(this.dbgApi >= 2) return this.php.dumpBacktrace();
 
-		// An older runtime lists frames starting at the selected one; list from the top so indexes match selectFrame().
+		// An older runtime lists frames starting at the selected one; list from the top so indexes
+		// match selectFrame().
 		const selected = this.frame;
 
 		if(selected) await this.php.switchFrame(0);
@@ -416,7 +419,8 @@ export class DebugEngine
 	describe(name, value, expression, writable = true, frame = this.frame, ancestors = [], info =
 	null
 	){
-		// Without info, undefined is how the runtime hands back a variable the frame declares but has not assigned yet.
+		// Without info, undefined is how the runtime hands back a variable the frame declares but
+		// has not assigned yet.
 		const unset = info ? info.type === 'undefined' : value === undefined && !ancestors.length;
 		const type = unset ? 'unset' : info?.type || this.type(value);
 
@@ -530,8 +534,9 @@ export class DebugEngine
 		throw new RangeError('Invalid inspection page');
 
 		const type = parent.type;
-		// Object.keys() gives an object's public properties. Its own keys also include the private and protected ones,
-		// under PHP's mangled names ("\0Class\0name", "\0*\0name"), and a runtime with debugger API 2 can read those by key.
+		// Object.keys() gives an object's public properties. Its own keys also include the private
+		// and protected ones, under PHP's mangled names ("\0Class\0name", "\0*\0name"), and a
+		// runtime with debugger API 2 can read those by key.
 		const names = this.dbgApi >= 2 && type === 'object'
 			? Reflect.ownKeys(parent.value).filter(name => typeof name === 'string')
 			: Object.keys(parent.value);
@@ -554,12 +559,14 @@ export class DebugEngine
 
 			try
 			{
-				// Asking by key keeps the child's own PHP type; a float of 3.0 is just the number 3 once converted.
+				// Asking by key keeps the child's own PHP type; a float of 3.0 is just the number 3
+				// once converted.
 				const info = this.dbgApi >= 2
 					? await this.php.describeChild(parent.value, key)
 					: null;
 
-				// An expression evaluated from outside the class cannot assign a private or protected property.
+				// An expression evaluated from outside the class cannot assign a private or
+				// protected property.
 				const value = this.describe(
 					name
 					, info ? info.value : parent.value[key]
@@ -605,8 +612,9 @@ export class DebugEngine
 		{
 			// A file avoids phpdbg's line-length limit and preserves multiline expressions.
 			this.writeFile('/.php-debugger/eval.php', `return (${expression});`);
-			// Handed over directly, a float of 3.0 arrives as the number 3 and its PHP type is gone. Inside an array it
-			// stays a PHP value, and the runtime can describe that element as it describes any other child.
+			// Handed over directly, a float of 3.0 arrives as the number 3 and its PHP type is
+			// gone. Inside an array it stays a PHP value, and the runtime can describe that element
+			// as it describes any other child.
 			const boxed = this.dbgApi >= 2;
 
 			await this.command(
