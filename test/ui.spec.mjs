@@ -620,3 +620,87 @@ echo $n;
 	await expect(page.locator('.php-debugger')).toHaveCount(0);
 });
 
+test('a nested value is edited by keyboard alone, and the tree stays open', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	// The docs home page asks for this: expand $item and change price to 10.
+	await page.evaluate(() => {
+		window.dbg = new PhpDebugger(
+			{
+				version: window.phpVersionUnderTest
+				, runtimeBaseUrl: '/runtime/'
+				, code: '<?php\n$item = ["name" => "Notebook", "price" => 8, "quantity" => 3];\n'
+					+ '$total = $item["price"] * $item["quantity"];\necho $total;'
+				, breakpoints: [3]
+			}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+	});
+
+	await page.getByRole('button', {name: 'Run', exact: true}).click();
+	await expect(page.getByRole('status')).toHaveText('paused');
+
+	const values = page.locator('.php-debugger-values');
+	const item = values.getByRole('button', {name: 'item', exact: true});
+	const editPrice = values.getByRole('button', {name: 'Edit price', exact: true});
+	const price = values.locator('.php-debugger-value-line').filter({hasText: /^price: /});
+	const input = values.getByRole('textbox', {name: 'New PHP expression for price', exact: true});
+
+	// A value's own Edit button is on its line, above its children.
+	await expect(item).toHaveAttribute('aria-expanded', 'false');
+	await item.focus();
+	await page.keyboard.press('Enter');
+	await expect(item).toHaveAttribute('aria-expanded', 'true');
+	await expect(price).toContainText('8');
+
+	const order = await item.evaluate(
+		toggle => [...toggle.closest('.php-debugger-value').querySelectorAll('button')].filter(
+			button => !button.hidden
+		).map(button => button.getAttribute('aria-label') || button.textContent)
+	);
+
+	expect(order.slice(0, 3)).toEqual(['item', 'Edit item', 'Edit name']);
+
+	// Escape leaves the value as it was and returns to the button.
+	await editPrice.focus();
+	await page.keyboard.press('Enter');
+	await expect(input).toBeFocused();
+	await page.keyboard.type('99');
+	await page.keyboard.press('Escape');
+	await expect(input).toHaveCount(0);
+	await expect(editPrice).toBeFocused();
+	await expect(price).toContainText('8');
+
+	// A value PHP cannot read is refused beside the box, which stays open.
+	await page.keyboard.press('Enter');
+	await page.keyboard.type('5 +');
+	await page.keyboard.press('Enter');
+	await expect(price).toContainText('syntax error, unexpected end of expression');
+	await expect(input).toHaveAttribute('aria-invalid', 'true');
+
+	// Enter applies; the tree is still open on the new value, and focus is back on Edit.
+	await input.fill('10');
+	await page.keyboard.press('Enter');
+	await expect(price).toContainText('10');
+	await expect(input).toHaveCount(0);
+	await expect(item).toHaveAttribute('aria-expanded', 'true');
+	await expect(editPrice).toBeFocused();
+
+	// The tree is as open after a step as before it.
+	await page.getByRole('button', {name: 'Step over', exact: true}).click();
+	await expect(values).toContainText('total');
+	await expect(item).toHaveAttribute('aria-expanded', 'true');
+	await expect(price).toContainText('10');
+
+	// And the name closes what it opened.
+	await item.click();
+	await expect(item).toHaveAttribute('aria-expanded', 'false');
+	await expect(price).toBeHidden();
+
+	await page.getByRole('button', {name: 'Continue', exact: true}).click();
+	await expect(page.getByRole('status')).toHaveText('completed');
+	expect(await page.evaluate(() => dbg.result.stdout)).toBe('30');
+});
+

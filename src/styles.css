@@ -231,12 +231,53 @@
 	overflow-wrap: anywhere;
 }
 
-.php-debugger .php-debugger-value {
-	padding: .3em 0;
+/* A value: its name, what it holds and its Edit button on one line, children beneath. */
+.php-debugger .php-debugger-value-line {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .2em .4em;
+	align-items: baseline;
+	padding: .2em 0;
 }
 
 .php-debugger .php-debugger-value-name {
 	font-weight: 600;
+}
+
+/* The name of a value that opens is the button that opens it. */
+.php-debugger .php-debugger-expand {
+	padding: 0;
+	font: inherit;
+	text-align: left;
+	color: inherit;
+	background: none;
+	border: 0;
+}
+
+/* A drawn triangle, not a character: a character would be read out as part of the name. */
+.php-debugger .php-debugger-expand::before {
+	content: '';
+	display: inline-block;
+	margin: 0 .5em .1em .2em;
+	vertical-align: middle;
+	border: solid transparent;
+	border-width: .3em 0 .3em .4em;
+	border-left-color: var(--php-debugger-muted);
+}
+
+.php-debugger .php-debugger-expand[aria-expanded=true]::before {
+	transform: rotate(90deg);
+}
+
+/* A value with nothing to open lines up with the names of those that do. */
+.php-debugger .php-debugger-value-leaf::before {
+	content: '';
+	display: inline-block;
+	width: 1.1em;
+}
+
+.php-debugger .php-debugger-expand:hover {
+	color: var(--php-debugger-accent);
 }
 
 .php-debugger .php-debugger-value-preview[data-type=unset] {
@@ -245,13 +286,45 @@
 }
 
 .php-debugger .php-debugger-children {
-	padding-left: 1em;
+	margin-left: .45em;
+	padding-left: .9em;
 	border-left: 1px solid var(--php-debugger-border);
 }
 
-.php-debugger .php-debugger-value button {
-	margin-left: .4em;
+.php-debugger .php-debugger-edit,
+.php-debugger .php-debugger-more {
+	padding: .1em .45em;
 	font-size: .8em;
+}
+
+.php-debugger .php-debugger-edit-form {
+	display: flex;
+	flex: 1 1 14em;
+	flex-wrap: wrap;
+	gap: .3em;
+	align-items: center;
+	min-width: 0;
+}
+
+.php-debugger .php-debugger-edit-expression {
+	flex: 1;
+	min-width: 6em;
+	font-family: var(--php-debugger-font);
+}
+
+.php-debugger .php-debugger-edit-expression[aria-invalid=true] {
+	border-color: var(--php-debugger-error);
+}
+
+.php-debugger .php-debugger-edit-error {
+	flex-basis: 100%;
+	color: var(--php-debugger-error);
+	white-space: pre-wrap;
+}
+
+.php-debugger .php-debugger-empty {
+	margin: .3em 0;
+	color: var(--php-debugger-muted);
 }
 
 .php-debugger .php-debugger-symbol {
@@ -283,6 +356,7 @@
 }
 
 .php-debugger .php-debugger-expression-error:empty,
+.php-debugger .php-debugger-edit-error:empty,
 .php-debugger .php-debugger-message:empty {
 	display: none;
 }

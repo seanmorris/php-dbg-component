@@ -36,6 +36,10 @@ export class DebuggerView
 		this.panel = 'variables';
 		this.refreshNumber = 0;
 		this.watches = [];
+		// Which values are open, by their path of names from the panel down, so the tree comes back
+		// as it was after an edit or a step.
+		this.expanded = new Set();
+		this.rows = new Map();
 		const dbg = this.dbg;
 
 		this.root = node('section', 'php-debugger');
@@ -737,17 +741,50 @@ export class DebuggerView
 				return;
 			}
 
-			this.content.replaceChildren();
-
 			if(['variables', 'globals', 'constants', 'watches'].includes(this.panel))
 			{
+				// Built off the page, open values included, and swapped in whole: nothing collapses
+				// and reopens in view.
+				const rows = new Map();
+				const nodes = [];
+
 				for(const value of values)
 				{
-					this.content.append(this.valueNode(value));
+					nodes.push(await this.valueNode(value, [this.panel, value.name], rows));
 				}
+
+				if(generation !== this.refreshNumber || this.dbg.state !== 'paused')
+				{
+					return;
+				}
+
+				const scrolled = this.content.scrollTop;
+
+				this.rows = rows;
+				this.content.replaceChildren(...nodes);
+				this.content.scrollTop = scrolled;
+
+				if(!nodes.length)
+				{
+					this.content.append(
+						node(
+							'p'
+							, 'php-debugger-empty'
+							, this.panel === 'watches'
+								? 'No watch expressions. Type one below and choose Watch.'
+								: `No ${this.panel} here yet.`
+						)
+					);
+				}
+
+				// After an edit, back to the button that started it.
+				this.rows.get(this.focusPath)?.edit?.focus();
+				this.focusPath = null;
 			}
 			else
 			{
+				this.content.replaceChildren();
+
 				for(const value of Array.isArray(values) ? values : Object.values(values))
 				{
 					const item = node(
@@ -796,23 +833,28 @@ export class DebuggerView
 		});
 	}
 
-	valueNode(value, depth = 0)
+	/**
+	 * One value of the tree, with its children loaded when its path was left open. `rows` collects
+	 * each value's controls by path for the refresh that is building them.
+	 */
+	async valueNode(value, path, rows, depth = 0)
 	{
+		const key = JSON.stringify(path);
 		const row = node('div', 'php-debugger-value');
-
-		const name = node(
-			'span'
-			, 'php-debugger-value-name'
-			, value.name + (value.visibility
-				&& value.visibility !== 'public'
-				? ` (${value.visibility})`
-				: ''
-			) + ': '
-		);
-
+		const line = node('div', 'php-debugger-value-line');
+		const name = node('span', 'php-debugger-value-name');
 		const preview = node('span', 'php-debugger-value-preview', value.displayValue);
 
-		row.append(name, preview);
+		const label = value.name + (value.visibility && value.visibility !== 'public'
+			? ` (${value.visibility})`
+			: ''
+		);
+
+		const controls = {};
+
+		rows.set(key, controls);
+		row.append(line);
+		line.append(name, preview);
 
 		if(value.type)
 		{
@@ -827,31 +869,86 @@ export class DebuggerView
 
 		if(value.expandable && depth < 30)
 		{
-			const expand = node('button', 'php-debugger-expand', 'Expand');
-
-			expand.type = 'button';
-			expand.setAttribute('aria-label', `Expand ${value.name}`);
+			// The name is the switch: its text stays the same open or shut, and aria-expanded says
+			// which it is.
+			const toggle = node('button', 'php-debugger-expand', label);
 			const children = node('div', 'php-debugger-children');
-			row.append(expand, children);
+			const more = node('button', 'php-debugger-more');
 			let offset = 0;
+			let loaded = false;
 
-			expand.addEventListener(
+			toggle.type = 'button';
+			toggle.setAttribute('aria-expanded', 'false');
+			more.type = 'button';
+			more.hidden = true;
+			children.hidden = true;
+			children.append(more);
+			name.append(toggle, ': ');
+			row.append(children);
+
+			const load = async() => {
+				const page = await this.dbg.children(value.reference, {offset, limit: 100});
+
+				for(const child of page.values)
+				{
+					children.insertBefore(
+						await this.valueNode(child, [...path, child.name], rows, depth + 1)
+						, more
+					);
+				}
+
+				offset += page.values.length;
+				loaded = true;
+				more.hidden = offset >= page.total;
+				more.textContent = `Show more (${offset} of ${page.total})`;
+
+				if(!page.total)
+				{
+					children.append(node('span', 'php-debugger-empty', 'empty'));
+				}
+			};
+
+			const open = async() => {
+				if(!loaded)
+				{
+					await load();
+				}
+
+				children.hidden = false;
+				toggle.setAttribute('aria-expanded', 'true');
+				this.expanded.add(key);
+			};
+
+			toggle.addEventListener(
 				'click'
 				, () => this.act(
 					async() => {
-						const page = await this.dbg.children(value.reference, {offset, limit: 100});
-
-						for(const child of page.values)
+						if(children.hidden)
 						{
-							children.append(this.valueNode(child, depth + 1));
+							await open();
+
+							return;
 						}
 
-						offset += page.values.length;
-						expand.disabled = offset >= page.total;
-						expand.textContent = expand.disabled ? 'Expanded' : 'More';
+						children.hidden = true;
+						toggle.setAttribute('aria-expanded', 'false');
+						this.expanded.delete(key);
 					}
 				)
 			);
+
+			more.addEventListener('click', () => this.act(load));
+
+			if(this.expanded.has(key))
+			{
+				// A value that can no longer be opened simply stays shut.
+				await open().catch(() => {});
+			}
+		}
+		else
+		{
+			name.classList.add('php-debugger-value-leaf');
+			name.textContent = label + ': ';
 		}
 
 		if(value.writable)
@@ -860,39 +957,79 @@ export class DebuggerView
 
 			edit.type = 'button';
 			edit.setAttribute('aria-label', `Edit ${value.name}`);
-
-			row.append(edit);
-
-			edit.addEventListener('click', () => {
-				const input = node('input', 'php-debugger-edit-expression');
-
-				input.setAttribute('aria-label', `New PHP expression for ${value.name}`);
-				input.value = value.type === 'string'
-					? "'" + String(value.value).replaceAll('\\', '\\\\').replaceAll("'", "\\'")
-						+ "'"
-					: value.type === 'unset' || value.expandable || value.circular
-						? ''
-						: value.displayValue;
-
-				const save = node('button', 'php-debugger-button', 'Apply');
-				save.type = 'button';
-				row.append(input, save);
-				edit.disabled = true;
-				input.focus();
-
-				save.addEventListener(
-					'click'
-					, () => this.act(
-						async() => {
-							await this.dbg.setVariable(value.reference, input.value);
-							await this.refresh();
-						}
-					)
-				);
-			});
+			controls.edit = edit;
+			line.append(edit);
+			edit.addEventListener('click', () => this.editValue(value, key, line, edit));
 		}
 
 		return row;
+	}
+
+	/** Swap a value's Edit button for a small form: Enter applies, Escape cancels. */
+	editValue(value, key, line, edit)
+	{
+		const form = node('form', 'php-debugger-edit-form');
+		const input = node('input', 'php-debugger-edit-expression');
+		const save = node('button', 'php-debugger-button', 'Apply');
+		const cancel = node('button', 'php-debugger-button', 'Cancel');
+		const problem = node('div', 'php-debugger-edit-error');
+
+		input.setAttribute('aria-label', `New PHP expression for ${value.name}`);
+		input.spellcheck = false;
+		input.value = value.type === 'string'
+			? "'" + String(value.value).replaceAll('\\', '\\\\').replaceAll("'", "\\'")
+				+ "'"
+			: value.type === 'unset' || value.expandable || value.circular
+				? ''
+				: value.displayValue;
+
+		save.type = 'submit';
+		cancel.type = 'button';
+		problem.setAttribute('role', 'alert');
+		form.append(input, save, cancel, problem);
+		line.append(form);
+		edit.hidden = true;
+		input.focus();
+		input.select();
+
+		const close = () => {
+			form.remove();
+			edit.hidden = false;
+			edit.focus();
+		};
+
+		cancel.addEventListener('click', close);
+
+		form.addEventListener('keydown', event => {
+			if(event.key === 'Escape')
+			{
+				event.preventDefault();
+				close();
+			}
+		});
+
+		form.addEventListener('submit', async event => {
+			event.preventDefault();
+			problem.textContent = '';
+			input.removeAttribute('aria-invalid');
+
+			try
+			{
+				await this.dbg.setVariable(value.reference, input.value);
+			}
+			catch(error)
+			{
+				// What PHP made of the new value is said beside it, and the form stays open.
+				problem.textContent = error.message || String(error);
+				input.setAttribute('aria-invalid', 'true');
+				input.focus();
+
+				return;
+			}
+
+			this.focusPath = key;
+			await this.refresh();
+		});
 	}
 
 	destroy()
