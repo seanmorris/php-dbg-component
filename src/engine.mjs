@@ -1,4 +1,4 @@
-import {deferred, phpString, normalizePath, phpClassLabel} from './model.mjs';
+import {deferred, phpString, normalizePath, phpClassLabel, phpPropertyName} from './model.mjs';
 
 /** Lives beside the runtime, in a worker by default. Live Zend values stay here. */
 export class DebugEngine
@@ -656,11 +656,7 @@ export class DebugEngine
 		for(const key of names.slice(offset, offset + limit))
 		{
 			// Only a property name is mangled. An array key is shown whole, NUL bytes included.
-			const parts = type === 'object' ? key.split('\0') : [key];
-			const name = parts.pop();
-			const visibility = type !== 'object'
-				? undefined
-				: parts.length < 2 ? 'public' : parts[1] === '*' ? 'protected' : 'private';
+			const {name, visibility} = type === 'object' ? phpPropertyName(key) : {name: key};
 
 			const expression = !parent.expression
 				? null
