@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="description" content="Set up php-dbg-component, embed a PHP debugger, edit variables at breakpoints, and run PHP assertions from JavaScript.">
   <title>php-dbg-component: Quickstart and API</title>
-  <link rel="stylesheet" href="./site.css">
   <link rel="stylesheet" href="./assets/component/styles.css">
+  <link rel="stylesheet" href="./site.css">
 </head>
 <body>
 <a class="skip-link" href="#content">Skip to documentation</a>
@@ -245,7 +245,7 @@ dbg.addEventListener('complete', ({detail}) =&gt; {
 
   <section id="styling">
     <h2>CSS and themes</h2>
-    <p>The view uses light DOM and <code>php-debugger-</code> classes. Load the optional stylesheet and override its CSS variables, or supply your own rules:</p>
+    <p>The view uses light DOM and <code>php-debugger-</code> classes. Load the optional stylesheet and set its CSS variables from any rule. Page rules for bare elements, such as a reset or a framework's <code>button</code> rule, do not reach inside the debugger; to restyle a part, select it inside the root in a stylesheet loaded after the component's:</p>
     <pre><code>.php-debugger {
   --php-debugger-bg: #131b27;
   --php-debugger-fg: #e7edf5;
@@ -253,7 +253,7 @@ dbg.addEventListener('complete', ({detail}) =&gt; {
   --php-debugger-border: #35465c;
   --php-debugger-radius: 4px;
 }
-.php-debugger-button { font-family: inherit; }</code></pre>
+.php-debugger .php-debugger-button { font-family: inherit; }</code></pre>
     <p>The root exposes <code>data-state</code> and <code>data-test-status</code> for state styling. Use the <a href="#playground">live debugger's theme selector</a> to test page-level overrides.</p>
   </section>
 

@@ -14,7 +14,10 @@ test('declarative autorun, CSS overrides, and generic element/variable sources',
 	await page.waitForFunction(() => window.PhpDebugger);
 
 	await page.addStyleTag(
-		{content: '.php-debugger { --php-debugger-bg: rgb(7, 8, 9); border-radius: 19px; } .php-debugger-button { font-family: serif; }'}
+		{
+			content: '.php-debugger { --php-debugger-bg: rgb(7, 8, 9); border-radius: 19px; }'
+				+ ' .php-debugger .php-debugger-button { font-family: serif; }'
+		}
 	);
 
 	const results = await page.evaluate(async() => {
@@ -70,6 +73,11 @@ test('declarative autorun, CSS overrides, and generic element/variable sources',
 	);
 
 	await expect(page.locator('php-debugger .php-debugger')).toHaveCSS('border-radius', '19px');
+
+	await expect(page.getByRole('button', {name: 'Run', exact: true})).toHaveCSS(
+		'font-family'
+		, 'serif'
+	);
 });
 
 for(const kind of ['ace', 'codemirror5', 'codemirror6'])
@@ -271,4 +279,98 @@ test('editing an array starts from an empty expression, a number from its value'
 	await expect(page.getByRole('status')).toHaveText('completed');
 
 	expect(await page.evaluate(() => dbg.result.stdout)).toBe('a,b');
+});
+
+test('bare-element page rules cannot move line numbers or reveal hidden lines', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	// A reset, a classless framework, a typography wrapper and rules scoped by an ID.
+	await page.addStyleTag(
+		{
+			content: `
+				* { margin: 0; padding: 0; box-sizing: content-box; }
+				button, select, input, textarea {
+					margin: .25rem; padding: .8rem 1.4rem; min-height: 44px;
+					font: inherit; line-height: 2; text-transform: uppercase;
+					color: white; background: purple; border: 3px solid purple; border-radius: 999px;
+				}
+				button { display: flex; width: 100%; }
+				span { display: block; }
+				pre { padding: 2rem; color: lime; background: black; }
+				.prose button { padding: 1rem; }
+				.prose pre { padding: 3rem; }
+				.prose span { display: block; }
+				#host textarea { padding: 2rem; font-size: 20px; line-height: 3; border: 4px solid; }
+				#host .php-debugger-gutter { padding: 1rem; font-size: 11px; line-height: 1; }
+				#host .php-debugger-gutter button { padding: 12px; font-size: 20px; line-height: 40px; }
+			`
+		}
+	);
+
+	await page.evaluate(() => {
+		document.querySelector('#host').classList.add('prose');
+
+		window.dbg = new PhpDebugger(
+			{
+				version: window.phpVersionUnderTest
+				, runtimeBaseUrl: '/runtime/'
+				, code: '<?php\n' + Array.from({length: 10}, (_, i) => `$v${i} = ${i};\n`).join('')
+					+ 'echo "done";'
+				, breakpoints: [11]
+			}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+	});
+
+	// How far each line number sits from the source line it names, in pixels.
+
+	const drift = () => page.evaluate(() => {
+		const source = document.querySelector('.php-debugger-source');
+		const style = getComputedStyle(source);
+		const pitch = parseFloat(style.lineHeight);
+
+		const first = source.getBoundingClientRect().top + parseFloat(style.borderTopWidth)
+			+ parseFloat(style.paddingTop) - source.scrollTop;
+
+		return [...document.querySelectorAll('.php-debugger-line')].map(
+			(line, index) => Math.abs(line.getBoundingClientRect().top - first - index * pitch)
+		);
+	});
+
+	const before = await drift();
+
+	expect(before).toHaveLength(12);
+	expect(Math.max(...before)).toBeLessThan(.5);
+
+	await page.getByRole('button', {name: 'Run', exact: true}).click();
+	await expect(page.getByRole('status')).toHaveText('paused');
+	await expect(page.locator('.php-debugger-line[data-active=true]')).toHaveText('11');
+
+	expect(Math.max(...await drift())).toBeLessThan(.5);
+
+	// Rules for bare elements and for elements inside a wrapper stop at the root.
+	const run = page.getByRole('button', {name: 'Run', exact: true});
+	const output = page.locator('.php-debugger-console');
+
+	await expect(run).toHaveCSS('text-transform', 'none');
+	await expect(run).toHaveCSS('border-top-width', '1px');
+	await expect(run).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+	await expect(output).toHaveCSS('color', 'rgb(32, 39, 52)');
+	await expect(output).toHaveCSS('padding-top', '9.6px');
+
+	// The page's "span { display: block }" must not bring phpdbg's notices back.
+	const notices = page.locator('.php-debugger-output-notice');
+
+	expect(await notices.count()).toBeGreaterThan(0);
+
+	for(const notice of await notices.all())
+	{
+		await expect(notice).toBeHidden();
+	}
+
+	await page.getByRole('checkbox', {name: 'Debugger log', exact: true}).check();
+	await expect(notices.first()).toBeVisible();
+	await page.evaluate(() => dbg.destroy());
 });

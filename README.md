@@ -140,10 +140,16 @@ Controller events are `CustomEvent`s with `.detail`: `statechange`, `progress` (
   --php-debugger-border: #35465c;
   --php-debugger-radius: 12px;
 }
-.my-page .php-debugger-button { font-family: inherit; }
+.my-page .php-debugger .php-debugger-button { font-family: inherit; }
 ```
 
-There is no shadow root. All classes start with `php-debugger-`; the root is `.php-debugger`. The optional stylesheet uses low-specificity selectors inside a CSS layer, so page CSS can override it. Root `data-state` and `data-test-status` attributes support state styling. Remaining variables are `--php-debugger-muted`, `--php-debugger-error`, `--php-debugger-active`, and `--php-debugger-font`. Rendered PHP strings use text nodes.
+There is no shadow root. All classes start with `php-debugger-`; the root is `.php-debugger`. Rendered PHP strings use text nodes.
+
+- **Variables** can be set from any rule, in a stylesheet loaded before or after the component's. Besides those above: `--php-debugger-muted`, `--php-debugger-error`, `--php-debugger-success`, `--php-debugger-active`, `--php-debugger-font`, and `--php-debugger-line-height` (a length; the pitch the line numbers and the source share).
+- **Page rules for bare elements stay out.** A reset (`* { padding: 0 }`), a classless framework's `button` rule or a typography wrapper's `.prose pre` does not restyle the debugger, so it looks the same on any page. Text takes the font and size of the element you mount it in.
+- **To restyle a part**, select it inside the root, as above, in a stylesheet loaded after the component's or with one more class in front. A `.php-debugger` rule loaded after the component's restyles the root.
+- **Editor geometry is fixed.** The line numbers' and the source's line height, padding and borders are `!important`, as is `display: none` on hidden console lines: with either changed the debugger points at the wrong line.
+- Root `data-state` and `data-test-status` attributes support state styling.
 
 ## Runtime assets, versions, and extensions
 
