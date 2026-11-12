@@ -567,11 +567,14 @@ test('only a property key that starts with a NUL byte is read as a mangled name'
 		, {name: 'odd\0named\0key', visibility: 'public'}
 	);
 
-	// The name after the class may hold NUL bytes too.
+	// An anonymous class's name has a NUL byte of its own, before the file that declares it.
 	assert.deepEqual(
-		phpPropertyName('\0App\\Job\0odd\0name')
-		, {name: 'odd\0name', visibility: 'private'}
+		phpPropertyName('\0class@anonymous\0/main.php:3$0\0secret')
+		, {name: 'secret', visibility: 'private'}
 	);
+
+	// A key that starts with a NUL byte and has no other is not a mangled name.
+	assert.deepEqual(phpPropertyName('\0'), {name: '\0', visibility: 'public'});
 });
 
 test('an anonymous class is labelled with the file and line that declare it', async () => {
@@ -611,8 +614,16 @@ test(
 	, async () => {
 		const {DebugEngine} = await import('../src/engine.mjs');
 		// The last is a public property: PHP allows NUL bytes in a name after its first character.
-		const keys = ['\0App\\Job\0secret', '\0*\0guarded', 'open', 'odd\0named\0key'];
-		const stored = {[keys[0]]: 4, [keys[1]]: 'kept', open: 7, [keys[3]]: 9};
+		// The last is private to an anonymous class, whose name holds a NUL byte itself.
+		const keys = [
+			'\0App\\Job\0secret'
+			, '\0*\0guarded'
+			, 'open'
+			, 'odd\0named\0key'
+			, '\0class@anonymous\0/main.php:3$0\0hidden'
+		];
+
+		const stored = {[keys[0]]: 4, [keys[1]]: 'kept', open: 7, [keys[3]]: 9, [keys[4]]: 2};
 
 		// Stands in for the runtime's object: every property is an own key, and only public ones
 		// are enumerable.
@@ -662,6 +673,7 @@ test(
 			, ['guarded', 'protected', '"kept"', false]
 			, ['open', 'public', '7', true]
 			, ['odd\0named\0key', 'public', '9', true]
+			, ['hidden', 'private', '2', false]
 		]);
 
 		// An older runtime cannot read a property by its mangled name, so only public ones are
