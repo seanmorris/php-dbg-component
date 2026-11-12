@@ -536,9 +536,10 @@ test('Evaluate answers beside its box and keeps the exchange in the console', as
 	await expression.fill('$n + 40');
 	await expect(problem).toHaveText('');
 	await expression.press('Enter');
-	await expect(output).toContainText('> $n + 40\n42');
 
-	expect(await output.evaluate(element => element.innerText)).toBe(
+	// What is shown, not what is in the page: phpdbg's hidden notices land between these lines
+	// in whatever order they arrive.
+	await expect.poll(() => output.evaluate(element => element.innerText)).toBe(
 		'> $n +\nsyntax error, unexpected end of expression\n> $n + 40\n42\n'
 	);
 
