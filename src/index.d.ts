@@ -7,10 +7,16 @@ export interface Location { file: string; line: number; frame?: number; pauseId?
 export interface Pause { location: Location; reason?: 'breakpoint' | 'step' | 'exception' | 'pause' }
 export interface Variable {
   name: string; type: string; displayValue: string; value?: string | number | boolean | bigint | null;
+  /** Set by runtimes with debugger API 2: the class of an object, and the size of an array or string. */
+  className?: string | null; count?: number | null;
   reference?: string; writable: boolean; expandable: boolean; circular?: boolean;
 }
 /** A stack frame. `frame` is zero for the innermost frame, whichever frame is selected. */
-export interface Frame { frame: number; filename: string; lineNo: number; selected: boolean }
+export interface Frame {
+  frame: number; filename: string; lineNo: number; selected: boolean;
+  /** Set by runtimes with debugger API 2. Empty for top-level code and outside a class. */
+  functionName?: string; className?: string;
+}
 export interface Diagnostic { name?: string; message: string; file?: string; line?: number; phase?: string }
 export interface TestResult { status: 'unchecked' | 'passed' | 'failed'; failures: Array<{field?: string; expected?: unknown; actual?: unknown; message?: string}> }
 export interface RunResult {
@@ -58,13 +64,15 @@ export class AssetRegistry {
   json(url: string | URL): Promise<any>;
   module(url: string | URL, sha256?: string): Promise<WebAssembly.Module>;
   objectUrl(url: string | URL): Promise<string>;
+  /** Reports downloads as they arrive. `total` is null when the size is unknown. Returns a function that stops the reports. */
+  onProgress(listener: (progress: {url: string; loaded: number; total: number | null}) => void): () => void;
   clear(): Promise<void>;
 }
 export function sharedAssets(): AssetRegistry;
 export interface DebuggerView { root: HTMLElement; destroy(): void }
 export interface DebuggerEvents {
   statechange: {state: DebuggerState; previous: DebuggerState}; output: {channel: 'stdout' | 'stderr' | 'debug'; text: string; kind?: 'notice' | 'error' | 'evaluation'};
-  pause: Pause; complete: RunResult; testresult: TestResult; diagnostic: Diagnostic; locationchange: Location | null;
+  progress: {loaded: number; total: number | null}; pause: Pause; complete: RunResult; testresult: TestResult; diagnostic: Diagnostic; locationchange: Location | null;
   framechange: {frame: number}; variablechange: {reference: string; value: Variable};
   breakpointchange: {breakpoints: Breakpoint[]}; versionchange: {version: PhpVersion}; sourcechange: {code?: string; pending: boolean};
 }

@@ -16,7 +16,7 @@ export class DebugEngine {
     const shared = {...(options.runtimeArgs?.shared || {}), __phpDebugger: {capture: value => {this.captured = {value};}}};
     const args = {
       ...(options.runtimeArgs || {}), version:options.version, persist:false, autoTransaction:false, shared,
-      dbgYieldInterval:8, dbgManagedShutdown:true,
+      dbgYieldInterval:8, dbgManagedShutdown:true, dbgArgs:options.runtimeArgs?.dbgArgs ?? ['-q'],
       instantiateWasm(imports, ready) {
         WebAssembly.instantiate(assets.module, imports).then(instance => ready(instance, assets.module), failed.reject);
         return {};
@@ -34,6 +34,8 @@ export class DebugEngine {
     this.binary = await Promise.race([this.php.binary, failed.promise]);
     if(typeof this.binary._php_wasm_dbg_bridge_version !== 'function' || this.binary.ccall('php_wasm_dbg_bridge_version','number',[],[]) !== 1)
       throw new Error('This php-dbg-wasm build lacks debugger bridge v1. Rebuild its native worker/web artifacts.');
+    // API 2 runtimes report PHP types, frame names and user globals themselves; older ones need the fallbacks below.
+    this.dbgApi = typeof this.php.debuggerApiVersion === 'function' ? await this.php.debuggerApiVersion() : 1;
     this.binary.FS.mkdir('/.php-debugger');
     this.php.addEventListener('stdin-request', () => {
       // The native async call must unwind before reading its state.
@@ -144,7 +146,8 @@ export class DebugEngine {
     return {frame};
   }
   async frames() {
-    // The runtime lists frames starting at the selected one; list from the top so indexes match selectFrame().
+    if(this.dbgApi >= 2) return this.php.dumpBacktrace();
+    // An older runtime lists frames starting at the selected one; list from the top so indexes match selectFrame().
     const selected = this.frame;
     if(selected) await this.php.switchFrame(0);
     try {return (await this.php.dumpBacktrace()).map(frame => ({...frame, selected:frame.frame === selected}));}
@@ -165,23 +168,40 @@ export class DebugEngine {
     const symbol = Object.getOwnPropertySymbols(value).find(s => s.description === 'origZval');
     return symbol ? `${this.type(value)}:${this.binary.getValue(value[symbol], 'i32')}` : value;
   }
-  describe(name, value, expression, writable = true, frame = this.frame, ancestors = []) {
-    // The runtime hands back undefined for a variable the frame declares but has not assigned yet.
-    const unset = value === undefined && !ancestors.length;
-    const type = unset ? 'unset' : this.type(value);
+  display({type, className, count}, value) {
+    if(type === 'array') return `array(${count})`;
+    if(type === 'object') return className || 'object';
+    if(type === 'string') return JSON.stringify(value);
+    // PHP prints 3.0 as 3; keep the float visible.
+    if(type === 'float' && Number.isInteger(value)) return value.toFixed(1);
+    return type === 'null' ? 'null' : String(value);
+  }
+  symbolExpression(scope, name) {
+    return scope === 'constants' ? null : scope === 'globals' ? `$GLOBALS[${phpString(name)}]` : '${' + phpString(name) + '}';
+  }
+  /** info is the runtime's own description of the value, when it can give one. */
+  describe(name, value, expression, writable = true, frame = this.frame, ancestors = [], info = null) {
+    // Without info, undefined is how the runtime hands back a variable the frame declares but has not assigned yet.
+    const unset = info ? info.type === 'undefined' : value === undefined && !ancestors.length;
+    const type = unset ? 'unset' : info?.type || this.type(value);
     const identity = this.identity(value), circular = identity !== null && ancestors.includes(identity);
     const expandable = value !== null && typeof value === 'object' && !circular;
     const reference = `${this.sessionId}:${this.epoch}:${++this.nextReference}`;
-    this.references.set(reference, {name, value, expression, writable, frame, ancestors:[...ancestors,identity]});
+    this.references.set(reference, {name, value, expression, writable, frame, ancestors:[...ancestors,identity], type});
     return {name, type, reference, expandable, circular, writable:!!expression && writable && typeof value !== 'function',
+      ...(info && {className:info.className, count:info.count}),
       value:expandable || circular || typeof value === 'function' ? undefined : value,
-      displayValue:unset ? 'unset' : circular ? '[Circular]' : expandable ? (type === 'array' ? 'Array' : 'Object') : typeof value === 'string' ? JSON.stringify(value) : String(value)};
+      displayValue:unset ? 'unset' : circular ? '[Circular]' : info ? this.display(info, value) : expandable ? (type === 'array' ? 'Array' : 'Object') : typeof value === 'string' ? JSON.stringify(value) : String(value)};
   }
   async inspect(scope = 'variables', options = {}) {
     this.assertPaused();
     if(options.frame !== undefined) await this.selectFrame(options.frame);
     const methods = {variables:'dumpVars', globals:'dumpGlobals', constants:'dumpConstants', functions:'dumpFunctions', classes:'dumpClasses', files:'dumpFiles', frames:'dumpBacktrace'};
     if(!methods[scope]) throw new TypeError(`Unknown inspection scope: ${scope}`);
+    if(this.dbgApi >= 2 && ['variables','globals','constants'].includes(scope)) {
+      const symbols = await (scope === 'variables' ? this.php.describeVars() : scope === 'globals' ? this.php.describeGlobals({user:true}) : this.php.describeConstants());
+      return symbols.map(symbol => this.describe(symbol.name, symbol.value, this.symbolExpression(scope, symbol.name), scope !== 'constants', this.frame, [], symbol));
+    }
     let values = scope === 'frames' ? await this.frames() : await this.php[methods[scope]]() || {};
     if(scope === 'globals') {
       // The low-level dump arms superglobals but filters out user-defined globals.
@@ -190,21 +210,23 @@ export class DebugEngine {
     }
     if(scope === 'files') return [...new Set([this.config.entrypoint, ...values])];
     if(['functions','classes','frames'].includes(scope)) return values;
-    return Object.entries(values).map(([name,value]) => this.describe(name, value,
-      scope === 'constants' ? null : scope === 'globals' ? `$GLOBALS[${phpString(name)}]` : '${' + phpString(name) + '}', scope !== 'constants'));
+    return Object.entries(values).map(([name,value]) => this.describe(name, value, this.symbolExpression(scope, name), scope !== 'constants'));
   }
   async children(reference, {offset = 0, limit = 100} = {}) {
     this.assertPaused();
     const parent = this.references.get(reference);
     if(!parent) throw new Error('Stale variable reference');
     if(!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 1000) throw new RangeError('Invalid inspection page');
-    const type = this.type(parent.value);
+    const type = parent.type;
     const names = Object.keys(parent.value);
-    const values = names.slice(offset, offset + limit).map(name => {
+    const values = [];
+    for(const name of names.slice(offset, offset + limit)) {
       const expression = !parent.expression ? null : type === 'array' ? `${parent.expression}[${phpString(name)}]` : `${parent.expression}->{${phpString(name.split('\0').pop())}}`;
-      try {return this.describe(name, parent.value[name], expression, parent.writable, parent.frame, parent.ancestors);}
-      catch(error) {return {name,type:'unavailable',displayValue:error.message,writable:false,expandable:false};}
-    });
+      try {
+        const child = parent.value[name];
+        values.push(this.describe(name, child, expression, parent.writable, parent.frame, parent.ancestors, this.dbgApi >= 2 ? await this.php.describeValue(child) : null));
+      } catch(error) {values.push({name,type:'unavailable',displayValue:error.message,writable:false,expandable:false});}
+    }
     return {values, total:names.length, offset};
   }
   async evaluate(expression, {frame = this.frame} = {}) {
@@ -218,7 +240,7 @@ export class DebugEngine {
       this.writeFile('/.php-debugger/eval.php', `return (${expression});`);
       await this.command("ev vrzno_shared('__phpDebugger')->capture(eval(file_get_contents('/.php-debugger/eval.php')))");
       if(!this.captured) throw new Error(this.commandErrors.map(d => d.message).join('\n') || 'PHP expression evaluation failed');
-      return this.describe(expression, this.captured.value, expression);
+      return this.describe(expression, this.captured.value, expression, true, this.frame, [], this.dbgApi >= 2 ? await this.php.describeValue(this.captured.value) : null);
     } finally {this.commandErrors = null; await this.selectFrame(previous);}
   }
   async setVariable(reference, expression) {
@@ -227,7 +249,8 @@ export class DebugEngine {
     if(!variable) throw new Error('Stale variable reference');
     if(!variable.expression || !variable.writable) throw new Error('This value is read-only');
     const evaluated = await this.evaluate(`${variable.expression} = (${expression})`, {frame:variable.frame});
-    const value = this.describe(variable.name, this.references.get(evaluated.reference).value, variable.expression, variable.writable, variable.frame, variable.ancestors.slice(0,-1));
+    const value = this.describe(variable.name, this.references.get(evaluated.reference).value, variable.expression, variable.writable, variable.frame, variable.ancestors.slice(0,-1),
+      this.dbgApi >= 2 ? {type:evaluated.type, className:evaluated.className, count:evaluated.count} : null);
     this.references.delete(evaluated.reference);
     this.emit({type:'variablechange', reference, value});
     return value;

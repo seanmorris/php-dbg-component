@@ -56,7 +56,7 @@ export class DebuggerView {
     form.addEventListener('submit',event=>{event.preventDefault();void this.act(async()=>{const value=await dbg.evaluate(this.expression.value);this.appendOutput({channel:'evaluation',text:value.displayValue+'\n'});await this.refresh();});},{signal:this.abort.signal});
     watch.addEventListener('click',()=>{if(this.expression.value.trim()){this.watches.push(this.expression.value);this.panel='watches';void this.refresh();}},{signal:this.abort.signal});
     const on=(type,callback)=>dbg.addEventListener(type,event=>callback(event.detail),{signal:this.abort.signal});
-    on('statechange',()=>this.update());on('testresult',()=>this.update());on('output',event=>this.appendOutput(event));
+    on('statechange',()=>this.update());on('testresult',()=>this.update());on('output',event=>this.appendOutput(event));on('progress',progress=>this.showProgress(progress));
     on('pause',()=>void this.refresh());on('framechange',()=>void this.refresh());on('variablechange',()=>void this.refresh());
     on('breakpointchange',()=>this.gutterUpdate());on('locationchange',location=>this.showLocation(location));
     on('sourcechange',()=>this.gutterUpdate());on('versionchange',()=>{this.version.value=dbg.options.version;});
@@ -76,6 +76,18 @@ export class DebuggerView {
     this.dbg.source?.setReadOnly?.(!!this.dbg.active);
     if(!this.dbg.location)this.showLocation(null);
     if(state!=='paused') {this.refreshNumber++;this.content.replaceChildren(node('p','php-debugger-empty','Pause execution to inspect values.'));}
+  }
+  showProgress({loaded,total}) {
+    if(this.dbg.state!=='loading')return;
+    const megabytes=bytes=>(bytes/1048576).toFixed(1)+' MB';
+    // Whole steps only: the status is a live region, and every change is announced.
+    const text=total?`loading · ${Math.floor(loaded/total*10)*10}% of ${megabytes(total)}`:`loading · ${Math.floor(loaded/1048576)} MB`;
+    if(this.status.textContent!==text)this.status.textContent=text;
+  }
+  frameLabel(frame) {
+    // Only an API 2 runtime names the function; an empty name there means top-level code.
+    const callee=frame.functionName===undefined?'':` · ${frame.functionName?`${frame.className?frame.className+'::':''}${frame.functionName}()`:'{main}'}`;
+    return `Frame ${frame.frame}${callee} — ${frame.filename?`${frame.filename}:${frame.lineNo}`:'internal'}`;
   }
   gutterUpdate() {
     const dbg=this.dbg;this.breakpointList.replaceChildren();
@@ -125,7 +137,7 @@ export class DebuggerView {
       this.content.replaceChildren();
       if(['variables','globals','constants','watches'].includes(this.panel)) for(const value of values)this.content.append(this.valueNode(value));
       else for(const value of Array.isArray(values)?values:Object.values(values)) {
-        const item=node('button','php-debugger-symbol',typeof value==='string'?value:`${value.name || `Frame ${value.frame}`} — ${value.filename}:${value.lineNo}`);item.type='button';
+        const item=node('button','php-debugger-symbol',typeof value==='string'?value:this.panel==='frames'?this.frameLabel(value):`${value.name} — ${value.filename}:${value.lineNo}`);item.type='button';
         if(this.panel==='frames' && value.selected)item.setAttribute('aria-current','true');
         item.addEventListener('click',()=>this.act(async()=>{if(this.panel==='frames')await this.dbg.selectFrame(value.frame);else this.showLocation({file:typeof value==='string'?value:value.filename,line:value.lineNo||1});}));this.content.append(item);
       }
@@ -133,7 +145,7 @@ export class DebuggerView {
   }
   valueNode(value, depth=0) {
     const row=node('div','php-debugger-value');const name=node('span','php-debugger-value-name',value.name+': ');const preview=node('span','php-debugger-value-preview',value.displayValue);row.append(name,preview);
-    if(value.type)preview.dataset.type=value.type;
+    if(value.type){preview.dataset.type=value.type;preview.title=value.className||(value.type==='string'&&value.count!=null?`string(${value.count})`:value.type);}
     if(value.expandable && depth<30) {
       const expand=node('button','php-debugger-expand','Expand');expand.type='button';expand.setAttribute('aria-label',`Expand ${value.name}`);const children=node('div','php-debugger-children');row.append(expand,children);let offset=0;
       expand.addEventListener('click',()=>this.act(async()=>{const page=await this.dbg.children(value.reference,{offset,limit:100});for(const child of page.values)children.append(this.valueNode(child,depth+1));offset+=page.values.length;expand.disabled=offset>=page.total;expand.textContent=expand.disabled?'Expanded':'More';}));

@@ -87,3 +87,55 @@ test('engine lists frames from the top, labels unset variables and classifies de
     {type:'output', channel:'stdout', text:'hello'},
   ]);
 });
+
+test('downloads report progress and still deliver every byte', async () => {
+  const {AssetRegistry} = await import('../src/assets.mjs');
+  const parts = [new Uint8Array([1, 2, 3]), new Uint8Array([4, 5]), new Uint8Array([6])];
+  const body = () => new ReadableStream({start(controller) {for(const part of parts) controller.enqueue(part); controller.close();}});
+  const sized = new AssetRegistry({fetch:async () => new Response(body(), {headers:{'content-length':'6'}})});
+  const seen = []; const stop = sized.onProgress(progress => seen.push(progress));
+  assert.deepEqual([...new Uint8Array(await sized.bytes('https://example.test/php.wasm'))], [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(seen.at(-1), {url:'https://example.test/php.wasm', loaded:6, total:6});
+  assert.ok(seen.every((progress, index) => !index || progress.loaded > seen[index - 1].loaded));
+  stop(); await sized.bytes('https://example.test/other.wasm');
+  assert.equal(seen.at(-1).url, 'https://example.test/php.wasm', 'a stopped listener hears nothing more');
+  // A compressed transfer declares the compressed size, which is not the size of these bytes.
+  const compressed = new AssetRegistry({fetch:async () => new Response(body(), {headers:{'content-length':'4', 'content-encoding':'gzip'}})});
+  const totals = []; compressed.onProgress(progress => totals.push(progress.total));
+  await compressed.bytes('https://example.test/php.wasm');
+  assert.deepEqual([...new Set(totals)], [null]);
+});
+
+test('engine uses the runtime\'s own types, frame names and globals when it provides debugger API 2', async () => {
+  const {DebugEngine} = await import('../src/engine.mjs');
+  const engine = new DebugEngine(() => {}); engine.paused = true; engine.dbgApi = 2;
+  const list = {0:'a', 1:'b'}, item = {label:'x', ratio:2};
+  const scalar = value => ({type:typeof value === 'string' ? 'string' : Number.isInteger(value) ? 'int' : 'float', className:null, count:null, reference:false, value});
+  const calls = [];
+  engine.php = {
+    async describeVars() {calls.push('vars'); return [
+      {name:'count', type:'int', className:null, count:null, reference:false, value:3},
+      {name:'ratio', type:'float', className:null, count:null, reference:false, value:3},
+      {name:'later', type:'undefined', className:null, count:null, reference:false, value:undefined},
+      {name:'list', type:'array', className:null, count:2, reference:false, value:list},
+      {name:'item', type:'object', className:'App\\Item', count:null, reference:false, value:item}];},
+    async describeGlobals(options) {calls.push(['globals', options]); return [{name:'config', type:'string', className:null, count:2, reference:false, value:'on'}];},
+    async describeConstants() {return [{name:'LIMIT', type:'int', className:null, count:null, reference:false, value:9}];},
+    async describeValue(value) {return scalar(value);},
+    async dumpBacktrace() {calls.push('frames'); return [{filename:'/main.php', lineNo:7, frame:0, selected:true, functionName:'inner', className:''}];},
+    async switchFrame() {throw new Error('an API 2 runtime lists frames without switching');},
+  };
+  const locals = await engine.inspect('variables');
+  assert.deepEqual(locals.map(v => [v.name, v.type, v.displayValue, v.expandable]), [
+    ['count', 'int', '3', false], ['ratio', 'float', '3.0', false], ['later', 'unset', 'unset', false],
+    ['list', 'array', 'array(2)', true], ['item', 'object', 'App\\Item', true]]);
+  assert.deepEqual([locals[4].className, locals[3].count], ['App\\Item', 2]);
+  const globals = await engine.inspect('globals');
+  assert.deepEqual([globals[0].name, globals[0].displayValue, globals[0].writable], ['config', '"on"', true]);
+  assert.deepEqual(calls.find(call => call[0] === 'globals')[1], {user:true});
+  assert.equal((await engine.inspect('constants'))[0].writable, false);
+  const properties = await engine.children(locals[4].reference);
+  assert.deepEqual(properties.values.map(v => [v.name, v.type, v.displayValue]), [['label', 'string', '"x"'], ['ratio', 'int', '2']]);
+  assert.deepEqual((await engine.inspect('frames'))[0].functionName, 'inner');
+});
+

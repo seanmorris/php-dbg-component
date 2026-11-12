@@ -1,17 +1,37 @@
 const registryKey = Symbol.for('php-dbg-component.assets.v1');
 
+/** Reads a response body in chunks so the caller can report progress. */
+async function readBody(response, report) {
+  const reader = response.body?.getReader?.();
+  if(!reader) return response.arrayBuffer();
+  // With a content encoding, the declared length is the compressed size and says nothing about these bytes.
+  const length = Number(response.headers?.get('content-length'));
+  const total = length > 0 && !response.headers?.get('content-encoding') ? length : null;
+  const chunks = []; let loaded = 0;
+  for(;;) {
+    const {done, value} = await reader.read();
+    if(done) break;
+    chunks.push(value); loaded += value.length; report(loaded, total);
+  }
+  const bytes = new Uint8Array(loaded); let offset = 0;
+  for(const chunk of chunks) {bytes.set(chunk, offset); offset += chunk.length;}
+  return bytes.buffer;
+}
+
 /** Immutable, shared downloads. Callers receive copies, never the cached buffer. */
 export class AssetRegistry {
   constructor({fetch: fetcher = (...args) => globalThis.fetch(...args)} = {}) {
-    this.fetch = fetcher; this.downloads = new Map(); this.modules = new Map(); this.urls = new Map();
+    this.fetch = fetcher; this.downloads = new Map(); this.modules = new Map(); this.urls = new Map(); this.listeners = new Set();
   }
+  /** Calls listener({url, loaded, total}) as downloads arrive; total is null when the size is unknown. Returns a function that stops it. */
+  onProgress(listener) {this.listeners.add(listener); return () => void this.listeners.delete(listener);}
   async _bytes(url) {
     const key = String(url);
     if(!this.downloads.has(key)) {
       const task = Promise.resolve().then(async () => {
         const response = await this.fetch(key);
         if(!response.ok) throw new Error(`Asset request failed (${response.status}): ${key}`);
-        return response.arrayBuffer();
+        return readBody(response, (loaded, total) => {for(const listener of this.listeners) listener({url:key, loaded, total});});
       });
       this.downloads.set(key, task);
       task.catch(() => { if(this.downloads.get(key) === task) this.downloads.delete(key); });
@@ -90,8 +110,13 @@ export async function prepareAssets(options) {
   }
   const assets = {base:base.href, environment, module:null,
     sharedLibs:shared.libs, dynamicLibs:dynamic.libs, libraryUrls:{}, files:[], data:{}};
-  await Promise.all([
-    registry.module(new URL(manifest.wasm, base), manifest.sha256).then(module => {assets.module = module;}),
+  // The interpreter binary is nearly all of the download, so its progress stands for the whole.
+  const binary = new URL(manifest.wasm, base);
+  const stopProgress = options.onProgress && registry.onProgress?.(event => {
+    if(event.url === binary.href) options.onProgress({loaded:event.loaded, total:event.total});
+  });
+  try {await Promise.all([
+    registry.module(binary, manifest.sha256).then(module => {assets.module = module;}),
     ...Object.entries(urls).map(async ([name, url]) => {
       assets.libraryUrls[name] = await registry.objectUrl(new URL(options.libraryUrls?.[name] || url, sourceBase));
     }),
@@ -99,6 +124,6 @@ export async function prepareAssets(options) {
       assets.files[index] = {...file, url:await registry.objectUrl(new URL(file.url, sourceBase))};
     }),
     ...(manifest.data || []).map(async name => {assets.data[name] = await registry.bytes(new URL(name, base));})
-  ]);
+  ]);} finally {stopProgress?.();}
   return assets;
 }

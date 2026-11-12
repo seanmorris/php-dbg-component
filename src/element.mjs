@@ -20,7 +20,7 @@ export function definePhpDebugger(name = 'php-debugger', registry = customElemen
       if(this.expect !== undefined) options.expect=this.expect;
       this.debugger = new PhpDebugger(options);
       this.forwarding = new AbortController();
-      for(const name of ['statechange','output','pause','complete','testresult','variablechange','breakpointchange','locationchange','diagnostic'])
+      for(const name of ['statechange','output','pause','complete','testresult','variablechange','breakpointchange','locationchange','diagnostic','progress'])
         this.debugger.addEventListener(name,event=>this.dispatchEvent(new CustomEvent(`phpdbg-${name}`,{detail:event.detail,bubbles:true})),{signal:this.forwarding.signal});
       this.debugger.mount(this);
       if(this.hasAttribute('autorun')) queueMicrotask(()=>{if(this.isConnected)void this.run({mode:this.getAttribute('mode') || 'debug'});});

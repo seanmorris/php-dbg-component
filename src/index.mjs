@@ -70,7 +70,7 @@ export class PhpDebugger extends EventTarget {
     if(this.opening) return this.opening;
     if(this.transport) return;
     const generation = this.generation;
-    const options = {...this.options};
+    const options = {...this.options, onProgress:progress => {if(generation === this.generation) this.emit('progress', progress);}};
     this.transition('loading');
     this.opening = (async () => {
       const assets = await prepareAssets(options);

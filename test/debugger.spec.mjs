@@ -228,3 +228,10 @@ test('shutdown processing remains cancellable in both execution modes',async({pa
   },version);
   expect(results.map(r=>r.status)).toEqual(['timed-out','timed-out']);
 });
+
+test('reports the interpreter download while loading',async({page})=>{
+  await setup(page);await create(page,{code:'<?php echo 1;'});
+  const result=await page.evaluate(async()=>{const seen=[];dbg.addEventListener('progress',event=>seen.push(event.detail));const run=await dbg.run();return {seen,status:run.status};});
+  expect(result.status).toBe('completed');expect(result.seen.length).toBeGreaterThan(0);
+  const last=result.seen.at(-1);expect(last.total).toBeGreaterThan(1_000_000);expect(last.loaded).toBe(last.total);
+});
