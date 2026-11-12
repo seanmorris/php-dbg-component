@@ -39,7 +39,10 @@ export class DebuggerView
 		// Which values are open, by their path of names from the panel down, so the tree comes back
 		// as it was after an edit or a step.
 		this.expanded = new Set();
+		// The inspector's list is rebuilt whenever it may have changed. Each of its controls has a
+		// key, so focus can go back to the same control in the new list.
 		this.rows = new Map();
+		this.controlKeys = new WeakMap();
 		const dbg = this.dbg;
 
 		this.root = node('section', 'php-debugger');
@@ -47,37 +50,104 @@ export class DebuggerView
 		host.append(this.root);
 
 		this.toolbar = node('div', 'php-debugger-toolbar');
+		this.toolbar.setAttribute('role', 'toolbar');
+		this.toolbar.setAttribute('aria-label', 'Debugger controls');
 		this.root.append(this.toolbar);
 		this.buttons = new Map();
+		this.shortcuts = new Map();
 
-		const controls = [
+		// What each control does, for its tooltip.
+		const purposes = {
+			Run: 'Start the program'
+			, Continue: 'Resume until the next breakpoint'
+			, Pause: 'Pause the running program at its next line'
+			, 'Step over': 'Run this line; a call it makes runs whole'
+			, 'Step into': 'Run this line, entering a call it makes'
+			, 'Step out': 'Run until this function has returned to its caller'
+			, Until: 'Run until execution is past this line; at the end of a loop, finish the loop'
+			, Leave: 'Run to the end of this function and pause before it returns'
+			, Restart: 'End this run and start again'
+			, Stop: 'End this run'
+		};
+
+		const keys = {
+			Run: 'F8'
+			, Continue: 'F8'
+			, 'Step over': 'F10'
+			, 'Step into': 'F11'
+			, 'Step out': 'Shift+F11'
+		};
+
+		// Three groups: run, step, end.
+		const running = [
 			['Run', () => dbg.run()]
 			, ['Continue', () => dbg.continue()]
 			, ['Pause', () => dbg.pause()]
-			, ['Stop', () => dbg.stop()]
-			, ['Restart', () => dbg.restart()]
+		];
 
+		const stepping = [
+			['Step over', () => dbg.stepOver()]
 			, ['Step into', () => dbg.stepInto()]
-			, ['Step over', () => dbg.stepOver()]
 			, ['Step out', () => dbg.stepOut()]
 			, ['Until', () => dbg.until()]
 			, ['Leave', () => dbg.leave()]
 		];
 
-		for(const [label, action] of controls)
+		const ending = [['Restart', () => dbg.restart()], ['Stop', () => dbg.stop()]];
+
+		for(const group of [running, stepping, ending])
 		{
-			const button = node('button', 'php-debugger-button', label);
+			const set = node('div', 'php-debugger-toolbar-group');
 
-			button.type = 'button';
-			this.buttons.set(label, button);
+			set.setAttribute('role', 'group');
+			this.toolbar.append(set);
 
-			this.toolbar.append(button);
+			for(const [label, action] of group)
+			{
+				const button = node('button', 'php-debugger-button', label);
+				const key = keys[label];
 
-			button.addEventListener('click', () => this.act(action), {signal: this.abort.signal});
+				button.type = 'button';
+				button.title = purposes[label] + (key ? ` (${key})` : '');
+				this.buttons.set(label, button);
+				set.append(button);
+
+				button.addEventListener(
+					'click'
+					, () => this.act(action)
+					, {signal: this.abort.signal}
+				);
+
+				if(key)
+				{
+					button.setAttribute('aria-keyshortcuts', key);
+					this.shortcuts.set(key, [...(this.shortcuts.get(key) || []), button]);
+				}
+			}
 		}
 
+		// While focus is anywhere in the debugger, a key presses whichever of its buttons is
+		// available: F8 is Run before a run and Continue during a pause.
+		this.root.addEventListener(
+			'keydown'
+			, event => {
+				const key = (event.shiftKey ? 'Shift+' : '') + event.key;
+				const modified = event.ctrlKey || event.altKey || event.metaKey;
+				const button = modified ? null : this.shortcuts.get(key)?.find(b => !b.disabled);
+
+				if(button)
+				{
+					event.preventDefault();
+					button.click();
+				}
+			}
+			, {signal: this.abort.signal}
+		);
+
+		const versionLabel = node('label', 'php-debugger-version-label', 'PHP ');
+
 		this.version = node('select', 'php-debugger-version');
-		this.version.setAttribute('aria-label', 'PHP version');
+		versionLabel.append(this.version);
 
 		for(const version of dbg.options.versions || versions)
 		{
@@ -90,11 +160,23 @@ export class DebuggerView
 
 		this.version.addEventListener(
 			'change'
-			, () => this.act(() => dbg.setVersion(this.version.value))
+			, () => this.act(
+				async() => {
+					const interrupted = !!dbg.active;
+
+					await dbg.setVersion(this.version.value);
+
+					if(interrupted)
+					{
+						this.status.textContent = 'Stopped: the PHP version is now '
+							+ `${this.version.value}. Run starts again with it.`;
+					}
+				}
+			)
 			, {signal: this.abort.signal}
 		);
 
-		this.toolbar.append(this.version);
+		this.toolbar.append(versionLabel);
 		this.status = node('output', 'php-debugger-status');
 		this.status.setAttribute('aria-live', 'polite');
 		this.root.append(this.status);
@@ -256,6 +338,7 @@ export class DebuggerView
 		}
 
 		this.content = node('div', 'php-debugger-values');
+		this.content.tabIndex = -1;
 		right.append(this.content);
 
 		const form = node('form', 'php-debugger-expression-form');
@@ -318,12 +401,27 @@ export class DebuggerView
 		on('output', event => this.appendOutput(event));
 		on('progress', progress => this.showProgress(progress));
 
-		on('pause', () => void this.refresh());
+		on(
+			'pause'
+			, event => {
+				this.pauseReason = event.reason;
+				this.update();
+				void this.refresh();
+			}
+		);
+
 		on('framechange', () => void this.refresh());
 		on('variablechange', () => void this.refresh());
-
 		on('breakpointchange', () => this.gutterUpdate());
-		on('locationchange', location => this.showLocation(location));
+
+		on(
+			'locationchange'
+			, location => {
+				this.showLocation(location);
+				this.status.textContent = this.statusText();
+			}
+		);
+
 		on('sourcechange', () => this.gutterUpdate());
 		on('versionchange', () => {this.version.value = dbg.options.version;});
 
@@ -448,7 +546,15 @@ export class DebuggerView
 
 		this.root.setAttribute('aria-busy', String(['loading', 'running'].includes(state)));
 
-		this.status.textContent = `${state}${testStatus === 'unchecked' ? '' : ` · ${testStatus}`}`;
+		if(state !== 'paused')
+		{
+			this.pauseReason = null;
+		}
+
+		this.status.textContent = this.statusText();
+
+		// The one thing to do next: start, or carry on from a pause.
+		const primary = !this.dbg.active ? 'Run' : state === 'paused' ? 'Continue' : null;
 
 		for(const [label, button] of this.buttons)
 		{
@@ -460,6 +566,8 @@ export class DebuggerView
 						|| label === 'Restart'
 						? !this.dbg.active
 						: state !== 'paused';
+
+			button.dataset.primary = String(label === primary);
 		}
 
 		if(this.textarea)
@@ -477,11 +585,96 @@ export class DebuggerView
 		if(state !== 'paused')
 		{
 			this.refreshNumber++;
+			this.holdFocus();
 
 			this.content.replaceChildren(
 				node('p', 'php-debugger-empty', 'Pause execution to inspect values.')
 			);
 		}
+	}
+
+	/**
+	 * Before the inspector's list is replaced: if focus is on one of its controls, remember
+	 * which and rest focus on the list itself. Focus then stays in the debugger, where the keys
+	 * work, and returnFocus() can put it back.
+	 */
+	holdFocus()
+	{
+		const active = this.root.getRootNode().activeElement;
+
+		if(active !== this.content && !this.content.contains(active))
+		{
+			return false;
+		}
+
+		this.focusKey ??= this.controlKeys.get(active) ?? null;
+		this.content.focus();
+
+		return true;
+	}
+
+	/** After the list is rebuilt: back to the control that had focus, if it is still there. */
+	returnFocus(held)
+	{
+		if(held)
+		{
+			this.rows.get(this.focusKey)?.focus();
+		}
+
+		this.focusKey = null;
+	}
+
+	/** Give one of the inspector's controls its key for the two methods above. */
+	control(rows, key, element)
+	{
+		rows.set(key, element);
+		this.controlKeys.set(element, key);
+	}
+
+	/** Where things stand, as a sentence: where execution is paused, or how the run ended. */
+	statusText()
+	{
+		const {state, testStatus, location, result} = this.dbg;
+		const test = testStatus === 'unchecked' ? '' : ` Test ${testStatus}.`;
+
+		if(state === 'paused' && location)
+		{
+			const where = `line ${location.line} of ${location.file}`;
+
+			if(location.frame)
+			{
+				return `Paused. Showing frame ${location.frame}, at ${where}.`;
+			}
+
+			const why = {
+				breakpoint: ', on a breakpoint'
+				, step: ', after a step'
+				, exception: ', on an exception'
+			}[this.pauseReason] || '';
+
+			return `Paused at ${where}${why}.`;
+		}
+
+		if(state === 'completed')
+		{
+			return `Finished with exit code ${result?.exitCode ?? 'unknown'}.${test}`;
+		}
+
+		if(state === 'stopped')
+		{
+			const timedOut = result?.status === 'timed-out';
+
+			return (timedOut ? 'Stopped: the time limit was reached.' : 'Stopped.') + test;
+		}
+
+		return {
+			idle: 'Ready.'
+			, loading: `Loading PHP ${this.dbg.options.version}…`
+			, ready: 'Starting…'
+			, running: 'Running…'
+			, paused: 'Paused.'
+			, error: 'Failed.' + test
+		}[state] ?? '';
 	}
 
 	showProgress({loaded, total})
@@ -492,10 +685,11 @@ export class DebuggerView
 		}
 
 		const megabytes = bytes => (bytes / 1048576).toFixed(1) + ' MB';
+		const loading = `Loading PHP ${this.dbg.options.version}: `;
 		// Whole steps only: the status is a live region, and every change is announced.
 		const text = total
-			? `loading · ${Math.floor(loaded / total * 10) * 10}% of ${megabytes(total)}`
-			: `loading · ${Math.floor(loaded / 1048576)} MB`;
+			? `${loading}${Math.floor(loaded / total * 10) * 10}% of ${megabytes(total)}`
+			: `${loading}${Math.floor(loaded / 1048576)} MB`;
 
 		if(this.status.textContent !== text)
 		{
@@ -759,6 +953,7 @@ export class DebuggerView
 				}
 
 				const scrolled = this.content.scrollTop;
+				const held = this.holdFocus();
 
 				this.rows = rows;
 				this.content.replaceChildren(...nodes);
@@ -777,12 +972,14 @@ export class DebuggerView
 					);
 				}
 
-				// After an edit, back to the button that started it.
-				this.rows.get(this.focusPath)?.edit?.focus();
-				this.focusPath = null;
+				this.returnFocus(held);
 			}
 			else
 			{
+				const rows = new Map();
+				const held = this.holdFocus();
+
+				this.rows = rows;
 				this.content.replaceChildren();
 
 				for(const value of Array.isArray(values) ? values : Object.values(values))
@@ -827,8 +1024,11 @@ export class DebuggerView
 						)
 					);
 
+					this.control(rows, `symbol ${rows.size}`, item);
 					this.content.append(item);
 				}
+
+				this.returnFocus(held);
 			}
 		});
 	}
@@ -850,9 +1050,6 @@ export class DebuggerView
 			: ''
 		);
 
-		const controls = {};
-
-		rows.set(key, controls);
 		row.append(line);
 		line.append(name, preview);
 
@@ -879,6 +1076,7 @@ export class DebuggerView
 
 			toggle.type = 'button';
 			toggle.setAttribute('aria-expanded', 'false');
+			this.control(rows, `open ${key}`, toggle);
 			more.type = 'button';
 			more.hidden = true;
 			children.hidden = true;
@@ -957,7 +1155,7 @@ export class DebuggerView
 
 			edit.type = 'button';
 			edit.setAttribute('aria-label', `Edit ${value.name}`);
-			controls.edit = edit;
+			this.control(rows, `edit ${key}`, edit);
 			line.append(edit);
 			edit.addEventListener('click', () => this.editValue(value, key, line, edit));
 		}
@@ -1019,15 +1217,21 @@ export class DebuggerView
 			}
 			catch(error)
 			{
-				// What PHP made of the new value is said beside it, and the form stays open.
+				// What PHP made of the new value is said beside it, and the form stays open. Focus
+				// returns to the box unless the user has already gone elsewhere.
 				problem.textContent = error.message || String(error);
 				input.setAttribute('aria-invalid', 'true');
-				input.focus();
+
+				if(form.contains(this.root.getRootNode().activeElement))
+				{
+					input.focus();
+				}
 
 				return;
 			}
 
-			this.focusPath = key;
+			// The form goes with the old list; focus belongs back on the button that opened it.
+			this.focusKey = `edit ${key}`;
 			await this.refresh();
 		});
 	}

@@ -102,12 +102,34 @@
 }
 
 .php-debugger .php-debugger-toolbar,
+.php-debugger .php-debugger-toolbar-group,
 .php-debugger .php-debugger-tabs,
 .php-debugger .php-debugger-expression-form {
 	display: flex;
 	flex-wrap: wrap;
 	gap: .35em;
 	align-items: center;
+}
+
+/* Run, step and end are three groups, a little apart. */
+.php-debugger .php-debugger-toolbar {
+	gap: .35em 1em;
+}
+
+/* The one button to press next: Run before a run, Continue during a pause. */
+.php-debugger .php-debugger-button[data-primary=true] {
+	font-weight: 600;
+	color: var(--php-debugger-bg);
+	background: var(--php-debugger-accent);
+	border-color: var(--php-debugger-accent);
+}
+
+.php-debugger .php-debugger-version-label {
+	display: flex;
+	gap: .35em;
+	align-items: center;
+	margin-left: auto;
+	color: var(--php-debugger-muted);
 }
 
 .php-debugger .php-debugger-status {

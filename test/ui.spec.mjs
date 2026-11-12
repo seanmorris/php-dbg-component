@@ -222,7 +222,7 @@ test('GUI edits a live value and exposes symbols, globals, constants and frames'
 	});
 
 	await page.getByRole('button', {name: 'Run', exact: true}).click();
-	await expect(page.getByRole('status')).toHaveText('paused');
+	await expect(page.getByRole('status')).toContainText('Paused');
 	await page.getByRole('button', {name: 'Edit n', exact: true}).click();
 	await page.getByRole('textbox', {name: 'New PHP expression for n', exact: true}).fill('42');
 	await page.getByRole('button', {name: 'Apply', exact: true}).click();
@@ -258,7 +258,7 @@ test('GUI edits a live value and exposes symbols, globals, constants and frames'
 
 	await expect(page.locator('.php-debugger-line[data-active=true]')).toHaveText('9');
 	await page.getByRole('button', {name: 'Continue', exact: true}).click();
-	await expect(page.getByRole('status')).toHaveText('completed');
+	await expect(page.getByRole('status')).toContainText('Finished');
 	expect(await page.evaluate(() => dbg.result.stdout)).toBe('42');
 	// Program output is visible by default; phpdbg's own notices appear only once the log is
 	// switched on.
@@ -292,7 +292,7 @@ test('editing an array starts from an empty expression, a number from its value'
 	});
 
 	await page.getByRole('button', {name: 'Run', exact: true}).click();
-	await expect(page.getByRole('status')).toHaveText('paused');
+	await expect(page.getByRole('status')).toContainText('Paused');
 	// An array's preview, such as "array(2)", is valid PHP for a different array, so applying it
 	// unchanged would replace the contents.
 	await page.getByRole('button', {name: 'Edit list', exact: true}).click();
@@ -308,7 +308,7 @@ test('editing an array starts from an empty expression, a number from its value'
 	).toHaveValue('2');
 
 	await page.getByRole('button', {name: 'Continue', exact: true}).click();
-	await expect(page.getByRole('status')).toHaveText('completed');
+	await expect(page.getByRole('status')).toContainText('Finished');
 
 	expect(await page.evaluate(() => dbg.result.stdout)).toBe('a,b');
 });
@@ -377,7 +377,7 @@ test('bare-element page rules cannot move line numbers or reveal hidden lines', 
 	expect(Math.max(...before)).toBeLessThan(.5);
 
 	await page.getByRole('button', {name: 'Run', exact: true}).click();
-	await expect(page.getByRole('status')).toHaveText('paused');
+	await expect(page.getByRole('status')).toContainText('Paused');
 	await expect(page.locator('.php-debugger-line[data-active=true]')).toHaveText('11');
 
 	expect(Math.max(...await drift())).toBeLessThan(.5);
@@ -513,7 +513,7 @@ test('Evaluate answers beside its box and keeps the exchange in the console', as
 	await expect(output).toHaveText('');
 
 	await page.getByRole('button', {name: 'Run', exact: true}).click();
-	await expect(page.getByRole('status')).toHaveText('paused');
+	await expect(page.getByRole('status')).toContainText('Paused');
 
 	await expression.fill('$n +');
 	await expression.press('Enter');
@@ -543,7 +543,7 @@ test('Evaluate answers beside its box and keeps the exchange in the console', as
 	);
 
 	await page.getByRole('button', {name: 'Continue', exact: true}).click();
-	await expect(page.getByRole('status')).toHaveText('completed');
+	await expect(page.getByRole('status')).toContainText('Finished');
 	expect(await page.evaluate(() => dbg.result.exitCode)).toBe(0);
 	await page.evaluate(() => dbg.destroy());
 });
@@ -577,18 +577,18 @@ echo $n;
 	await lines.nth(1).click();
 	await expect(lines.nth(1)).toHaveAttribute('data-breakpoint', 'true');
 	await page.getByRole('button', {name: 'Run', exact: true}).click();
-	await expect(page.getByRole('status')).toHaveText('paused');
+	await expect(page.getByRole('status')).toContainText('Paused');
 	await expect(page.locator('.php-debugger-line[data-active=true]')).toHaveText('2');
 	await expect(source).toHaveJSProperty('readOnly', true);
 	await page.getByRole('button', {name: 'Continue', exact: true}).click();
-	await expect(page.getByRole('status')).toHaveText('completed');
+	await expect(page.getByRole('status')).toContainText('Finished');
 
 	// It is still the source: an edit is what runs next.
 	await lines.nth(1).click();
 	await source.fill('<?php\necho "edited";');
 	await expect(lines).toHaveCount(2);
 	await page.getByRole('button', {name: 'Run', exact: true}).click();
-	await expect(page.getByRole('status')).toHaveText('completed');
+	await expect(page.getByRole('status')).toContainText('Finished');
 	expect(await element.evaluate(node => node.result.stdout)).toBe('edited');
 
 	// Removing the debugger gives the page its textarea back as it was.
@@ -640,7 +640,7 @@ test('a nested value is edited by keyboard alone, and the tree stays open', asyn
 	});
 
 	await page.getByRole('button', {name: 'Run', exact: true}).click();
-	await expect(page.getByRole('status')).toHaveText('paused');
+	await expect(page.getByRole('status')).toContainText('Paused');
 
 	const values = page.locator('.php-debugger-values');
 	const item = values.getByRole('button', {name: 'item', exact: true});
@@ -700,7 +700,78 @@ test('a nested value is edited by keyboard alone, and the tree stays open', asyn
 	await expect(price).toBeHidden();
 
 	await page.getByRole('button', {name: 'Continue', exact: true}).click();
-	await expect(page.getByRole('status')).toHaveText('completed');
+	await expect(page.getByRole('status')).toContainText('Finished');
 	expect(await page.evaluate(() => dbg.result.stdout)).toBe('30');
+});
+
+test('status says where execution is; keys drive it; a version change owns up', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	await page.evaluate(() => {
+		window.dbg = new PhpDebugger(
+			{
+				version: window.phpVersionUnderTest
+				, runtimeBaseUrl: '/runtime/'
+				, code: '<?php\nfunction add($a) {\n\treturn $a + 1;\n}\n$n = add(1);\nexit(3);'
+				, breakpoints: [5]
+			}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+	});
+
+	const status = page.getByRole('status');
+	const version = page.getByRole('combobox', {name: 'PHP', exact: true});
+
+	const button = name => page.getByRole('button', {name, exact: true});
+
+	await expect(status).toHaveText('Ready.');
+	await expect(button('Run')).toHaveAttribute('data-primary', 'true');
+	await expect(button('Until')).toHaveAttribute('title', /finish the loop/);
+	await expect(button('Step out')).toHaveAttribute('title', /\(Shift\+F11\)$/);
+	await expect(version).toHaveValue(await page.evaluate(() => window.phpVersionUnderTest));
+
+	// F8 starts the run from anywhere in the debugger, the source included.
+	await page.getByRole('textbox', {name: 'PHP source', exact: true}).focus();
+	await page.keyboard.press('F8');
+	await expect(status).toHaveText('Paused at line 5 of /main.php, on a breakpoint.');
+	await expect(button('Continue')).toHaveAttribute('data-primary', 'true');
+	await expect(button('Run')).toHaveAttribute('data-primary', 'false');
+
+	await page.keyboard.press('F11');
+	await expect(status).toHaveText('Paused at line 3 of /main.php, after a step.');
+
+	// Choosing a frame rebuilds the list it was chosen from; focus stays on the chosen frame, so
+	// the keys still work.
+	await button('frames').click();
+	await page.locator('.php-debugger-symbol').nth(1).click();
+	await expect(status).toHaveText('Paused. Showing frame 1, at line 5 of /main.php.');
+	await expect(page.locator('.php-debugger-symbol').nth(1)).toBeFocused();
+
+	// The same key carries on from a pause. Returning to line 5 meets its breakpoint again; the
+	// frame that had focus is gone by then, and the keys still work.
+	await page.keyboard.press('F8');
+	await expect(status).toHaveText('Paused at line 5 of /main.php, on a breakpoint.');
+	await expect(page.locator('.php-debugger-symbol')).toHaveCount(1);
+	await page.keyboard.press('F8');
+	await expect(status).toHaveText('Finished with exit code 3.');
+	await expect(button('Run')).toHaveAttribute('data-primary', 'true');
+
+	// Changing the version ends a run in progress; the status says so.
+	await button('Run').click();
+	await expect(status).toContainText('Paused at line 5');
+
+	const other = await version.evaluate(
+		select => [...select.options].map(option => option.value).find(v => v !== select.value)
+	);
+
+	await version.selectOption(other);
+
+	await expect(status).toHaveText(
+		`Stopped: the PHP version is now ${other}. Run starts again with it.`
+	);
+
+	await page.evaluate(() => dbg.destroy());
 });
 
