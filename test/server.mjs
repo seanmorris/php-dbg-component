@@ -22,7 +22,10 @@ const runtimeRoot = process.env.PHP_WASM_ROOT && path.resolve(process.env.PHP_WA
 const localBundle = path.join(root, 'runtime-bundle');
 
 const compatible = async directory => {
-	if(!directory)return false;
+	if(!directory)
+	{
+		return false;
+	}
 
 	try
 	{
@@ -30,7 +33,7 @@ const compatible = async directory => {
 			await fs.readFile(path.join(directory, 'php8.4-dbg-worker.mjs.assets.json'))
 		);
 
-		return manifest.bridgeVersion===1;
+		return manifest.bridgeVersion === 1;
 	}
 	catch
 	{
@@ -48,10 +51,12 @@ let nativeDirectory = bundle
 if(!await compatible(nativeDirectory))
 {
 	if(process.env.RUNTIME_BUNDLE || runtimeRoot)
-	throw Error(
-		'Compatible php-dbg-wasm assets are missing from ' + nativeDirectory
+	{
+		throw Error(
+			'Compatible php-dbg-wasm assets are missing from ' + nativeDirectory
 		+ '. Build the debugger worker/web targets described in README.md.'
-	);
+		);
+	}
 
 	bundle = localBundle;
 	nativeDirectory = path.join(bundle, 'runtime');
@@ -71,7 +76,7 @@ await fs.mkdir(path.join(root, '.cache'), {recursive: true});
 
 await build(
 	{
-		stdin: {contents: `export {EditorState} from '@codemirror/state'; export {EditorView, lineNumbers} from '@codemirror/view'; export {createCodeMirror6Adapter} from './src/adapters/codemirror6.mjs';`,resolveDir: root}
+		stdin: {contents: `export {EditorState} from '@codemirror/state'; export {EditorView, lineNumbers} from '@codemirror/view'; export {createCodeMirror6Adapter} from './src/adapters/codemirror6.mjs';`, resolveDir: root}
 		, bundle: true
 		, format: 'esm'
 		, outfile: path.join(root, '.cache/editors.mjs')
@@ -93,7 +98,7 @@ const server = http.createServer(async(req, res) => {
 	{
 		const url = new URL(req.url, 'http://localhost');
 
-		if(url.pathname==='/__requests')
+		if(url.pathname === '/__requests')
 		{
 			res.setHeader('Content-Type', 'application/json');
 			res.end(JSON.stringify(Object.fromEntries(counts)));
@@ -120,31 +125,48 @@ const server = http.createServer(async(req, res) => {
 					? path.join(
 						runtimeRoot
 						, 'packages'
-						, extension[1]==='yaml' ? 'libyaml' : extension[1]
+						, extension[1] === 'yaml' ? 'libyaml' : extension[1]
 					)
 					: installedPackage(`php-wasm-${extension[1]}`);
 
-			if(!base)throw Error('Extension package is not installed');
+			if(!base)
+			{
+				throw Error('Extension package is not installed');
+			}
 
-			pathname = pathname.slice(extension[0].length-1);
+			pathname = pathname.slice(extension[0].length - 1);
 		}
 
-		if(pathname==='/')pathname = '/examples/index.html';
-		else if(pathname.endsWith('/'))pathname += 'index.html';
+		if(pathname === '/')
+		{
+			pathname = '/examples/index.html';
+		}
+		else if(pathname.endsWith('/'))
+		{
+			pathname += 'index.html';
+		}
 
-		if(pathname==='/editors.mjs')pathname = '/.cache/editors.mjs';
+		if(pathname === '/editors.mjs')
+		{
+			pathname = '/.cache/editors.mjs';
+		}
 
-		if(pathname.split('/').some(part => part==='..'||part==='.git'||part==='.env'))
-		throw Error('Invalid path');
+		if(pathname.split('/').some(part => part === '..' || part === '.git' || part === '.env'))
+		{
+			throw Error('Invalid path');
+		}
 
 		const filename = path.resolve(base, '.' + pathname);
 
-		if(!filename.startsWith(base+path.sep))throw Error('Invalid path');
+		if(!filename.startsWith(base + path.sep))
+		{
+			throw Error('Invalid path');
+		}
 
 		const bytes = await fs.readFile(filename);
-		counts.set(url.pathname, (counts.get(url.pathname)||0)+1);
+		counts.set(url.pathname, (counts.get(url.pathname) || 0) + 1);
 
-		res.setHeader('Content-Type', types[path.extname(filename)]||'application/octet-stream');
+		res.setHeader('Content-Type', types[path.extname(filename)] || 'application/octet-stream');
 		res.setHeader('Cache-Control', 'no-store');
 		res.end(bytes);
 	}
@@ -156,7 +178,7 @@ const server = http.createServer(async(req, res) => {
 });
 
 server.listen(
-	Number(process.env.PORT||9120)
+	Number(process.env.PORT || 9120)
 	, '127.0.0.1'
-	, () => console.log('Debugger examples: http://127.0.0.1:' + (process.env.PORT||9120))
+	, () => console.log('Debugger examples: http://127.0.0.1:' + (process.env.PORT || 9120))
 );

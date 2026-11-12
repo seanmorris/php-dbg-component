@@ -22,7 +22,8 @@ export function createCodeMirror6Adapter(view, {file = '/main.php'} = {})
 			n.textContent = '●';
 
 			return n;
-		}}
+		}
+	}
 
 	const marker = new Marker();
 
@@ -34,8 +35,12 @@ export function createCodeMirror6Adapter(view, {file = '/main.php'} = {})
 				value = value.map(tr.changes);
 
 				for(const effect of tr.effects)
-if(effect.is(change))
-value = RangeSet.of(effect.value.map(from => marker.range(from)), true);
+				{
+					if(effect.is(change))
+					{
+						value = RangeSet.of(effect.value.map(from => marker.range(from)), true);
+					}
+				}
 
 				return value;
 			}
@@ -50,10 +55,18 @@ value = RangeSet.of(effect.value.map(from => marker.range(from)), true);
 				value = value.map(tr.changes);
 
 				for(const effect of tr.effects)
-if(effect.is(position))
-value = effect.value===null
-	? Decoration.none
-	: Decoration.set([Decoration.line({class: 'php-debugger-active-line'}).range(effect.value)]);
+				{
+					if(effect.is(position))
+					{
+						value = effect.value === null
+							? Decoration.none
+							: Decoration.set(
+								[Decoration.line({class: 'php-debugger-active-line'}).range(
+									effect.value
+								)]
+							);
+					}
+				}
 
 				return value;
 			}
@@ -72,11 +85,17 @@ value = effect.value===null
 
 					mousedown(view, line){
 						const number = view.state.doc.lineAt(line.from).number;
-						const next = lines.filter(bp => bp.line!==number);
+						const next = lines.filter(bp => bp.line !== number);
 
-						if(next.length===lines.length)next.push({file,line: number});
+						if(next.length === lines.length)
+						{
+							next.push({file, line: number});
+						}
 
-						for(const listener of listeners)listener(next);
+						for(const listener of listeners)
+						{
+							listener(next);
+						}
 
 						return true;
 					}
@@ -88,7 +107,7 @@ value = effect.value===null
 	view.dispatch(
 		{
 			effects: StateEffect.appendConfig.of(
-				[compartment.of(extension),readOnlyCompartment.of([])]
+				[compartment.of(extension), readOnlyCompartment.of([])]
 			)
 		}
 	);
@@ -96,13 +115,13 @@ value = effect.value===null
 	return {
 		getCode: () => view.state.doc.toString()
 		, setCode: code => view.dispatch(
-			{changes: {from: 0,to: view.state.doc.length,insert: code}}
+			{changes: {from: 0, to: view.state.doc.length, insert: code}}
 		)
 
 		, setReadOnly: value => view.dispatch(
 			{
 				effects: readOnlyCompartment.reconfigure(
-					value ? [EditorState.readOnly.of(true),EditorView.editable.of(false)] : []
+					value ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []
 				)
 			}
 		)
@@ -114,12 +133,12 @@ value = effect.value===null
 		}
 
 		, setBreakpoints(breakpoints){
-			lines = breakpoints.filter(bp => bp.file===file&&bp.enabled);
+			lines = breakpoints.filter(bp => bp.file === file && bp.enabled);
 
 			view.dispatch(
 				{
 					effects: change.of(
-						lines.filter(bp => bp.line<=view.state.doc.lines).map(
+						lines.filter(bp => bp.line <= view.state.doc.lines).map(
 							bp => view.state.doc.line(bp.line).from
 						)
 					)
@@ -128,26 +147,29 @@ value = effect.value===null
 		}
 
 		, showLocation(location){
-			const from = location?.file===file&&location.line<=view.state.doc.lines
+			const from = location?.file === file && location.line <= view.state.doc.lines
 				? view.state.doc.line(location.line).from
 				: null;
 
 			view.dispatch(
 				{
 					effects: [position.of(from)
-						, ...(from===null ? [] : [EditorView.scrollIntoView(from, {y: 'center'})])
+						, ...(from === null ? [] : [EditorView.scrollIntoView(from, {y: 'center'})])
 					]
 				}
 			);
 		}
 
 		, dispose(){
-			if(disposed)return;
+			if(disposed)
+			{
+				return;
+			}
 
 			disposed = true;
 
 			view.dispatch(
-				{effects: [compartment.reconfigure([]),readOnlyCompartment.reconfigure([])]}
+				{effects: [compartment.reconfigure([]), readOnlyCompartment.reconfigure([])]}
 			);
 
 			listeners.clear();

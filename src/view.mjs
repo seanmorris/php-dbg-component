@@ -4,9 +4,15 @@ function node(tag, className, text)
 {
 	const n = document.createElement(tag);
 
-	if(className)n.className = className;
+	if(className)
+	{
+		n.className = className;
+	}
 
-	if(text!==undefined)n.textContent = text;
+	if(text !== undefined)
+	{
+		n.textContent = text;
+	}
 
 	return n;
 }
@@ -16,7 +22,10 @@ export class DebuggerView
 
 	constructor(debuggerInstance, host)
 	{
-		if(!host?.append) throw new TypeError('mount needs a DOM element');
+		if(!host?.append)
+		{
+			throw new TypeError('mount needs a DOM element');
+		}
 
 		this.dbg = debuggerInstance;
 		this.host = host;
@@ -48,7 +57,7 @@ export class DebuggerView
 			, ['Leave', () => dbg.leave()]
 		];
 
-		for(const [label,action] of controls)
+		for(const [label, action] of controls)
 		{
 			const button = node('button', 'php-debugger-button', label);
 
@@ -94,10 +103,13 @@ export class DebuggerView
 			this.textarea = node('textarea', 'php-debugger-source');
 			this.textarea.setAttribute('aria-label', 'PHP source');
 			this.textarea.spellcheck = false;
-			this.textarea.value = typeof dbg.options.code==='string' ? dbg.options.code : '';
+			this.textarea.value = typeof dbg.options.code === 'string' ? dbg.options.code : '';
 
 			// Keep getters authoritative; the textarea is only an editor for string sources.
-			if(typeof dbg.options.code!=='function') dbg.source = this.textarea;
+			if(typeof dbg.options.code !== 'function')
+			{
+				dbg.source = this.textarea;
+			}
 
 			this.textarea.addEventListener(
 				'input'
@@ -127,7 +139,7 @@ export class DebuggerView
 		add.addEventListener(
 			'click'
 			, () => this.act(
-				() => dbg.setBreakpoints([...dbg.breakpoints,{line: Number(lineInput.value)}])
+				() => dbg.setBreakpoints([...dbg.breakpoints, {line: Number(lineInput.value)}])
 			)
 			, {signal: this.abort.signal}
 		);
@@ -158,7 +170,10 @@ export class DebuggerView
 			this.console.dataset.debug = String(this.debugLog.checked);
 
 			for(const notice of this.console.querySelectorAll('.php-debugger-output-notice'))
-			notice.hidden = !this.debugLog.checked;
+			{
+				notice.hidden = !this.debugLog.checked;
+			}
+
 			this.console.scrollTop = this.console.scrollHeight;
 		}, {signal: this.abort.signal}
 		);
@@ -184,7 +199,7 @@ export class DebuggerView
 
 			button.addEventListener(
 				'click'
-				, () => {this.panel = scope;void this.refresh();}
+				, () => {this.panel = scope; void this.refresh();}
 				, {signal: this.abort.signal}
 			);
 
@@ -215,7 +230,7 @@ export class DebuggerView
 				void this.act(
 					async() => {
 						const value = await dbg.evaluate(this.expression.value);
-						this.appendOutput({channel: 'evaluation',text: value.displayValue + '\n'});
+						this.appendOutput({channel: 'evaluation', text: value.displayValue + '\n'});
 						await this.refresh();
 					}
 				);
@@ -231,7 +246,8 @@ export class DebuggerView
 					this.watches.push(this.expression.value);
 					this.panel = 'watches';
 					void this.refresh();
-				}}
+				}
+			}
 			, {signal: this.abort.signal}
 		);
 
@@ -258,21 +274,26 @@ export class DebuggerView
 		on(
 			'complete'
 			, result => {
-				if(result.test.status==='failed')
-this.message.textContent = result.test.failures.map(
-	f => `${f.field}: expected ${f.expected ?? f.message}, received ${f.actual ?? ''}`
-).join('\n');
+				if(result.test.status === 'failed')
+				{
+					this.message.textContent = result.test.failures.map(
+						f => `${f.field}: expected ${f.expected ?? f.message}, received ${f.actual
+							?? ''}`
+					).join('\n');
+				}
 
-				if(result.status==='error')
-this.message.textContent = result.diagnostics.map(d => d.message).join('\n');
+				if(result.status === 'error')
+				{
+					this.message.textContent = result.diagnostics.map(d => d.message).join('\n');
+				}
 			}
 		);
 
 		this.adapterUnsubscribe = dbg.source?.onBreakpointChange?.(
 			lines => this.act(() => dbg.setBreakpoints([
 				...dbg.breakpoints.filter(
-					bp => bp.file!==dbg.options.entrypoint || (!bp.enabled
-			&& !lines.some(line => (typeof line==='number' ? line : line.line)===bp.line)
+					bp => bp.file !== dbg.options.entrypoint || (!bp.enabled
+			&& !lines.some(line => (typeof line === 'number' ? line : line.line) === bp.line)
 					)
 				)
 				, ...lines
@@ -294,32 +315,44 @@ this.message.textContent = result.diagnostics.map(d => d.message).join('\n');
 		catch(error)
 		{
 			this.message.textContent = error.message || String(error);
-		}}
+		}
+	}
 
 	update()
 	{
-		const {state,testStatus} = this.dbg;
+		const {state, testStatus} = this.dbg;
 		this.root.dataset.state = state;
 		this.root.dataset.testStatus = testStatus;
 
-		this.root.setAttribute('aria-busy', String(['loading','running'].includes(state)));
+		this.root.setAttribute('aria-busy', String(['loading', 'running'].includes(state)));
 
-		this.status.textContent = `${state}${testStatus==='unchecked' ? '' : ` · ${testStatus}`}`;
+		this.status.textContent = `${state}${testStatus === 'unchecked' ? '' : ` · ${testStatus}`}`;
 
-		for(const [label,button] of this.buttons)
-		button.disabled = label==='Run'
-			? !!this.dbg.active
-			: label==='Pause'
-				? state!=='running'
-				: label==='Stop' || label==='Restart' ? !this.dbg.active : state!=='paused';
+		for(const [label, button] of this.buttons)
+		{
+			button.disabled = label === 'Run'
+				? !!this.dbg.active
+				: label === 'Pause'
+					? state !== 'running'
+					: label === 'Stop'
+						|| label === 'Restart'
+						? !this.dbg.active
+						: state !== 'paused';
+		}
 
-		if(this.textarea)this.textarea.readOnly = !!this.dbg.active;
+		if(this.textarea)
+		{
+			this.textarea.readOnly = !!this.dbg.active;
+		}
 
 		this.dbg.source?.setReadOnly?.(!!this.dbg.active);
 
-		if(!this.dbg.location)this.showLocation(null);
+		if(!this.dbg.location)
+		{
+			this.showLocation(null);
+		}
 
-		if(state!=='paused')
+		if(state !== 'paused')
 		{
 			this.refreshNumber++;
 
@@ -329,23 +362,29 @@ this.message.textContent = result.diagnostics.map(d => d.message).join('\n');
 		}
 	}
 
-	showProgress({loaded,total})
+	showProgress({loaded, total})
 	{
-		if(this.dbg.state!=='loading')return;
+		if(this.dbg.state !== 'loading')
+		{
+			return;
+		}
 
-		const megabytes = bytes => (bytes/1048576).toFixed(1) + ' MB';
+		const megabytes = bytes => (bytes / 1048576).toFixed(1) + ' MB';
 		// Whole steps only: the status is a live region, and every change is announced.
 		const text = total
-			? `loading · ${Math.floor(loaded/total*10)*10}% of ${megabytes(total)}`
-			: `loading · ${Math.floor(loaded/1048576)} MB`;
+			? `loading · ${Math.floor(loaded / total * 10) * 10}% of ${megabytes(total)}`
+			: `loading · ${Math.floor(loaded / 1048576)} MB`;
 
-		if(this.status.textContent!==text)this.status.textContent = text;
+		if(this.status.textContent !== text)
+		{
+			this.status.textContent = text;
+		}
 	}
 
 	frameLabel(frame)
 	{
 		// Only an API 2 runtime names the function; an empty name there means top-level code.
-		const callee = frame.functionName===undefined
+		const callee = frame.functionName === undefined
 			? ''
 			: ` · ${frame.functionName
 				? `${frame.className
@@ -376,7 +415,9 @@ this.message.textContent = result.diagnostics.map(d => d.message).join('\n');
 				'change'
 				, () => this.act(
 					() => dbg.setBreakpoints(
-						dbg.breakpoints.map(b => b.id===bp.id ? {...b,enabled: toggle.checked} : b)
+						dbg.breakpoints.map(
+							b => b.id === bp.id ? {...b, enabled: toggle.checked} : b
+						)
 					)
 				)
 			);
@@ -387,7 +428,7 @@ this.message.textContent = result.diagnostics.map(d => d.message).join('\n');
 			remove.addEventListener(
 				'click'
 				, () => this.act(
-					() => dbg.setBreakpoints(dbg.breakpoints.filter(b => b.id!==bp.id))
+					() => dbg.setBreakpoints(dbg.breakpoints.filter(b => b.id !== bp.id))
 				)
 			);
 
@@ -397,15 +438,18 @@ this.message.textContent = result.diagnostics.map(d => d.message).join('\n');
 		}
 
 		dbg.source?.setBreakpoints?.(
-			dbg.breakpoints.filter(bp => bp.file===dbg.options.entrypoint)
+			dbg.breakpoints.filter(bp => bp.file === dbg.options.entrypoint)
 		);
 
-		if(!this.gutter)return;
+		if(!this.gutter)
+		{
+			return;
+		}
 
 		this.gutter.replaceChildren();
 		const lines = this.textarea.value.split('\n').length;
 
-		for(let line = 1; line<=lines; line++)
+		for(let line = 1; line <= lines; line++)
 		{
 			const b = node('button', 'php-debugger-line', String(line));
 
@@ -414,7 +458,7 @@ this.message.textContent = result.diagnostics.map(d => d.message).join('\n');
 
 			b.dataset.breakpoint = String(
 				dbg.breakpoints.some(
-					bp => bp.file===dbg.options.entrypoint&&bp.line===line&&bp.enabled
+					bp => bp.file === dbg.options.entrypoint && bp.line === line && bp.enabled
 				)
 			);
 
@@ -422,11 +466,13 @@ this.message.textContent = result.diagnostics.map(d => d.message).join('\n');
 				'click'
 				, () => this.act(
 					() => dbg.setBreakpoints(
-						dbg.breakpoints.some(bp => bp.line===line&&bp.file===dbg.options.entrypoint)
+						dbg.breakpoints.some(
+							bp => bp.line === line && bp.file === dbg.options.entrypoint
+						)
 							? dbg.breakpoints.filter(
-								bp => bp.line!==line||bp.file!==dbg.options.entrypoint
+								bp => bp.line !== line || bp.file !== dbg.options.entrypoint
 							)
-							: [...dbg.breakpoints,line]
+							: [...dbg.breakpoints, line]
 					)
 				)
 			);
@@ -440,32 +486,47 @@ this.message.textContent = result.diagnostics.map(d => d.message).join('\n');
 		this.dbg.source?.showLocation?.(location);
 
 		if(!location && this.gutter)
-		for(const line of this.gutter.children)
-		line.dataset.active = 'false';
+		{
+			for(const line of this.gutter.children)
+			{
+				line.dataset.active = 'false';
+			}
+		}
 
-		if(this.textarea && location?.file===this.dbg.options.entrypoint)
+		if(this.textarea && location?.file === this.dbg.options.entrypoint)
 		{
 			const lines = this.textarea.value.split('\n');
 
-			const start = lines.slice(0, location.line-1).reduce((a, b) => a+b.length+1, 0);
+			const start = lines.slice(0, location.line - 1).reduce((a, b) => a + b.length + 1, 0);
 
-			this.textarea.setSelectionRange(start, start+(lines[location.line-1]?.length||0));
+			this.textarea.setSelectionRange(start, start + (lines[location.line - 1]?.length || 0));
 
 			for(const line of this.gutter.children)
-			line.dataset.active = String(Number(line.textContent)===location.line);
+			{
+				line.dataset.active = String(Number(line.textContent) === location.line);
+			}
 		}
 	}
 
-	appendOutput({channel,text,kind})
+	appendOutput({channel, text, kind})
 	{
-		const program = channel==='stdout'||channel==='stderr',notice = kind==='notice';
+		const program = channel === 'stdout'
+			|| channel === 'stderr';
 
-		if(channel==='debug' && !text.endsWith('\n'))text += '\n';
+		const notice = kind === 'notice';
+
+		if(channel === 'debug' && !text.endsWith('\n'))
+		{
+			text += '\n';
+		}
 
 		// Debugger lines start on a fresh line even when program output stopped mid-line. Notices
 		// compare against everything; the rest compare against what is visible while notices are
 		// hidden.
-		if(!program && (notice ? this.openLine : this.openVisibleLine))text = '\n' + text;
+		if(!program && (notice ? this.openLine : this.openVisibleLine))
+		{
+			text = '\n' + text;
+		}
 
 		const span = node(
 			'span'
@@ -479,9 +540,16 @@ this.message.textContent = result.diagnostics.map(d => d.message).join('\n');
 		this.console.append(span);
 		this.openLine = !text.endsWith('\n');
 
-		if(!notice)this.openVisibleLine = this.openLine;
+		if(!notice)
+		{
+			this.openVisibleLine = this.openLine;
+		}
 
-		while(this.console.childNodes.length>1000)this.console.firstChild.remove();
+		while(this.console.childNodes.length > 1000)
+		{
+			this.console.firstChild.remove();
+		}
+
 		this.console.scrollTop = this.console.scrollHeight;
 	}
 
@@ -490,62 +558,95 @@ this.message.textContent = result.diagnostics.map(d => d.message).join('\n');
 		const generation = ++this.refreshNumber;
 
 		for(const tab of this.tabs.children)
-		tab.setAttribute('aria-pressed', String(tab.dataset.panel===this.panel));
+		{
+			tab.setAttribute('aria-pressed', String(tab.dataset.panel === this.panel));
+		}
 
-		if(this.dbg.state!=='paused')return;
+		if(this.dbg.state !== 'paused')
+		{
+			return;
+		}
 
 		await this.act(async() => {
 			let values;
 
-			if(this.panel==='watches')
-			values = await Promise.all(this.watches.map(async expression => {
-				try
-				{
-					return {...await this.dbg.evaluate(expression),name: expression};
-				}
-				catch(error)
-				{
-					return {name: expression,displayValue: error.message,writable: false};
-				}}));
-			else values = await this.dbg.inspect(this.panel);
+			if(this.panel === 'watches')
+			{
+				values = await Promise.all(this.watches.map(async expression => {
+					try
+					{
+						return {...await this.dbg.evaluate(expression), name: expression};
+					}
+					catch(error)
+					{
+						return {name: expression, displayValue: error.message, writable: false};
+					}}));
+			}
+			else
+			{
+				values = await this.dbg.inspect(this.panel);
+			}
 
-			if(generation!==this.refreshNumber||this.dbg.state!=='paused')return;
+			if(generation !== this.refreshNumber || this.dbg.state !== 'paused')
+			{
+				return;
+			}
 
 			this.content.replaceChildren();
 
-			if(['variables','globals','constants','watches'].includes(this.panel))
-			for(const value of values)
-			this.content.append(this.valueNode(value));
-			else
-			for(const value of Array.isArray(values) ? values : Object.values(values))
+			if(['variables', 'globals', 'constants', 'watches'].includes(this.panel))
 			{
-				const item = node(
-					'button'
-					, 'php-debugger-symbol'
-					, typeof value ==='string'
-						? value
-						: this.panel==='frames'
-							? this.frameLabel(value)
-							: `${value.name} — ${value.filename}:${value.lineNo}`
-				);
+				for(const value of values)
+				{
+					this.content.append(this.valueNode(value));
+				}
+			}
+			else
+			{
+				for(const value of Array.isArray(values) ? values : Object.values(values))
+				{
+					const item = node(
+						'button'
+						, 'php-debugger-symbol'
+						, typeof value === 'string'
+							? value
+							: this.panel === 'frames'
+								? this.frameLabel(value)
+								: `${value.name} — ${value.filename}:${value.lineNo}`
+					);
 
-				item.type = 'button';
+					item.type = 'button';
 
-				if(this.panel==='frames' && value.selected)
-				item.setAttribute('aria-current', 'true');
+					if(this.panel === 'frames' && value.selected)
+					{
+						item.setAttribute('aria-current', 'true');
+					}
 
-				item.addEventListener(
-					'click'
-					, () => this.act(
-						async() => {
-							if(this.panel==='frames')
-await this.dbg.selectFrame(value.frame);else
-this.showLocation({file: typeof value==='string' ? value : value.filename,line: value.lineNo||1});
-						}
-					)
-				);
+					item.addEventListener(
+						'click'
+						, () => this.act(
+							async() => {
+								if(this.panel === 'frames')
+								{
+									await this.dbg.selectFrame(value.frame);
+								}
+								else
+								{
+									this.showLocation(
+										{
+											file: typeof value === 'string'
+												? value
+												: value.filename
+											, line: value.lineNo || 1
+										}
+									);
+								}
+							}
+						)
+					);
 
-				this.content.append(item);
+					this.content.append(item);
+				}
 			}
 		});
 	}
@@ -557,8 +658,8 @@ this.showLocation({file: typeof value==='string' ? value : value.filename,line: 
 		const name = node(
 			'span'
 			, 'php-debugger-value-name'
-			, value.name+(value.visibility
-				&&value.visibility!=='public'
+			, value.name + (value.visibility
+				&& value.visibility !== 'public'
 				? ` (${value.visibility})`
 				: ''
 			) + ': '
@@ -571,15 +672,15 @@ this.showLocation({file: typeof value==='string' ? value : value.filename,line: 
 		if(value.type)
 		{
 			preview.dataset.type = value.type;
-			preview.title = (value.className&&phpClassLabel(value.className))
-				||(value.type==='string'
-	&&value.count!=null
+			preview.title = (value.className && phpClassLabel(value.className))
+				|| (value.type === 'string'
+	&& value.count != null
 					? `string(${value.count})`
 					: value.type
 				);
 		}
 
-		if(value.expandable && depth<30)
+		if(value.expandable && depth < 30)
 		{
 			const expand = node('button', 'php-debugger-expand', 'Expand');
 
@@ -593,12 +694,15 @@ this.showLocation({file: typeof value==='string' ? value : value.filename,line: 
 				'click'
 				, () => this.act(
 					async() => {
-						const page = await this.dbg.children(value.reference, {offset,limit: 100});
+						const page = await this.dbg.children(value.reference, {offset, limit: 100});
 
 						for(const child of page.values)
-						children.append(this.valueNode(child, depth+1));
+						{
+							children.append(this.valueNode(child, depth + 1));
+						}
+
 						offset += page.values.length;
-						expand.disabled = offset>=page.total;
+						expand.disabled = offset >= page.total;
 						expand.textContent = expand.disabled ? 'Expanded' : 'More';
 					}
 				)
@@ -618,10 +722,10 @@ this.showLocation({file: typeof value==='string' ? value : value.filename,line: 
 				const input = node('input', 'php-debugger-edit-expression');
 
 				input.setAttribute('aria-label', `New PHP expression for ${value.name}`);
-				input.value = value.type==='string'
+				input.value = value.type === 'string'
 					? "'" + String(value.value).replaceAll('\\', '\\\\').replaceAll("'", "\\'")
 						+ "'"
-					: value.type==='unset'||value.expandable||value.circular
+					: value.type === 'unset' || value.expandable || value.circular
 						? ''
 						: value.displayValue;
 
@@ -654,7 +758,7 @@ this.showLocation({file: typeof value==='string' ? value : value.filename,line: 
 		this.dbg.source?.setBreakpoints?.([]);
 		this.dbg.source?.setReadOnly?.(false);
 
-		if(this.dbg.source===this.textarea)
+		if(this.dbg.source === this.textarea)
 		{
 			this.dbg.options.code = this.textarea.value;
 			this.dbg.source = null;

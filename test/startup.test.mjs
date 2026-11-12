@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import {createHash} from 'node:crypto';
-import {execFileSync,spawn} from 'node:child_process';
+import {execFileSync, spawn} from 'node:child_process';
 import {once} from 'node:events';
 
 // Exercise the user's exact startup path without a php-wasm checkout or cache.
@@ -13,10 +13,13 @@ test(
 	'npm start bootstraps pinned runtime assets in a fresh checkout and rejects bad downloads'
 	, async t => {
 		const root = await fs.mkdtemp(path.join(os.tmpdir(), 'php-debugger-start-'));
-		t.after(() => fs.rm(root, {recursive: true,force: true}));
+		t.after(() => fs.rm(root, {recursive: true, force: true}));
 
-		for(const dir of ['scripts','test','fixture/runtime'])
-		await fs.mkdir(path.join(root, dir), {recursive: true});
+		for(const dir of ['scripts', 'test', 'fixture/runtime'])
+		{
+			await fs.mkdir(path.join(root, dir), {recursive: true});
+		}
+
 		await fs.cp('src', path.join(root, 'src'), {recursive: true});
 		await fs.symlink(path.resolve('node_modules'), path.join(root, 'node_modules'), 'dir');
 		await fs.copyFile('test/server.mjs', path.join(root, 'test/server.mjs'));
@@ -28,10 +31,10 @@ test(
 
 		await fs.writeFile(
 			path.join(root, 'fixture/build.json')
-			, JSON.stringify({commit: 'fixture',bridgeVersion: 1})
+			, JSON.stringify({commit: 'fixture', bridgeVersion: 1})
 		);
 
-		const manifest = {schemaVersion: 1,bridgeVersion: 1,version: '8.4',wasm: 'fixture.wasm'};
+		const manifest = {schemaVersion: 1, bridgeVersion: 1, version: '8.4', wasm: 'fixture.wasm'};
 
 		await fs.writeFile(
 			path.join(root, 'fixture/runtime/php8.4-dbg-worker.mjs.assets.json')
@@ -40,7 +43,7 @@ test(
 
 		execFileSync(
 			'tar'
-			, ['-czf',path.join(root, 'fixture.tar.gz'),'-C',path.join(root, 'fixture'),'.']
+			, ['-czf', path.join(root, 'fixture.tar.gz'), '-C', path.join(root, 'fixture'), '.']
 		);
 
 		let bytes = await fs.readFile(path.join(root, 'fixture.tar.gz'));
@@ -67,7 +70,7 @@ test(
 		await once(reservation, 'listening');
 		const port = reservation.address().port;
 		await new Promise(resolve => reservation.close(resolve));
-		const env = {...process.env,PORT: String(port)};
+		const env = {...process.env, PORT: String(port)};
 		delete env.PHP_WASM_ROOT;
 		delete env.RUNTIME_BUNDLE;
 
@@ -76,7 +79,7 @@ test(
 			const child = spawn(
 				process.execPath
 				, ['test/server.mjs']
-				, {cwd: root,env,stdio: ['ignore','pipe','pipe']}
+				, {cwd: root, env, stdio: ['ignore', 'pipe', 'pipe']}
 			);
 
 			t.after(() => child.kill());
@@ -84,7 +87,7 @@ test(
 
 			await new Promise((resolve, reject) => {
 				const timer = setTimeout(
-					() => {child.kill();reject(Error('Startup timed out: ' + output));}
+					() => {child.kill(); reject(Error('Startup timed out: ' + output));}
 					, 15000
 				);
 
@@ -107,14 +110,15 @@ test(
 						{
 							clearTimeout(timer);
 							resolve();
-						}}
+						}
+					}
 				);
 			});
 
-			return {child,output};
+			return {child, output};
 		}
 
-		const {child,output} = await start();
+		const {child, output} = await start();
 
 		const response = await fetch(
 			`http://127.0.0.1:${port}/runtime/php8.4-dbg-worker.mjs.assets.json`
@@ -132,7 +136,7 @@ test(
 		const retry = spawn(
 			process.execPath
 			, ['scripts/download-runtime.mjs']
-			, {cwd: root,env,stdio: ['ignore','pipe','pipe']}
+			, {cwd: root, env, stdio: ['ignore', 'pipe', 'pipe']}
 		);
 
 		let error = '';
@@ -151,14 +155,22 @@ test(
 		await fs.mkdir(path.join(root, 'node_modules'));
 
 		for(const name of await fs.readdir('node_modules'))
-		if(name!=='php-dbg-wasm')
-		await fs.symlink(path.resolve('node_modules', name), path.join(root, 'node_modules', name));
+		{
+			if(name !== 'php-dbg-wasm')
+			{
+				await fs.symlink(
+					path.resolve('node_modules', name)
+					, path.join(root, 'node_modules', name)
+				);
+			}
+		}
+
 		const installed = path.join(root, 'node_modules/php-dbg-wasm');
 		await fs.cp(path.join(root, 'fixture/runtime'), installed, {recursive: true});
 
 		await fs.writeFile(
 			path.join(installed, 'package.json')
-			, JSON.stringify({name: 'php-dbg-wasm',version: '0.2.0'})
+			, JSON.stringify({name: 'php-dbg-wasm', version: '0.2.0'})
 		);
 
 		await fs.rm(path.join(root, 'runtime-lock.json'));

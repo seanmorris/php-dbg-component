@@ -6,7 +6,11 @@ export async function createTransport(options, assets, emit)
 
 	// Package hooks and URL instances are resolved on the page before crossing
 	// the worker boundary; the engine receives cached, normalized assets instead.
-	for(const key of ['sharedLibs','dynamicLibs','files']) delete runtimeArgs[key];
+	for(const key of ['sharedLibs', 'dynamicLibs', 'files'])
+	{
+		delete runtimeArgs[key];
+	}
+
 	const runtimeOptions = {version: options.version, runtimeArgs};
 
 	if(options.execution === 'main')
@@ -31,7 +35,11 @@ export async function createTransport(options, assets, emit)
 	let destroyed = false;
 
 	const fail = error => {
-		for(const wait of pending.values()) wait.reject(error);
+		for(const wait of pending.values())
+		{
+			wait.reject(error);
+		}
+
 		pending.clear();
 	};
 
@@ -45,16 +53,30 @@ export async function createTransport(options, assets, emit)
 
 		const wait = pending.get(data.id);
 
-		if(!wait) return;
+		if(!wait)
+		{
+			return;
+		}
 
 		pending.delete(data.id);
 
 		if(data.error)
-		wait.reject(Object.assign(new Error(data.error.message), {name: data.error.name}));
-		else wait.resolve(data.value);
+		{
+			wait.reject(Object.assign(new Error(data.error.message), {name: data.error.name}));
+		}
+		else
+		{
+			wait.resolve(data.value);
+		}
 	};
 
-	const fatal = error => {fail(error); if(!destroyed) emit({type: 'fatal',error});};
+	const fatal = error => {
+		fail(error);
+
+		if(!destroyed)
+		{
+			emit({type: 'fatal', error});
+		}};
 
 	worker.onerror = event => fatal(new Error(event.message || 'Debugger worker failed'));
 
@@ -62,7 +84,10 @@ export async function createTransport(options, assets, emit)
 
 	function call(method, ...args)
 	{
-		if(destroyed) return Promise.reject(new Error('Debugger worker is closed'));
+		if(destroyed)
+		{
+			return Promise.reject(new Error('Debugger worker is closed'));
+		}
 
 		const wait = deferred();
 		const request = ++id;

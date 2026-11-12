@@ -83,7 +83,8 @@ test(
 			await dbg.evaluate('$a["x"] = 20');
 			await dbg.evaluate('$o->x = 30');
 			await dbg.selectFrame(1);
-			const callerLine = dbg.location.line, frames = await dbg.inspect('frames');
+			const callerLine = dbg.location.line;
+			const frames = await dbg.inspect('frames');
 			const caller = await dbg.inspect('variables');
 			await dbg.setVariable(caller.find(v => v.name === 'outer').reference, '77');
 			const editedCaller = await dbg.evaluate('$outer');
@@ -150,7 +151,7 @@ test('worker timeouts and cancellation settle, and the component can run again',
 		return [timeout, cancelled, await dbg.run({mode: 'test'})];
 	});
 
-	expect(result.map(r => r.status)).toEqual(['timed-out','cancelled','completed']);
+	expect(result.map(r => r.status)).toEqual(['timed-out', 'cancelled', 'completed']);
 	expect(result[2].stdout).toBe('again');
 });
 
@@ -185,11 +186,12 @@ test('worker pauses a running loop, edits it and resumes to completion', async({
 			resolve => dbg.addEventListener(
 				'statechange'
 				, function onState(e){
-					if(e.detail.state==='running')
+					if(e.detail.state === 'running')
 					{
 						dbg.removeEventListener('statechange', onState);
 						resolve();
-					}}
+					}
+				}
 			)
 		);
 
@@ -213,16 +215,16 @@ test(
 
 		await create(
 			page
-			, {code: '<?php\nclass Box { public int $n = 2; }\n$o = new Box;\n$cycle = new stdClass; $cycle->self = $cycle;\n$a = range(1, 205);\necho $o->n;\n$later = 1;',breakpoints: [6]}
+			, {code: '<?php\nclass Box { public int $n = 2; }\n$o = new Box;\n$cycle = new stdClass; $cycle->self = $cycle;\n$a = range(1, 205);\necho $o->n;\n$later = 1;', breakpoints: [6]}
 		);
 
 		const values = await page.evaluate(async() => {
 			const done = dbg.run();
 			await dbg.whenPaused();
 			const vars = await dbg.inspect();
-			const array = vars.find(v => v.name==='a');
-			const chunk = await dbg.children(array.reference, {offset: 100,limit: 100});
-			const cycle = await dbg.children(vars.find(v => v.name==='cycle').reference);
+			const array = vars.find(v => v.name === 'a');
+			const chunk = await dbg.children(array.reference, {offset: 100, limit: 100});
+			const cycle = await dbg.children(vars.find(v => v.name === 'cycle').reference);
 			let rejected = false;
 
 			try {await dbg.evaluate('$o->n = "invalid"');}catch {rejected = true;}
@@ -237,17 +239,17 @@ test(
 				, rejected
 				, valid
 				, ratio
-				, later: vars.find(v => v.name==='later')
+				, later: vars.find(v => v.name === 'later')
 				, result: await done
 			};
 		});
 
-		expect([values.later.type,values.later.displayValue]).toEqual(['unset','unset']);
+		expect([values.later.type, values.later.displayValue]).toEqual(['unset', 'unset']);
 
 		// A runtime that reports PHP types keeps a whole-number float a float; an older one only
 		// has JavaScript's number.
-		expect([values.ratio.type,values.ratio.displayValue]).toEqual(
-			values.valid.type==='int' ? ['float','3.0'] : ['number','3']
+		expect([values.ratio.type, values.ratio.displayValue]).toEqual(
+			values.valid.type === 'int' ? ['float', '3.0'] : ['number', '3']
 		);
 
 		expect(values.chunk.total).toBe(205);
@@ -268,7 +270,10 @@ test('shared binary download is fetched once despite disabled HTTP cache', async
 	page.on(
 		'request'
 		, request => {
-			if(new URL(request.url()).pathname.endsWith('.wasm'))requests.push(request.url());
+			if(new URL(request.url()).pathname.endsWith('.wasm'))
+			{
+				requests.push(request.url());
+			}
 		}
 	);
 
@@ -293,7 +298,7 @@ test('shared binary download is fetched once despite disabled HTTP cache', async
 	}, version
 	);
 
-	expect(results.map(r => r.stdout)).toEqual(['0','1','2']);
+	expect(results.map(r => r.stdout)).toEqual(['0', '1', '2']);
 	expect(requests).toHaveLength(1);
 });
 
@@ -307,8 +312,8 @@ test(
 
 		await page.route(
 			`**/php${version}-dbg-worker.mjs.assets.json`
-			, route => ++attempts===1
-				? route.fulfill({status: 503,body: 'retry'})
+			, route => ++attempts === 1
+				? route.fulfill({status: 503, body: 'retry'})
 				: route.continue()
 		);
 
@@ -327,7 +332,7 @@ test(
 			const second = await d.run({mode: 'test'});
 			await d.destroy();
 
-			return [first,second];
+			return [first, second];
 		}, version
 		);
 
@@ -346,13 +351,13 @@ test(
 
 		await page.route(
 			'**/*.assets.json'
-			, async route => {await new Promise(r => setTimeout(r, 250));await route.continue();}
+			, async route => {await new Promise(r => setTimeout(r, 250)); await route.continue();}
 		);
 
 		const result = await page.evaluate(async() => {
 			const element = document.createElement('php-debugger');
 
-			element.options = {runtimeBaseUrl: '/runtime/',code: '<?php while(true) {}'};
+			element.options = {runtimeBaseUrl: '/runtime/', code: '<?php while(true) {}'};
 			document.body.append(element);
 			const controller = element.debugger;
 			const done = element.run();
@@ -378,7 +383,7 @@ test(
 
 		const result = await page.evaluate(async version => {
 			const d = new PhpDebugger(
-				{runtimeBaseUrl: '/runtime/',version,code: '<?php echo "prepared";'}
+				{runtimeBaseUrl: '/runtime/', version, code: '<?php echo "prepared";'}
 			);
 
 			const prepared = d.prepare();
@@ -389,7 +394,7 @@ test(
 			let release;
 
 			const loading = new PhpDebugger(
-				{runtimeBaseUrl: '/runtime/',version,code: () => new Promise(r => release = r)}
+				{runtimeBaseUrl: '/runtime/', version, code: () => new Promise(r => release = r)}
 			);
 
 			const states = [];
@@ -400,7 +405,7 @@ test(
 			await new Promise(r => setTimeout(r, 300));
 			await loading.destroy();
 
-			return {result,cancelled: await cancelled,states};
+			return {result, cancelled: await cancelled, states};
 		}, version
 		);
 
@@ -420,7 +425,7 @@ test('explicit support packages load without fetching unrelated extensions', asy
 
 	const result = await page.evaluate(async version => {
 		const d = new PhpDebugger(
-			{runtimeBaseUrl: '/runtime/',version,extensions: ['dom','libxml'],code: '<?php $doc=new DOMDocument(); $doc->loadXML("<root>yes</root>"); echo $doc->documentElement->textContent;'}
+			{runtimeBaseUrl: '/runtime/', version, extensions: ['dom', 'libxml'], code: '<?php $doc=new DOMDocument(); $doc->loadXML("<root>yes</root>"); echo $doc->documentElement->textContent;'}
 		);
 
 		const result = await d.run({mode: 'test'});
@@ -433,7 +438,7 @@ test('explicit support packages load without fetching unrelated extensions', asy
 	expect(result.stdout).toBe('yes');
 
 	expect(requests.filter(p => p.endsWith('.so')).sort()).toEqual(
-		[`/php-wasm-dom/php${version}-dom.so`,'/php-wasm-libxml/libxml2.so'].sort()
+		[`/php-wasm-dom/php${version}-dom.so`, '/php-wasm-libxml/libxml2.so'].sort()
 	);
 });
 
@@ -443,7 +448,7 @@ test('main-thread cooperative stop and explicit pause in test mode settle', asyn
 	const results = await page.evaluate(async version => {
 		const results = [];
 
-		for(const execution of ['main','worker'])
+		for(const execution of ['main', 'worker'])
 		{
 			const d = new PhpDebugger(
 				{
@@ -458,11 +463,12 @@ test('main-thread cooperative stop and explicit pause in test mode settle', asyn
 				resolve => d.addEventListener(
 					'statechange'
 					, function state(e){
-						if(e.detail.state==='running')
+						if(e.detail.state === 'running')
 						{
 							d.removeEventListener('statechange', state);
 							resolve();
-						}}
+						}
+					}
 				)
 			);
 
@@ -472,9 +478,9 @@ test('main-thread cooperative stop and explicit pause in test mode settle', asyn
 			const paused = await d.pause();
 			await d.evaluate('$keep=false');
 			await d.continue();
-			results.push({pause: paused.reason,result: await done});
+			results.push({pause: paused.reason, result: await done});
 			d.setCode('<?php while(true) {}');
-			const stopped = d.run({mode: 'test',timeoutMs: 150});
+			const stopped = d.run({mode: 'test', timeoutMs: 150});
 			results.push({result: await stopped});
 			await d.destroy();
 		}
@@ -484,7 +490,7 @@ test('main-thread cooperative stop and explicit pause in test mode settle', asyn
 	);
 
 	expect(results.map(r => r.result.status)).toEqual(
-		['completed','timed-out','completed','timed-out']
+		['completed', 'timed-out', 'completed', 'timed-out']
 	);
 
 	expect(results[0].pause).toBe('pause');
@@ -499,7 +505,7 @@ test('changing PHP versions is lazy and uses the selected interpreter', async({p
 	page.on('request', r => requests.push(new URL(r.url()).pathname));
 
 	const result = await page.evaluate(async version => {
-		const other = version==='8.4' ? '8.0' : '8.4';
+		const other = version === '8.4' ? '8.0' : '8.4';
 
 		const d = new PhpDebugger(
 			{
@@ -540,12 +546,12 @@ test('changing PHP versions is lazy and uses the selected interpreter', async({p
 
 test('variable handles cannot be reused after restarting a runtime', async({page}) => {
 	await setup(page);
-	await create(page, {code: '<?php\n$n=1;\necho $n;',breakpoints: [3]});
+	await create(page, {code: '<?php\n$n=1;\necho $n;', breakpoints: [3]});
 
 	const result = await page.evaluate(async() => {
 		const first = dbg.run();
 		await dbg.whenPaused();
-		const old = (await dbg.inspect()).find(v => v.name==='n').reference;
+		const old = (await dbg.inspect()).find(v => v.name === 'n').reference;
 		await dbg.stop();
 		await first;
 		const done = dbg.run();
@@ -557,7 +563,7 @@ test('variable handles cannot be reused after restarting a runtime', async({page
 
 		await dbg.continue();
 
-		return {rejected,result: await done};
+		return {rejected, result: await done};
 	});
 
 	expect(result.rejected).toBe(true);
@@ -571,11 +577,11 @@ test(
 
 		await create(
 			page
-			, {code: '<?php echo strtoupper(trim(fgets(STDIN))); require "/helper.php"; register_shutdown_function(function() { echo ":shutdown"; });',files: {'/helper.php': '<?php echo ":λ";'},stdin: 'input\n'}
+			, {code: '<?php echo strtoupper(trim(fgets(STDIN))); require "/helper.php"; register_shutdown_function(function() { echo ":shutdown"; });', files: {'/helper.php': '<?php echo ":λ";'}, stdin: 'input\n'}
 		);
 
 		const result = await page.evaluate(
-			() => dbg.run({mode: 'test',expect: {stdout: 'INPUT:λ:shutdown',exitCode: 0}})
+			() => dbg.run({mode: 'test', expect: {stdout: 'INPUT:λ:shutdown', exitCode: 0}})
 		);
 
 		expect(result.test.status).toBe('passed');
@@ -623,7 +629,7 @@ test('shutdown processing remains cancellable in both execution modes', async({p
 	const results = await page.evaluate(async version => {
 		const results = [];
 
-		for(const execution of ['main','worker'])
+		for(const execution of ['main', 'worker'])
 		{
 			const d = new PhpDebugger(
 				{
@@ -634,7 +640,7 @@ test('shutdown processing remains cancellable in both execution modes', async({p
 				}
 			);
 
-			results.push(await d.run({mode: 'test',timeoutMs: 200}));
+			results.push(await d.run({mode: 'test', timeoutMs: 200}));
 			await d.destroy();
 		}
 
@@ -642,7 +648,7 @@ test('shutdown processing remains cancellable in both execution modes', async({p
 	}, version
 	);
 
-	expect(results.map(r => r.status)).toEqual(['timed-out','timed-out']);
+	expect(results.map(r => r.status)).toEqual(['timed-out', 'timed-out']);
 });
 
 test('reports the interpreter download while loading', async({page}) => {
@@ -655,7 +661,7 @@ test('reports the interpreter download while loading', async({page}) => {
 			dbg.addEventListener('progress', event => seen.push(event.detail));
 			const run = await dbg.run();
 
-			return {seen,status: run.status};
+			return {seen, status: run.status};
 		}
 	);
 

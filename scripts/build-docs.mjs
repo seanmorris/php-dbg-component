@@ -2,37 +2,43 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {build} from 'esbuild';
 import {stageRuntime} from './runtime-assets.mjs';
-const root = path.resolve(import.meta.dirname, '..');const output = path.join(root, 'docs/assets');
+const root = path.resolve(import.meta.dirname, '..'); const output = path.join(root, 'docs/assets');
 
-if(process.env.RUNTIME_BUNDLE && path.resolve(process.env.RUNTIME_BUNDLE)===output)
-throw Error('Keep RUNTIME_BUNDLE outside the generated docs/assets directory');
+if(process.env.RUNTIME_BUNDLE && path.resolve(process.env.RUNTIME_BUNDLE) === output)
+{
+	throw Error('Keep RUNTIME_BUNDLE outside the generated docs/assets directory');
+}
 
-await fs.rm(output, {recursive: true,force: true});
+await fs.rm(output, {recursive: true, force: true});
 await fs.mkdir(output, {recursive: true});
 
 await fs.cp(
 	path.join(root, 'src')
 	, path.join(output, 'component')
-	, {recursive: true,filter: filename => !filename.endsWith('.ts')&&!filename.endsWith('.mts')}
+	, {recursive: true, filter: filename => !filename.endsWith('.ts') && !filename.endsWith('.mts')}
 );
 
 if(process.env.RUNTIME_BUNDLE)
-await fs.cp(path.resolve(process.env.RUNTIME_BUNDLE), output, {recursive: true});
+{
+	await fs.cp(path.resolve(process.env.RUNTIME_BUNDLE), output, {recursive: true});
+}
 else
-await stageRuntime(
-	process.env.PHP_WASM_ROOT||'/app'
-	, output
-	, (process.env.DOCS_PHP_VERSIONS||'8.4').split(',')
-);
+{
+	await stageRuntime(
+		process.env.PHP_WASM_ROOT || '/app'
+		, output
+		, (process.env.DOCS_PHP_VERSIONS || '8.4').split(',')
+	);
+}
 
-const editors = path.join(output, 'editors');await fs.mkdir(editors, {recursive: true});
+const editors = path.join(output, 'editors'); await fs.mkdir(editors, {recursive: true});
 
-for(const [source,dest] of [['ace-builds/src-noconflict/ace.js','ace.js']
+for(const [source, dest] of [['ace-builds/src-noconflict/ace.js', 'ace.js']
 	, [
 		'ace-builds/src-noconflict/mode-php.js'
 		, 'mode-php.js'
 	]
-	, ['ace-builds/LICENSE','LICENSE-ace']
+	, ['ace-builds/LICENSE', 'LICENSE-ace']
 	, [
 		'codemirror/lib/codemirror.js'
 		, 'codemirror5.js'
@@ -40,19 +46,20 @@ for(const [source,dest] of [['ace-builds/src-noconflict/ace.js','ace.js']
 	, ['codemirror/lib/codemirror.css'
 		, 'codemirror5.css'
 	]
-	, ['codemirror/LICENSE','LICENSE-codemirror5']
+	, ['codemirror/LICENSE', 'LICENSE-codemirror5']
 	, [
-		'@codemirror/view/LICENSE','LICENSE-codemirror6-view'
+		'@codemirror/view/LICENSE', 'LICENSE-codemirror6-view'
 	]
 	, ['@codemirror/state/LICENSE'
 		, 'LICENSE-codemirror6-state'
 	]
-])
-await fs.copyFile(path.join(root, 'node_modules', source), path.join(editors, dest));
+]){
+	await fs.copyFile(path.join(root, 'node_modules', source), path.join(editors, dest));
+}
 
 await build(
 	{
-		stdin: {contents: "export {EditorState} from '@codemirror/state'; export {EditorView, lineNumbers} from '@codemirror/view'; export {createCodeMirror6Adapter} from './src/adapters/codemirror6.mjs';",resolveDir: root}
+		stdin: {contents: "export {EditorState} from '@codemirror/state'; export {EditorView, lineNumbers} from '@codemirror/view'; export {createCodeMirror6Adapter} from './src/adapters/codemirror6.mjs';", resolveDir: root}
 		, bundle: true
 		, format: 'esm'
 		, outfile: path.join(editors, 'codemirror6.mjs')

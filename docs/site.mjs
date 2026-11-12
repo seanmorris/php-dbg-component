@@ -14,14 +14,17 @@ $cart = [['name' => 'Notebook', 'price' => 8, 'quantity' => 3]];
 $total = total($cart);
 echo "Cart total: $total\\n";`;
 
-let dbg,adapter,editor,kind = 'textarea';
+let dbg; let adapter; let editor; let kind = 'textarea';
 
 const versions = await fetch(new URL('./assets/versions.json', import.meta.url)).then(r => {
-	if(!r.ok)throw Error('Runtime assets have not been staged. Run npm run build:docs.');
+	if(!r.ok)
+	{
+		throw Error('Runtime assets have not been staged. Run npm run build:docs.');
+	}
 
 	return r.json();
 }).catch(
-	error => {$('#asset-status').textContent = error.message;return [];}
+	error => {$('#asset-status').textContent = error.message; return [];}
 );
 
 const scripts = new Map();
@@ -29,28 +32,36 @@ const scripts = new Map();
 function script(name)
 {
 	if(!scripts.has(name))
-scripts.set(name, new Promise((resolve, reject) => {
-	const el = document.createElement('script');
-	el.src = new URL('./assets/editors/' + name, import.meta.url);
-	el.onload = resolve;
+	{
+		scripts.set(name, new Promise((resolve, reject) => {
+			const el = document.createElement('script');
+			el.src = new URL('./assets/editors/' + name, import.meta.url);
+			el.onload = resolve;
 
-	el.onerror = () => reject(Error('Editor failed to load'));
-	document.head.append(el);
-}));
+			el.onerror = () => reject(Error('Editor failed to load'));
+			document.head.append(el);
+		}));
+	}
 
 	return scripts.get(name);
 }
 
 async function mount(reset = false)
 {
-	const savedCode = reset ? code : await dbg?.readCode()||code;
-	const version = dbg?.options.version|| (versions.includes('8.4') ? '8.4' : versions[0]);
+	const savedCode = reset ? code : await dbg?.readCode() || code;
+	const version = dbg?.options.version || (versions.includes('8.4') ? '8.4' : versions[0]);
 
-	if(dbg)await dbg.destroy();
+	if(dbg)
+	{
+		await dbg.destroy();
+	}
 
 	adapter?.dispose();
 
-	if(kind!=='codemirror5')editor?.destroy?.();
+	if(kind !== 'codemirror5')
+	{
+		editor?.destroy?.();
+	}
 
 	adapter = null;
 	editor = null;
@@ -58,7 +69,7 @@ async function mount(reset = false)
 	$('#debugger-host').replaceChildren();
 	kind = $('#editor-kind').value;
 
-	if(kind==='ace')
+	if(kind === 'ace')
 	{
 		await script('ace.js');
 
@@ -66,11 +77,11 @@ async function mount(reset = false)
 		$('#editor-host').append(editor.container);
 		editor.setValue(savedCode, -1);
 
-		editor.setOptions({fontSize: 14,showPrintMargin: false});
+		editor.setOptions({fontSize: 14, showPrintMargin: false});
 
 		adapter = (await import('./assets/component/adapters/ace.mjs')).createAceAdapter(editor);
 	}
-	else if(kind==='codemirror5')
+	else if(kind === 'codemirror5')
 	{
 		await script('codemirror5.js');
 
@@ -83,20 +94,20 @@ async function mount(reset = false)
 			document.head.append(link);
 		}
 
-		editor = CodeMirror($('#editor-host'), {value: savedCode,lineNumbers: true});
+		editor = CodeMirror($('#editor-host'), {value: savedCode, lineNumbers: true});
 
 		adapter = (await import('./assets/component/adapters/codemirror5.mjs'))
 		.createCodeMirror5Adapter(editor);
 	}
-	else if(kind==='codemirror6')
+	else if(kind === 'codemirror6')
 	{
-		const {EditorState,EditorView,lineNumbers,createCodeMirror6Adapter} = await import(
+		const {EditorState, EditorView, lineNumbers, createCodeMirror6Adapter} = await import(
 			'./assets/editors/codemirror6.mjs'
 		);
 
 		editor = new EditorView(
 			{
-				state: EditorState.create({doc: savedCode,extensions: [lineNumbers()]})
+				state: EditorState.create({doc: savedCode, extensions: [lineNumbers()]})
 				, parent: $('#editor-host')
 			}
 		);
@@ -105,7 +116,7 @@ async function mount(reset = false)
 	}
 
 	dbg = new PhpDebugger(
-		{runtimeBaseUrl,version,versions,code: savedCode,source: adapter,breakpoints: [5]}
+		{runtimeBaseUrl, version, versions, code: savedCode, source: adapter, breakpoints: [5]}
 	);
 
 	dbg.mount($('#debugger-host'));
@@ -115,22 +126,33 @@ async function mount(reset = false)
 	dbg.addEventListener(
 		'statechange'
 		, e => {
-			if(e.detail.state==='loading')
-$('#asset-status').textContent = 'Loading the selected runtime…';else if(e.detail.state==='paused')
-$(
-	'#asset-status'
-).textContent = `Paused at ${dbg.location.file}:${dbg.location.line}.`;else if(e.detail.state
-	==='completed'
-)
-$('#asset-status').textContent = `Completed with exit code ${dbg.result.exitCode}.`;
+			if(e.detail.state === 'loading')
+			{
+				$('#asset-status').textContent = 'Loading the selected runtime…';
+			}
+			else if(e.detail.state === 'paused')
+			{
+				$(
+					'#asset-status'
+				).textContent = `Paused at ${dbg.location.file}:${dbg.location.line}.`;
+			}
+			else if(e.detail.state
+	=== 'completed'
+			){
+				$('#asset-status').textContent = `Completed with exit code ${dbg.result.exitCode}.`;
+			}
 		}
 	);
 
 	dbg.addEventListener(
 		'complete'
 		, e => {
-			if(e.detail.status==='error')
-$('#asset-status').textContent = e.detail.diagnostics.map(d => d.message).join('\n');
+			if(e.detail.status === 'error')
+			{
+				const messages = e.detail.diagnostics.map(d => d.message);
+
+				$('#asset-status').textContent = messages.join('\n');
+			}
 		}
 	);
 }
@@ -152,7 +174,8 @@ async function change(reset = false)
 	{
 		$('#editor-kind').disabled = false;
 		$('#reset').disabled = false;
-	}}
+	}
+}
 
 $('#editor-kind').addEventListener('change', () => void change());
 
@@ -171,10 +194,16 @@ async function runExample(button, output, options)
 
 	try
 	{
-		if(typeof options==='function')options = await options();
+		if(typeof options === 'function')
+		{
+			options = await options();
+		}
 
-		test = new PhpDebugger({runtimeBaseUrl,version: dbg?.options.version||'8.4',...options});
-		const result = await test.run({mode: 'test',timeoutMs: 5000});
+		test = new PhpDebugger(
+			{runtimeBaseUrl, version: dbg?.options.version || '8.4', ...options}
+		);
+
+		const result = await test.run({mode: 'test', timeoutMs: 5000});
 		output.dataset.status = result.test.status;
 
 		output.textContent = `${result.test.status} · ${result.stdout.trim()
@@ -191,14 +220,15 @@ async function runExample(button, output, options)
 	{
 		await test?.destroy();
 		button.disabled = false;
-	}}
+	}
+}
 
 $('#run-test')?.addEventListener(
 	'click'
 	, event => void runExample(
 		event.currentTarget
 		, $('#test-result')
-		, {code: '<?php echo 6 * 7, "\\n";',expect: {stdout: '42\n',exitCode: 0}}
+		, {code: '<?php echo 6 * 7, "\\n";', expect: {stdout: '42\n', exitCode: 0}}
 	)
 );
 
@@ -207,8 +237,11 @@ $('#run-curl')?.addEventListener(
 	, event => void runExample(event.currentTarget, $('#curl-result'), async() => ({
 		sharedLibs: [await import('./assets/php-wasm-curl/index.mjs')]
 		, code: '<?php echo extension_loaded("curl") ? "curl ready" : "curl missing";'
-		, expect: {stdout: 'curl ready',exitCode: 0}
+		, expect: {stdout: 'curl ready', exitCode: 0}
 	}))
 );
 
-if(versions.length)await change(true);
+if(versions.length)
+{
+	await change(true);
+}

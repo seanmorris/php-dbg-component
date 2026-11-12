@@ -5,7 +5,10 @@ async function readBody(response, report)
 {
 	const reader = response.body?.getReader?.();
 
-	if(!reader) return response.arrayBuffer();
+	if(!reader)
+	{
+		return response.arrayBuffer();
+	}
 
 	// With a content encoding, the declared length is the compressed size and says nothing about
 	// these bytes.
@@ -18,7 +21,10 @@ async function readBody(response, report)
 	{
 		const {done, value} = await reader.read();
 
-		if(done) break;
+		if(done)
+		{
+			break;
+		}
 
 		chunks.push(value);
 		loaded += value.length;
@@ -26,7 +32,10 @@ async function readBody(response, report)
 		// Across origins the encoding header can be hidden while the length is not, so the length
 		// may be the compressed size. More bytes than it declares means it never described these
 		// bytes.
-		if(total !== null && loaded > total) total = null;
+		if(total !== null && loaded > total)
+		{
+			total = null;
+		}
 
 		report(loaded, total);
 	}
@@ -78,18 +87,30 @@ export class AssetRegistry
 				const response = await this.fetch(key);
 
 				if(!response.ok)
-				throw new Error(`Asset request failed (${response.status}): ${key}`);
+				{
+					throw new Error(`Asset request failed (${response.status}): ${key}`);
+				}
 
 				return readBody(
 					response
 					, (loaded, total) => {
-						for(const listener of this.listeners) listener({url: key, loaded, total});
+						for(const listener of this.listeners)
+						{
+							listener({url: key, loaded, total});
+						}
 					}
 				);
 			});
 
 			this.downloads.set(key, task);
-			task.catch(() => { if(this.downloads.get(key) === task) this.downloads.delete(key); });
+
+			task.catch(
+				() => {
+					if(this.downloads.get(key) === task)
+					{
+						this.downloads.delete(key);
+					} }
+			);
 		}
 
 		return this.downloads.get(key);
@@ -121,7 +142,9 @@ export class AssetRegistry
 				if(sha256)
 				{
 					if(!globalThis.crypto?.subtle)
-					throw new Error('WASM integrity verification requires HTTPS or localhost.');
+					{
+						throw new Error('WASM integrity verification requires HTTPS or localhost.');
+					}
 
 					const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
 						.map(b => b.toString(16).padStart(2, '0')).join('');
@@ -145,7 +168,8 @@ export class AssetRegistry
 					{
 						this.modules.delete(key);
 						this.moduleUrls.delete(key);
-					}}
+					}
+				}
 			);
 		}
 
@@ -172,7 +196,12 @@ export class AssetRegistry
 			);
 
 			this.urls.set(key, task);
-			task.catch(() => {if(this.urls.get(key) === task) this.urls.delete(key);});
+
+			task.catch(() => {
+				if(this.urls.get(key) === task)
+				{
+					this.urls.delete(key);
+				}});
 		}
 
 		return this.urls.get(key);
@@ -196,7 +225,8 @@ export class AssetRegistry
 			catch
 			{
 				/* failed downloads have no URL */
-			}}
+			}
+		}
 	}
 }
 
@@ -218,10 +248,11 @@ export async function prepareAssets(options)
 
 	if(manifest.schemaVersion !== 1 || manifest.bridgeVersion !== 1
 	  || manifest.version !== options.version || manifest.environment !== environment
-	)
-	throw new Error(
-		'The runtime asset manifest is incompatible with this debugger. Build the matching php-dbg-wasm worker/web artifacts.'
-	);
+	){
+		throw new Error(
+			'The runtime asset manifest is incompatible with this debugger. Build the matching php-dbg-wasm worker/web artifacts.'
+		);
+	}
 
 	const [{resolveDependencies}, modules] = await Promise.all([
 		import(/* webpackIgnore: true */ new URL('resolveDependencies.mjs', base).href)
@@ -229,7 +260,7 @@ export async function prepareAssets(options)
 			const url = typeof extension === 'string'
 				? options.extensionUrls?.[extension]
 					|| new URL(
-						`../php-wasm-${extension}/${['libxml','zlib'].includes(
+						`../php-wasm-${extension}/${['libxml', 'zlib'].includes(
 							extension
 						)
 							? 'index'
@@ -238,7 +269,10 @@ export async function prepareAssets(options)
 					).href
 				: extension.module;
 
-			if(!url) throw new TypeError('An extension needs a name or module URL');
+			if(!url)
+			{
+				throw new TypeError('An extension needs a name or module URL');
+			}
 
 			const module = await import(/* webpackIgnore: true */ new URL(url, sourceBase).href);
 
@@ -268,7 +302,10 @@ export async function prepareAssets(options)
 
 	for(const name of [...(manifest.libraries || []), ...shared.libs, ...dynamic.libs])
 	{
-		if(typeof name === 'string' && !(name in urls)) urls[name] = new URL(name, base).href;
+		if(typeof name === 'string' && !(name in urls))
+		{
+			urls[name] = new URL(name, base).href;
+		}
 	}
 
 	const assets = {
@@ -289,7 +326,10 @@ export async function prepareAssets(options)
 	let source = binary.href;
 
 	const stopProgress = options.onProgress && registry.onProgress?.(event => {
-		if(event.url === source) options.onProgress({loaded: event.loaded, total: event.total});
+		if(event.url === source)
+		{
+			options.onProgress({loaded: event.loaded, total: event.total});
+		}
 	});
 
 	try
