@@ -124,6 +124,8 @@ echo $n;
 </script>
 ```
 
+A `<textarea>` inside the element becomes the editor: it moves into the interface, gets line numbers you can click for breakpoints, and shows the paused line. It is handed back as it was when the debugger is destroyed. (The same holds for a textarea inside any element passed to `mount()`; one elsewhere on the page, passed as `source`, stays where it is.) The element is a block; the stylesheet covers the default `php-debugger` name and any name you register.
+
 Registration is explicit. Supported attributes: `version`, `execution`, `runtime-base-url`, `source` (CSS selector), `breakpoints` (JSON), `extensions` (comma-separated), `mode`, and `autorun`. Only `version` is observed after connection; use controller methods for other changes. Set `.options`, `.source`, `.code`, or `.expect` before insertion for richer inputs. A nested `<script type="application/json" data-expect>` supplies JSON expectations. **Autorun is opt-in**; use `autorun mode="test"` for page-driven tests. Removing the element destroys its controller; moving it in the same document preserves it.
 
 The element exposes `.debugger` and forwards execution/inspection methods. `inspectChildren()` corresponds to the controller's `children()` because DOM elements already have a `children` property.

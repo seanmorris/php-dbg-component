@@ -548,3 +548,75 @@ test('Evaluate answers beside its box and keeps the exchange in the console', as
 	await page.evaluate(() => dbg.destroy());
 });
 
+test('a textarea inside the custom element is the editor, and is handed back', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	// The README's example.
+	await page.evaluate(() => {
+		document.querySelector('#host').innerHTML = `<php-debugger runtime-base-url="/runtime/"
+			version="${window.phpVersionUnderTest}" breakpoints="[3]">
+  <textarea class="mine"><?php
+$n = 2;
+echo $n;
+</textarea>
+</php-debugger>`;
+	});
+
+	const element = page.locator('php-debugger');
+	const source = page.getByRole('textbox', {name: 'PHP source', exact: true});
+	const lines = page.locator('.php-debugger-line');
+
+	await expect(element).toHaveCSS('display', 'block');
+	await expect(page.locator('.php-debugger-editor > textarea.mine')).toHaveCount(1);
+	await expect(lines).toHaveCount(4);
+	await expect(lines.nth(2)).toHaveAttribute('data-breakpoint', 'true');
+
+	// Its line numbers set breakpoints, and the paused line is marked on it.
+	await lines.nth(2).click();
+	await lines.nth(1).click();
+	await expect(lines.nth(1)).toHaveAttribute('data-breakpoint', 'true');
+	await page.getByRole('button', {name: 'Run', exact: true}).click();
+	await expect(page.getByRole('status')).toHaveText('paused');
+	await expect(page.locator('.php-debugger-line[data-active=true]')).toHaveText('2');
+	await expect(source).toHaveJSProperty('readOnly', true);
+	await page.getByRole('button', {name: 'Continue', exact: true}).click();
+	await expect(page.getByRole('status')).toHaveText('completed');
+
+	// It is still the source: an edit is what runs next.
+	await lines.nth(1).click();
+	await source.fill('<?php\necho "edited";');
+	await expect(lines).toHaveCount(2);
+	await page.getByRole('button', {name: 'Run', exact: true}).click();
+	await expect(page.getByRole('status')).toHaveText('completed');
+	expect(await element.evaluate(node => node.result.stdout)).toBe('edited');
+
+	// Removing the debugger gives the page its textarea back as it was.
+	const restored = await page.evaluate(async() => {
+		const element = document.querySelector('php-debugger');
+
+		await element.debugger.destroy();
+		const textarea = element.querySelector(':scope > textarea');
+
+		return {
+			className: textarea?.className
+			, readOnly: textarea?.readOnly
+			, label: textarea?.getAttribute('aria-label')
+			, spellcheck: textarea?.getAttribute('spellcheck')
+			, value: textarea?.value
+		};
+	});
+
+	expect(restored).toEqual(
+		{
+			className: 'mine'
+			, readOnly: false
+			, label: null
+			, spellcheck: null
+			, value: '<?php\necho "edited";'
+		}
+	);
+
+	await expect(page.locator('.php-debugger')).toHaveCount(0);
+});
+

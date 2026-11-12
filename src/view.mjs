@@ -98,22 +98,50 @@ export class DebuggerView
 		this.message.setAttribute('role', 'alert');
 		this.root.append(this.message);
 
-		if(!dbg.source && typeof dbg.options.code !== 'function')
+		// A textarea the page put inside the mount point, as in <php-debugger><textarea>, is the
+		// editor: it moves into the interface and gets the line numbers. One elsewhere on the page
+		// is the page's to lay out and stays where it is.
+		const adopted = dbg.source?.localName === 'textarea' && host.contains(dbg.source)
+			? dbg.source
+			: null;
+
+		if(adopted || (!dbg.source && typeof dbg.options.code !== 'function'))
 		{
 			const editor = node('div', 'php-debugger-editor');
 
 			this.editor = editor;
 			this.gutter = node('div', 'php-debugger-gutter');
-			this.textarea = node('textarea', 'php-debugger-source');
-			this.textarea.setAttribute('aria-label', 'PHP source');
-			this.textarea.spellcheck = false;
-			this.textarea.value = typeof dbg.options.code === 'string' ? dbg.options.code : '';
 
-			// Keep getters authoritative; the textarea is only an editor for string sources.
-			if(typeof dbg.options.code !== 'function')
+			if(adopted)
 			{
+				this.textarea = adopted;
+
+				// What destroy() puts back.
+				this.adopted = {
+					parent: adopted.parentNode
+					, next: adopted.nextSibling
+					, readOnly: adopted.readOnly
+					, spellcheck: adopted.getAttribute('spellcheck')
+					, label: adopted.getAttribute('aria-label')
+				};
+
+				adopted.classList.add('php-debugger-source');
+
+				if(!adopted.labels.length && !adopted.hasAttribute('aria-labelledby'))
+				{
+					adopted.setAttribute('aria-label', this.adopted.label || 'PHP source');
+				}
+			}
+			else
+			{
+				this.textarea = node('textarea', 'php-debugger-source');
+				this.textarea.setAttribute('aria-label', 'PHP source');
+				this.textarea.value = typeof dbg.options.code === 'string' ? dbg.options.code : '';
+				// Keep getters authoritative; the textarea is only an editor for string sources.
 				dbg.source = this.textarea;
 			}
+
+			this.textarea.spellcheck = false;
 
 			this.textarea.addEventListener(
 				'input'
@@ -875,7 +903,25 @@ export class DebuggerView
 		this.dbg.source?.setBreakpoints?.([]);
 		this.dbg.source?.setReadOnly?.(false);
 
-		if(this.dbg.source === this.textarea)
+		if(this.adopted)
+		{
+			const {parent, next, readOnly, spellcheck, label} = this.adopted;
+
+			const restore = (name, value) => value === null
+				? this.textarea.removeAttribute(name)
+				: this.textarea.setAttribute(name, value);
+
+			this.textarea.classList.remove('php-debugger-source');
+			this.textarea.readOnly = readOnly;
+			restore('spellcheck', spellcheck);
+			restore('aria-label', label);
+
+			if(parent.isConnected)
+			{
+				parent.insertBefore(this.textarea, next?.parentNode === parent ? next : null);
+			}
+		}
+		else if(this.dbg.source === this.textarea)
 		{
 			this.dbg.options.code = this.textarea.value;
 			this.dbg.source = null;

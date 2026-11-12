@@ -52,6 +52,11 @@
 	}
 }
 
+/* An unknown element is inline by default; the custom element holds a block. */
+:where(php-debugger, .php-debugger-element) {
+	display: block;
+}
+
 /* 2. Isolation. Two classes outrank a wrapper class with an element. */
 
 .php-debugger.php-debugger * {
