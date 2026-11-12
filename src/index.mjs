@@ -182,8 +182,8 @@ export class PhpDebugger extends EventTarget {
   setVariable(reference, expression) {return this.command('setVariable',reference,expression);}
   async selectFrame(frame) {
     const result = await this.command('selectFrame',frame);
-    const frames = await this.inspect('frames');
-    if(frames[frame]) {this.location = {...this.location, file:frames[frame].filename, line:frames[frame].lineNo, frame}; this.emit('locationchange',this.location);}
+    const selected = (await this.inspect('frames')).find(candidate => candidate.frame === frame);
+    if(selected) {this.location = {...this.location, file:selected.filename, line:selected.lineNo, frame}; this.emit('locationchange',this.location);}
     this.emit('framechange', result); return result;
   }
   async stop() {

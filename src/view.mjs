@@ -35,7 +35,15 @@ export class DebuggerView {
     add.addEventListener('click',()=>this.act(()=>dbg.setBreakpoints([...dbg.breakpoints,{line:Number(lineInput.value)}])),{signal:this.abort.signal});
     this.breakpointList=node('ul','php-debugger-breakpoint-list');this.breakpoints.append(lineInput,add,this.breakpointList);this.root.append(this.breakpoints);
     const body=node('div','php-debugger-body');this.root.append(body);
-    this.console=node('pre','php-debugger-console');this.console.setAttribute('aria-label','PHP and debugger output');this.console.tabIndex=0;body.append(this.console);
+    const output=node('div','php-debugger-console-panel');body.append(output);
+    const log=node('label','php-debugger-log-toggle');this.debugLog=node('input');this.debugLog.type='checkbox';log.append(this.debugLog,' Debugger log');
+    this.console=node('pre','php-debugger-console');this.console.setAttribute('aria-label','PHP and debugger output');this.console.tabIndex=0;this.console.dataset.debug='false';output.append(log,this.console);
+    // The hidden attribute, not a stylesheet rule, so hosts that bring their own CSS get the same default.
+    this.debugLog.addEventListener('change',()=>{
+      this.console.dataset.debug=String(this.debugLog.checked);
+      for(const notice of this.console.querySelectorAll('.php-debugger-output-notice'))notice.hidden=!this.debugLog.checked;
+      this.console.scrollTop=this.console.scrollHeight;
+    },{signal:this.abort.signal});
     const right=node('div','php-debugger-inspector');body.append(right);this.tabs=node('div','php-debugger-tabs');right.append(this.tabs);
     for(const scope of ['variables','globals','constants','functions','classes','files','frames','watches']) {
       const button=node('button','php-debugger-tab',scope);button.type='button';button.dataset.panel=scope;
@@ -94,9 +102,15 @@ export class DebuggerView {
       for(const line of this.gutter.children)line.dataset.active=String(Number(line.textContent)===location.line);
     }
   }
-  appendOutput({channel,text}) {
+  appendOutput({channel,text,kind}) {
+    const program=channel==='stdout'||channel==='stderr',notice=kind==='notice';
     if(channel==='debug' && !text.endsWith('\n'))text+='\n';
-    const span=node('span',`php-debugger-output php-debugger-output-${channel}`,text);this.console.append(span);
+    // Debugger lines start on a fresh line even when program output stopped mid-line. Notices compare
+    // against everything; the rest compare against what is visible while notices are hidden.
+    if(!program && (notice?this.openLine:this.openVisibleLine))text='\n'+text;
+    const span=node('span',`php-debugger-output php-debugger-output-${channel}${kind?` php-debugger-output-${kind}`:''}`,text);
+    span.hidden=notice && !this.debugLog.checked;this.console.append(span);
+    this.openLine=!text.endsWith('\n');if(!notice)this.openVisibleLine=this.openLine;
     while(this.console.childNodes.length>1000)this.console.firstChild.remove();this.console.scrollTop=this.console.scrollHeight;
   }
   async refresh() {
@@ -112,12 +126,14 @@ export class DebuggerView {
       if(['variables','globals','constants','watches'].includes(this.panel)) for(const value of values)this.content.append(this.valueNode(value));
       else for(const value of Array.isArray(values)?values:Object.values(values)) {
         const item=node('button','php-debugger-symbol',typeof value==='string'?value:`${value.name || `Frame ${value.frame}`} — ${value.filename}:${value.lineNo}`);item.type='button';
+        if(this.panel==='frames' && value.selected)item.setAttribute('aria-current','true');
         item.addEventListener('click',()=>this.act(async()=>{if(this.panel==='frames')await this.dbg.selectFrame(value.frame);else this.showLocation({file:typeof value==='string'?value:value.filename,line:value.lineNo||1});}));this.content.append(item);
       }
     });
   }
   valueNode(value, depth=0) {
     const row=node('div','php-debugger-value');const name=node('span','php-debugger-value-name',value.name+': ');const preview=node('span','php-debugger-value-preview',value.displayValue);row.append(name,preview);
+    if(value.type)preview.dataset.type=value.type;
     if(value.expandable && depth<30) {
       const expand=node('button','php-debugger-expand','Expand');expand.type='button';expand.setAttribute('aria-label',`Expand ${value.name}`);const children=node('div','php-debugger-children');row.append(expand,children);let offset=0;
       expand.addEventListener('click',()=>this.act(async()=>{const page=await this.dbg.children(value.reference,{offset,limit:100});for(const child of page.values)children.append(this.valueNode(child,depth+1));offset+=page.values.length;expand.disabled=offset>=page.total;expand.textContent=expand.disabled?'Expanded':'More';}));
@@ -125,7 +141,7 @@ export class DebuggerView {
     if(value.writable) {
       const edit=node('button','php-debugger-edit','Edit');edit.type='button';edit.setAttribute('aria-label',`Edit ${value.name}`);row.append(edit);
       edit.addEventListener('click',()=>{
-        const input=node('input','php-debugger-edit-expression');input.setAttribute('aria-label',`New PHP expression for ${value.name}`);input.value=value.type==='string'?"'"+String(value.value).replaceAll('\\','\\\\').replaceAll("'","\\'")+"'":value.displayValue;
+        const input=node('input','php-debugger-edit-expression');input.setAttribute('aria-label',`New PHP expression for ${value.name}`);input.value=value.type==='string'?"'"+String(value.value).replaceAll('\\','\\\\').replaceAll("'","\\'")+"'":value.type==='unset'?'':value.displayValue;
         const save=node('button','php-debugger-button','Apply');save.type='button';row.append(input,save);edit.disabled=true;input.focus();
         save.addEventListener('click',()=>this.act(async()=>{await this.dbg.setVariable(value.reference,input.value);await this.refresh();}));
       });

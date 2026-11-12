@@ -79,7 +79,7 @@ const result = await done;
 | `run(options)` / `restart(options)` | Start execution; restart first cancels the previous run. |
 | `pause()` / `whenPaused()` | Request a cooperative pause / wait for the next pause. |
 | `continue()`, `stepInto()`, `stepOver()`, `stepOut()`, `until()`, `leave()` | phpdbg execution controls. |
-| `inspect(scope, {frame})` | `variables`, `globals`, `constants`, `functions`, `classes`, `files`, or `frames`. |
+| `inspect(scope, {frame})` | `variables`, `globals`, `constants`, `functions`, `classes`, `files`, or `frames`. Frames are `{frame, filename, lineNo, selected}` and are always listed from the innermost frame. A variable the frame has not assigned yet has type `unset`. |
 | `selectFrame(index)` | Change the inspected/evaluated frame. Zero is the innermost frame. |
 | `children(reference, {offset, limit})` | Expand a value, default 100 entries; maximum page size 1000. |
 | `evaluate(expression, {frame})` | Evaluate a PHP expression, including assignments and multiline expressions. |
@@ -130,7 +130,7 @@ The element exposes `.debugger` and forwards execution/inspection methods. `insp
 
 ## Events and styling
 
-Controller events are `CustomEvent`s with `.detail`: `statechange`, `output` (`channel`, `text`), `pause`, `locationchange`, `framechange`, `variablechange`, `breakpointchange`, `versionchange`, `sourcechange`, `diagnostic`, `testresult`, and `complete`. Custom element events bubble with a `phpdbg-` prefix. `stdout` and `stderr` are program output; `debug` is debugger console output, including evaluation output.
+Controller events are `CustomEvent`s with `.detail`: `statechange`, `output` (`channel`, `text`), `pause`, `locationchange`, `framechange`, `variablechange`, `breakpointchange`, `versionchange`, `sourcechange`, `diagnostic`, `testresult`, and `complete`. Custom element events bubble with a `phpdbg-` prefix. `stdout` and `stderr` are program output; `debug` is debugger console output, and its `kind` is `notice` (phpdbg's own messages), `error`, or `evaluation`. The built-in view shows program output, errors and evaluation output, and keeps notices hidden until "Debugger log" is ticked.
 
 ```css
 .my-page .php-debugger {

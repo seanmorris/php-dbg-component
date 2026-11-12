@@ -34,15 +34,19 @@ test('break, edit locals and nested values, step, caller frame and stale referen
     await dbg.setVariable(edited.reference, '9');
     await dbg.evaluate('$a["x"] = 20'); await dbg.evaluate('$o->x = 30');
     await dbg.selectFrame(1);
+    const callerLine = dbg.location.line, frames = await dbg.inspect('frames');
     const caller = await dbg.inspect('variables');
     await dbg.setVariable(caller.find(v => v.name === 'outer').reference, '77');
     const editedCaller = await dbg.evaluate('$outer');
     await dbg.selectFrame(0); await dbg.stepOver();
     let stale = false; try {await dbg.setVariable(n.reference, '1');} catch {stale = true;}
     await dbg.continue();
-    return {result: await done, editedCaller, stale};
+    return {result: await done, editedCaller, stale, callerLine, frames};
   });
   expect(result.result.stdout).toBe('10:20:30'); expect(result.stale).toBe(true);
+  // The stack is listed from the innermost frame even while the caller is selected.
+  expect(result.callerLine).toBe(4);
+  expect(result.frames.map(frame => [frame.frame, frame.lineNo, frame.selected])).toEqual([[0, 10, false], [1, 4, true], [2, 13, false]]);
   expect(result.editedCaller.value).toBe(77);
 });
 
@@ -86,14 +90,15 @@ test('worker pauses a running loop, edits it and resumes to completion',async({p
 });
 
 test('inspection pagination, cycles, readonly edit failure and multiline expressions',async({page})=>{
-  await setup(page);await create(page,{code:'<?php\nclass Box { public int $n = 2; }\n$o = new Box;\n$cycle = new stdClass; $cycle->self = $cycle;\n$a = range(1, 205);\necho $o->n;',breakpoints:[6]});
+  await setup(page);await create(page,{code:'<?php\nclass Box { public int $n = 2; }\n$o = new Box;\n$cycle = new stdClass; $cycle->self = $cycle;\n$a = range(1, 205);\necho $o->n;\n$later = 1;',breakpoints:[6]});
   const values=await page.evaluate(async()=>{
     const done=dbg.run();await dbg.whenPaused();const vars=await dbg.inspect();
     const array=vars.find(v=>v.name==='a');const chunk=await dbg.children(array.reference,{offset:100,limit:100});
     const cycle=await dbg.children(vars.find(v=>v.name==='cycle').reference);
     let rejected=false;try {await dbg.evaluate('$o->n = "invalid"');}catch {rejected=true;}
-    const valid=await dbg.evaluate('(\n  6 * 7\n)');await dbg.continue();return {chunk,cycle,rejected,valid,result:await done};
+    const valid=await dbg.evaluate('(\n  6 * 7\n)');await dbg.continue();return {chunk,cycle,rejected,valid,later:vars.find(v=>v.name==='later'),result:await done};
   });
+  expect([values.later.type,values.later.displayValue]).toEqual(['unset','unset']);
   expect(values.chunk.total).toBe(205);expect(values.chunk.values).toHaveLength(100);
   expect(values.cycle.values[0].circular).toBe(true);expect(values.rejected).toBe(true);expect(values.valid.value).toBe(42);expect(values.result.stdout).toBe('2');
 });

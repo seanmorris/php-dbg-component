@@ -52,17 +52,19 @@ export class DebugEngine {
   }
   output({type, bytes, evaluating}) {
     const channel = type === 1 && !evaluating ? 'stdout' : type === 2 && !evaluating ? 'stderr' : 'debug';
+    // Notices are phpdbg's own chatter; errors and evaluation output answer something the user did.
+    const kind = channel !== 'debug' ? null : type === 3 ? 'error' : evaluating ? 'evaluation' : 'notice';
     const key = `${channel}:${type}:${evaluating}`;
-    let decoder = this.decoders.get(key);
-    if(!decoder) this.decoders.set(key, decoder = new TextDecoder());
-    const text = decoder.decode(bytes, {stream:true});
+    let stream = this.decoders.get(key);
+    if(!stream) this.decoders.set(key, stream = {decoder:new TextDecoder(), event:kind ? {channel, kind} : {channel}});
+    const text = stream.decoder.decode(bytes, {stream:true});
     if(type === 3 && text) {
       const diagnostic = {message:text, phase:evaluating ? 'evaluation' : 'execution'};
       this.commandErrors?.push(diagnostic);
       if(!evaluating) this.diagnostics.push(diagnostic);
       this.emit({type:'diagnostic', ...diagnostic});
     }
-    if(text) this.emit({type:'output', channel, text});
+    if(text) this.emit({type:'output', ...stream.event, text});
   }
   writeFile(path, content) {
     const parts = path.split('/'); parts.pop(); let dir = '';
@@ -121,8 +123,8 @@ export class DebugEngine {
     await this.php.provideInput('quit');
     const exitCode = await this.process;
     this.php.flush(); this.closed = true; this.paused = false; this.invalidate();
-    for(const [key, decoder] of this.decoders) {
-      const text = decoder.decode(); if(text) this.emit({type:'output', channel:key.split(':')[0], text});
+    for(const {decoder, event} of this.decoders.values()) {
+      const text = decoder.decode(); if(text) this.emit({type:'output', ...event, text});
     }
     this.emit({type:'complete', exitCode:compilationExitCode ?? exitCode, diagnostics:this.diagnostics});
   }
@@ -141,6 +143,13 @@ export class DebugEngine {
     this.frame = frame;
     return {frame};
   }
+  async frames() {
+    // The runtime lists frames starting at the selected one; list from the top so indexes match selectFrame().
+    const selected = this.frame;
+    if(selected) await this.php.switchFrame(0);
+    try {return (await this.php.dumpBacktrace()).map(frame => ({...frame, selected:frame.frame === selected}));}
+    finally {if(selected) await this.php.switchFrame(selected);}
+  }
   type(value) {
     if(value === null) return 'null';
     if(typeof value !== 'object') return typeof value;
@@ -157,21 +166,23 @@ export class DebugEngine {
     return symbol ? `${this.type(value)}:${this.binary.getValue(value[symbol], 'i32')}` : value;
   }
   describe(name, value, expression, writable = true, frame = this.frame, ancestors = []) {
-    const type = this.type(value);
+    // The runtime hands back undefined for a variable the frame declares but has not assigned yet.
+    const unset = value === undefined && !ancestors.length;
+    const type = unset ? 'unset' : this.type(value);
     const identity = this.identity(value), circular = identity !== null && ancestors.includes(identity);
     const expandable = value !== null && typeof value === 'object' && !circular;
     const reference = `${this.sessionId}:${this.epoch}:${++this.nextReference}`;
     this.references.set(reference, {name, value, expression, writable, frame, ancestors:[...ancestors,identity]});
     return {name, type, reference, expandable, circular, writable:!!expression && writable && typeof value !== 'function',
       value:expandable || circular || typeof value === 'function' ? undefined : value,
-      displayValue:circular ? '[Circular]' : expandable ? (type === 'array' ? 'Array' : 'Object') : typeof value === 'string' ? JSON.stringify(value) : String(value)};
+      displayValue:unset ? 'unset' : circular ? '[Circular]' : expandable ? (type === 'array' ? 'Array' : 'Object') : typeof value === 'string' ? JSON.stringify(value) : String(value)};
   }
   async inspect(scope = 'variables', options = {}) {
     this.assertPaused();
     if(options.frame !== undefined) await this.selectFrame(options.frame);
     const methods = {variables:'dumpVars', globals:'dumpGlobals', constants:'dumpConstants', functions:'dumpFunctions', classes:'dumpClasses', files:'dumpFiles', frames:'dumpBacktrace'};
     if(!methods[scope]) throw new TypeError(`Unknown inspection scope: ${scope}`);
-    let values = await this.php[methods[scope]]() || {};
+    let values = scope === 'frames' ? await this.frames() : await this.php[methods[scope]]() || {};
     if(scope === 'globals') {
       // The low-level dump arms superglobals but filters out user-defined globals.
       const globals = await this.evaluate('$GLOBALS');

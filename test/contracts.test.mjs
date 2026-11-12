@@ -55,3 +55,35 @@ test('verified identical binaries share compilation and downloads across loader 
   const [worker,main]=await Promise.all([registry.module('https://example.test/worker.wasm',hash),registry.module('https://example.test/web.wasm',hash)]);
   assert.equal(worker,main);assert.equal(fetched,1);
 });
+
+test('engine lists frames from the top, labels unset variables and classifies debugger output', async () => {
+  const {DebugEngine} = await import('../src/engine.mjs');
+  const events = []; const engine = new DebugEngine(event => events.push(event));
+  // A runtime whose backtrace starts at the selected frame, as vrzno_dbg_dump_backtrace does.
+  const stack = [10, 4, 13]; let selected = 0;
+  engine.php = {
+    async switchFrame(frame) {if(frame >= stack.length) return -1; const previous = selected; selected = frame; return previous;},
+    async dumpBacktrace() {return stack.slice(selected).map((lineNo, frame) => ({filename:'/main.php', lineNo, frame}));},
+  };
+  engine.paused = true;
+  await engine.selectFrame(1);
+  const frames = await engine.inspect('frames');
+  assert.deepEqual(frames.map(frame => [frame.frame, frame.lineNo, frame.selected]), [[0, 10, false], [1, 4, true], [2, 13, false]]);
+  assert.equal(selected, 1, 'listing restores the selected frame');
+
+  const unset = engine.describe('later', undefined, "${'later'}");
+  assert.deepEqual([unset.type, unset.displayValue, unset.writable, unset.expandable], ['unset', 'unset', true, false]);
+
+  const bytes = text => new TextEncoder().encode(text);
+  events.length = 0;
+  engine.output({type:0, bytes:bytes('Breakpoint #0 added'), evaluating:false});
+  engine.output({type:3, bytes:bytes('Uncaught Exception'), evaluating:false});
+  engine.output({type:1, bytes:bytes('42'), evaluating:true});
+  engine.output({type:1, bytes:bytes('hello'), evaluating:false});
+  assert.deepEqual(events.filter(event => event.type === 'output'), [
+    {type:'output', channel:'debug', kind:'notice', text:'Breakpoint #0 added'},
+    {type:'output', channel:'debug', kind:'error', text:'Uncaught Exception'},
+    {type:'output', channel:'debug', kind:'evaluation', text:'42'},
+    {type:'output', channel:'stdout', text:'hello'},
+  ]);
+});

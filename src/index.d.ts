@@ -9,6 +9,8 @@ export interface Variable {
   name: string; type: string; displayValue: string; value?: string | number | boolean | bigint | null;
   reference?: string; writable: boolean; expandable: boolean; circular?: boolean;
 }
+/** A stack frame. `frame` is zero for the innermost frame, whichever frame is selected. */
+export interface Frame { frame: number; filename: string; lineNo: number; selected: boolean }
 export interface Diagnostic { name?: string; message: string; file?: string; line?: number; phase?: string }
 export interface TestResult { status: 'unchecked' | 'passed' | 'failed'; failures: Array<{field?: string; expected?: unknown; actual?: unknown; message?: string}> }
 export interface RunResult {
@@ -61,7 +63,7 @@ export class AssetRegistry {
 export function sharedAssets(): AssetRegistry;
 export interface DebuggerView { root: HTMLElement; destroy(): void }
 export interface DebuggerEvents {
-  statechange: {state: DebuggerState; previous: DebuggerState}; output: {channel: 'stdout' | 'stderr' | 'debug'; text: string};
+  statechange: {state: DebuggerState; previous: DebuggerState}; output: {channel: 'stdout' | 'stderr' | 'debug'; text: string; kind?: 'notice' | 'error' | 'evaluation'};
   pause: Pause; complete: RunResult; testresult: TestResult; diagnostic: Diagnostic; locationchange: Location | null;
   framechange: {frame: number}; variablechange: {reference: string; value: Variable};
   breakpointchange: {breakpoints: Breakpoint[]}; versionchange: {version: PhpVersion}; sourcechange: {code?: string; pending: boolean};
@@ -80,6 +82,7 @@ export class PhpDebugger extends EventTarget {
   continue(): Promise<Location | void>; stepInto(): Promise<Location | void>; stepOver(): Promise<Location | void>;
   stepOut(): Promise<Location | void>; until(): Promise<Location | void>; leave(): Promise<Location | void>;
   inspect(scope?: 'variables' | 'globals' | 'constants', options?: {frame?: number}): Promise<Variable[]>;
+  inspect(scope: 'frames', options?: {frame?: number}): Promise<Frame[]>;
   inspect(scope: 'functions' | 'classes' | 'files' | 'frames', options?: {frame?: number}): Promise<any>;
   children(reference: string, options?: {offset?: number; limit?: number}): Promise<{values: Variable[]; total: number; offset: number}>;
   evaluate(expression: string, options?: {frame?: number}): Promise<Variable>;

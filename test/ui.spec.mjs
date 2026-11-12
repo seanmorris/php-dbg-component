@@ -49,5 +49,14 @@ test('GUI edits a live value and exposes symbols, globals, constants and frames'
   await page.getByRole('button',{name:'classes',exact:true}).click();await expect(page.locator('.php-debugger-values')).toContainText('Example');
   await page.getByRole('button',{name:'files',exact:true}).click();await expect(page.locator('.php-debugger-values')).toContainText('/main.php');
   await page.getByRole('button',{name:'frames',exact:true}).click();await expect(page.locator('.php-debugger-values')).toContainText('Frame 0');
+  // Selecting the caller keeps the whole stack listed, marks the selection and moves the highlight to the call site.
+  const frames=page.locator('.php-debugger-symbol');await expect(frames).toHaveCount(2);await expect(frames.nth(0)).toHaveAttribute('aria-current','true');
+  await frames.nth(1).click();await expect(frames.nth(1)).toHaveAttribute('aria-current','true');await expect(frames).toHaveCount(2);
+  await expect(frames.nth(0)).toHaveText(/^Frame 0 — \/main\.php:7$/);await expect(frames.nth(0)).not.toHaveAttribute('aria-current','true');
+  await expect(page.locator('.php-debugger-line[data-active=true]')).toHaveText('9');
   await page.getByRole('button',{name:'Continue',exact:true}).click();await expect(page.getByRole('status')).toHaveText('completed');expect(await page.evaluate(()=>dbg.result.stdout)).toBe('42');
+  // Program output is visible by default; phpdbg's own notices appear only once the log is switched on.
+  const visible=()=>page.locator('.php-debugger-console').evaluate(element=>element.innerText);
+  expect(await visible()).toContain('42');expect(await visible()).not.toContain('Breakpoint #0');
+  await page.getByRole('checkbox',{name:'Debugger log',exact:true}).check();expect(await visible()).toContain('Breakpoint #0');
 });
