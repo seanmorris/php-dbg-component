@@ -79,9 +79,9 @@ const result = await done;
 | `run(options)` / `restart(options)` | Start execution; restart first cancels the previous run. |
 | `pause()` / `whenPaused()` | Request a cooperative pause / wait for the next pause. |
 | `continue()`, `stepInto()`, `stepOver()`, `stepOut()`, `until()`, `leave()` | phpdbg execution controls. |
-| `inspect(scope, {frame})` | `variables`, `globals`, `constants`, `functions`, `classes`, `files`, or `frames`. |
+| `inspect(scope, {frame})` | `variables`, `globals`, `constants`, `functions`, `classes`, `files`, or `frames`. Frames are `{frame, filename, lineNo, selected}` and are always listed from the innermost frame. A variable the frame has not assigned yet has type `unset`. With a runtime that provides debugger API 2, frames also carry `functionName` and `className`, and values carry PHP types (`int`, `float`, `bool`, `string`, `array`, `object`, `null`), `className` and `count`; older runtimes report JavaScript-derived types (`number`, `boolean`, …). |
 | `selectFrame(index)` | Change the inspected/evaluated frame. Zero is the innermost frame. |
-| `children(reference, {offset, limit})` | Expand a value, default 100 entries; maximum page size 1000. |
+| `children(reference, {offset, limit})` | Expand a value, default 100 entries; maximum page size 1000. A property of an object carries `visibility`. With a runtime that provides debugger API 2, private and protected properties are listed as well, read-only; older runtimes list public properties only. |
 | `evaluate(expression, {frame})` | Evaluate a PHP expression, including assignments and multiline expressions. |
 | `setVariable(reference, expression)` | Assign a PHP expression to a variable or child value. |
 | `setBreakpoints([...])` | Replace breakpoints while idle or paused. Integers or `{file,line,enabled}`. |
@@ -130,7 +130,7 @@ The element exposes `.debugger` and forwards execution/inspection methods. `insp
 
 ## Events and styling
 
-Controller events are `CustomEvent`s with `.detail`: `statechange`, `output` (`channel`, `text`), `pause`, `locationchange`, `framechange`, `variablechange`, `breakpointchange`, `versionchange`, `sourcechange`, `diagnostic`, `testresult`, and `complete`. Custom element events bubble with a `phpdbg-` prefix. `stdout` and `stderr` are program output; `debug` is debugger console output, including evaluation output.
+Controller events are `CustomEvent`s with `.detail`: `statechange`, `progress` (`loaded`, `total` bytes of the interpreter download; `total` is `null` when the server does not say), `output` (`channel`, `text`), `pause`, `locationchange`, `framechange`, `variablechange`, `breakpointchange`, `versionchange`, `sourcechange`, `diagnostic`, `testresult`, and `complete`. Custom element events bubble with a `phpdbg-` prefix. `stdout` and `stderr` are program output; `debug` is debugger console output, and its `kind` is `notice` (phpdbg's own messages), `error`, or `evaluation`. The built-in view shows program output, errors and evaluation output, and keeps notices hidden until "Debugger log" is ticked.
 
 ```css
 .my-page .php-debugger {
@@ -195,6 +195,7 @@ npm ci
 npm run setup:runtime
 npm test
 npm run test:types
+npm run lint
 RUNTIME_BUNDLE=./runtime-bundle npm run build:docs
 PHP_VERSION=8.4 npm run test:browser
 npm start

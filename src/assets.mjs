@@ -1,104 +1,326 @@
 const registryKey = Symbol.for('php-dbg-component.assets.v1');
 
+/** Reads a response body in chunks so the caller can report progress. */
+async function readBody(response, report)
+{
+	const reader = response.body?.getReader?.();
+
+	if(!reader) return response.arrayBuffer();
+
+	// With a content encoding, the declared length is the compressed size and says nothing about
+	// these bytes.
+	const length = Number(response.headers?.get('content-length'));
+	let total = length > 0 && !response.headers?.get('content-encoding') ? length : null;
+	const chunks = [];
+	let loaded = 0;
+
+	for(; ;)
+	{
+		const {done, value} = await reader.read();
+
+		if(done) break;
+
+		chunks.push(value);
+		loaded += value.length;
+
+		// Across origins the encoding header can be hidden while the length is not, so the length
+		// may be the compressed size. More bytes than it declares means it never described these
+		// bytes.
+		if(total !== null && loaded > total) total = null;
+
+		report(loaded, total);
+	}
+
+	const bytes = new Uint8Array(loaded);
+	let offset = 0;
+
+	for(const chunk of chunks)
+	{
+		bytes.set(chunk, offset);
+		offset += chunk.length;
+	}
+
+	return bytes.buffer;
+}
+
 /** Immutable, shared downloads. Callers receive copies, never the cached buffer. */
-export class AssetRegistry {
-  constructor({fetch: fetcher = (...args) => globalThis.fetch(...args)} = {}) {
-    this.fetch = fetcher; this.downloads = new Map(); this.modules = new Map(); this.urls = new Map();
-  }
-  async _bytes(url) {
-    const key = String(url);
-    if(!this.downloads.has(key)) {
-      const task = Promise.resolve().then(async () => {
-        const response = await this.fetch(key);
-        if(!response.ok) throw new Error(`Asset request failed (${response.status}): ${key}`);
-        return response.arrayBuffer();
-      });
-      this.downloads.set(key, task);
-      task.catch(() => { if(this.downloads.get(key) === task) this.downloads.delete(key); });
-    }
-    return this.downloads.get(key);
-  }
-  async bytes(url) { return (await this._bytes(url)).slice(0); }
-  async json(url) {
-    try {return JSON.parse(new TextDecoder().decode(await this._bytes(url)));}
-    catch(error) {this.downloads.delete(String(url)); throw error;}
-  }
-  async module(url, sha256) {
-    // Web and worker loaders may use different URLs for the identical binary.
-    const key = sha256 ? `sha256:${sha256}` : String(url);
-    if(!this.modules.has(key)) {
-      const task = this._bytes(url).then(async bytes => {
-        if(sha256) {
-          if(!globalThis.crypto?.subtle)throw new Error('WASM integrity verification requires HTTPS or localhost.');
-          const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(b => b.toString(16).padStart(2,'0')).join('');
-          if(digest !== sha256) {this.downloads.delete(String(url)); throw new Error(`WASM integrity mismatch: ${url}`);}
-        }
-        return WebAssembly.compile(bytes);
-      });
-      this.modules.set(key, task);
-      task.catch(() => {if(this.modules.get(key) === task) this.modules.delete(key);});
-    }
-    return this.modules.get(key);
-  }
-  async objectUrl(url) {
-    const key = String(url);
-    if(!this.urls.has(key)) {
-      const task = this._bytes(key).then(bytes => URL.createObjectURL(new Blob([bytes], {type:'application/octet-stream'})));
-      this.urls.set(key, task);
-      task.catch(() => {if(this.urls.get(key) === task) this.urls.delete(key);});
-    }
-    return this.urls.get(key);
-  }
-  /** Clear between sessions only; active runtimes may still use these URLs. */
-  async clear() {
-    const urls = [...this.urls.values()]; this.downloads.clear(); this.modules.clear(); this.urls.clear();
-    for(const task of urls) {try {URL.revokeObjectURL(await task);} catch { /* failed downloads have no URL */ }}
-  }
+export class AssetRegistry
+{
+
+	constructor({fetch: fetcher = (...args) => globalThis.fetch(...args)} = {})
+	{
+		this.fetch = fetcher;
+		this.downloads = new Map();
+		this.modules = new Map();
+		this.moduleUrls = new Map();
+		this.urls = new Map();
+		this.listeners = new Set();
+	}
+
+	/**
+	 * Calls listener({url, loaded, total}) as downloads arrive; total is null when the size is
+	 * unknown. Returns a function that stops it.
+	 */
+	onProgress(listener)
+	{
+		this.listeners.add(listener);
+
+		return () => void this.listeners.delete(listener);
+	}
+
+	async _bytes(url)
+	{
+		const key = String(url);
+
+		if(!this.downloads.has(key))
+		{
+			const task = Promise.resolve().then(async () => {
+				const response = await this.fetch(key);
+
+				if(!response.ok)
+				throw new Error(`Asset request failed (${response.status}): ${key}`);
+
+				return readBody(
+					response
+					, (loaded, total) => {
+						for(const listener of this.listeners) listener({url: key, loaded, total});
+					}
+				);
+			});
+
+			this.downloads.set(key, task);
+			task.catch(() => { if(this.downloads.get(key) === task) this.downloads.delete(key); });
+		}
+
+		return this.downloads.get(key);
+	}
+
+	async bytes(url) { return (await this._bytes(url)).slice(0); }
+
+	async json(url)
+	{
+		try
+		{
+			return JSON.parse(new TextDecoder().decode(await this._bytes(url)));
+		}
+		catch(error)
+		{
+			this.downloads.delete(String(url));
+			throw error;
+		}
+	}
+
+	async module(url, sha256)
+	{
+		// Web and worker loaders may use different URLs for the identical binary.
+		const key = sha256 ? `sha256:${sha256}` : String(url);
+
+		if(!this.modules.has(key))
+		{
+			const task = this._bytes(url).then(async bytes => {
+				if(sha256)
+				{
+					if(!globalThis.crypto?.subtle)
+					throw new Error('WASM integrity verification requires HTTPS or localhost.');
+
+					const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+						.map(b => b.toString(16).padStart(2, '0')).join('');
+
+					if(digest !== sha256)
+					{
+						this.downloads.delete(String(url));
+						throw new Error(`WASM integrity mismatch: ${url}`);
+					}
+				}
+
+				return WebAssembly.compile(bytes);
+			});
+
+			this.modules.set(key, task);
+			this.moduleUrls.set(key, String(url));
+
+			task.catch(
+				() => {
+					if(this.modules.get(key) === task)
+					{
+						this.modules.delete(key);
+						this.moduleUrls.delete(key);
+					}}
+			);
+		}
+
+		return this.modules.get(key);
+	}
+
+	/**
+	 * The URL whose download backs module(url, sha256): another caller's, when it asked for the
+	 * identical binary first.
+	 */
+	moduleSource(url, sha256)
+	{
+		return this.moduleUrls.get(sha256 ? `sha256:${sha256}` : String(url)) ?? String(url);
+	}
+
+	async objectUrl(url)
+	{
+		const key = String(url);
+
+		if(!this.urls.has(key))
+		{
+			const task = this._bytes(key).then(
+				bytes => URL.createObjectURL(new Blob([bytes], {type: 'application/octet-stream'}))
+			);
+
+			this.urls.set(key, task);
+			task.catch(() => {if(this.urls.get(key) === task) this.urls.delete(key);});
+		}
+
+		return this.urls.get(key);
+	}
+
+	/** Clear between sessions only; active runtimes may still use these URLs. */
+	async clear()
+	{
+		const urls = [...this.urls.values()];
+		this.downloads.clear();
+		this.modules.clear();
+		this.moduleUrls.clear();
+		this.urls.clear();
+
+		for(const task of urls)
+		{
+			try
+			{
+				URL.revokeObjectURL(await task);
+			}
+			catch
+			{
+				/* failed downloads have no URL */
+			}}
+	}
 }
 
 export function sharedAssets() { return globalThis[registryKey] ??= new AssetRegistry(); }
 
-export async function prepareAssets(options) {
-  const registry = options.assetRegistry || sharedAssets();
-  const base = new URL(options.runtimeBaseUrl || '/node_modules/php-dbg-wasm/', globalThis.location?.href || 'http://localhost/');
-  const sourceBase = globalThis.location?.href || base;
-  const environment = options.execution === 'main' ? 'web' : 'worker';
-  const manifestUrl = new URL(`php${options.version}-dbg-${environment}.mjs.assets.json`, base);
-  const manifest = await registry.json(manifestUrl);
-  if(manifest.schemaVersion !== 1 || manifest.bridgeVersion !== 1 || manifest.version !== options.version || manifest.environment !== environment)
-    throw new Error('The runtime asset manifest is incompatible with this debugger. Build the matching php-dbg-wasm worker/web artifacts.');
-  const [{resolveDependencies}, modules] = await Promise.all([
-    import(/* webpackIgnore: true */ new URL('resolveDependencies.mjs', base).href),
-    Promise.all((options.extensions || []).map(async extension => {
-      const url = typeof extension === 'string'
-        ? options.extensionUrls?.[extension] || new URL(`../php-wasm-${extension}/${['libxml','zlib'].includes(extension)?'index':options.version}.mjs`, base).href
-        : extension.module;
-      if(!url) throw new TypeError('An extension needs a name or module URL');
-      const module = await import(/* webpackIgnore: true */ new URL(url, sourceBase).href);
-      return module.default || module;
-    }))
-  ]);
-  const wrapper = {phpVersion:options.version, phpArgs:{...options.runtimeArgs, version:options.version}};
-  // Module namespaces and their hooks cannot be posted to a worker. Ask the
-  // runtime's own resolver for plain definitions, then pass those through.
-  const shared = resolveDependencies([...(options.runtimeArgs?.sharedLibs || []), ...(options.sharedLibs || []), ...modules], wrapper);
-  const dynamic = resolveDependencies([...(options.runtimeArgs?.dynamicLibs || []), ...(options.dynamicLibs || [])], wrapper);
-  const files = [...(options.runtimeArgs?.files || []), ...shared.files, ...dynamic.files];
-  const urls = {...dynamic.urlLibs, ...shared.urlLibs};
-  for(const name of [...(manifest.libraries || []), ...shared.libs, ...dynamic.libs]) {
-    if(typeof name === 'string' && !(name in urls)) urls[name] = new URL(name, base).href;
-  }
-  const assets = {base:base.href, environment, module:null,
-    sharedLibs:shared.libs, dynamicLibs:dynamic.libs, libraryUrls:{}, files:[], data:{}};
-  await Promise.all([
-    registry.module(new URL(manifest.wasm, base), manifest.sha256).then(module => {assets.module = module;}),
-    ...Object.entries(urls).map(async ([name, url]) => {
-      assets.libraryUrls[name] = await registry.objectUrl(new URL(options.libraryUrls?.[name] || url, sourceBase));
-    }),
-    ...files.map(async (file, index) => {
-      assets.files[index] = {...file, url:await registry.objectUrl(new URL(file.url, sourceBase))};
-    }),
-    ...(manifest.data || []).map(async name => {assets.data[name] = await registry.bytes(new URL(name, base));})
-  ]);
-  return assets;
+export async function prepareAssets(options)
+{
+	const registry = options.assetRegistry || sharedAssets();
+
+	const base = new URL(
+		options.runtimeBaseUrl || '/node_modules/php-dbg-wasm/'
+		, globalThis.location?.href || 'http://localhost/'
+	);
+
+	const sourceBase = globalThis.location?.href || base;
+	const environment = options.execution === 'main' ? 'web' : 'worker';
+	const manifestUrl = new URL(`php${options.version}-dbg-${environment}.mjs.assets.json`, base);
+	const manifest = await registry.json(manifestUrl);
+
+	if(manifest.schemaVersion !== 1 || manifest.bridgeVersion !== 1
+	  || manifest.version !== options.version || manifest.environment !== environment
+	)
+	throw new Error(
+		'The runtime asset manifest is incompatible with this debugger. Build the matching php-dbg-wasm worker/web artifacts.'
+	);
+
+	const [{resolveDependencies}, modules] = await Promise.all([
+		import(/* webpackIgnore: true */ new URL('resolveDependencies.mjs', base).href)
+		, Promise.all((options.extensions || []).map(async extension => {
+			const url = typeof extension === 'string'
+				? options.extensionUrls?.[extension]
+					|| new URL(
+						`../php-wasm-${extension}/${['libxml','zlib'].includes(
+							extension
+						)
+							? 'index'
+							: options.version}.mjs`
+						, base
+					).href
+				: extension.module;
+
+			if(!url) throw new TypeError('An extension needs a name or module URL');
+
+			const module = await import(/* webpackIgnore: true */ new URL(url, sourceBase).href);
+
+			return module.default || module;
+		}))
+	]);
+
+	const wrapper = {
+		phpVersion: options.version
+		, phpArgs: {...options.runtimeArgs, version: options.version}
+	};
+
+	// Module namespaces and their hooks cannot be posted to a worker. Ask the
+	// runtime's own resolver for plain definitions, then pass those through.
+	const shared = resolveDependencies(
+		[...(options.runtimeArgs?.sharedLibs || []), ...(options.sharedLibs || []), ...modules]
+		, wrapper
+	);
+
+	const dynamic = resolveDependencies(
+		[...(options.runtimeArgs?.dynamicLibs || []), ...(options.dynamicLibs || [])]
+		, wrapper
+	);
+
+	const files = [...(options.runtimeArgs?.files || []), ...shared.files, ...dynamic.files];
+	const urls = {...dynamic.urlLibs, ...shared.urlLibs};
+
+	for(const name of [...(manifest.libraries || []), ...shared.libs, ...dynamic.libs])
+	{
+		if(typeof name === 'string' && !(name in urls)) urls[name] = new URL(name, base).href;
+	}
+
+	const assets = {
+		base: base.href
+		, environment
+		, module: null
+		, sharedLibs: shared.libs
+		, dynamicLibs: dynamic.libs
+		, libraryUrls: {}
+		, files: []
+		, data: {}
+	};
+
+	// The interpreter binary is nearly all of the download, so its progress stands for the whole.
+	const binary = new URL(manifest.wasm, base);
+	// Another debugger may already be fetching the identical binary from its own URL; that
+	// download's progress is this one's too.
+	let source = binary.href;
+
+	const stopProgress = options.onProgress && registry.onProgress?.(event => {
+		if(event.url === source) options.onProgress({loaded: event.loaded, total: event.total});
+	});
+
+	try
+	{
+		const module = registry.module(binary, manifest.sha256);
+		source = registry.moduleSource?.(binary, manifest.sha256) ?? source;
+
+		await Promise.all([
+			module.then(module => {assets.module = module;})
+			, ...Object.entries(urls).map(async ([name, url]) => {
+				assets.libraryUrls[name] = await registry.objectUrl(
+					new URL(options.libraryUrls?.[name] || url, sourceBase)
+				);
+			})
+
+			, ...files.map(async (file, index) => {
+				assets.files[index] = {
+					...file
+					, url: await registry.objectUrl(new URL(file.url, sourceBase))
+				};
+			})
+
+			, ...(manifest.data || []).map(
+				async name => {assets.data[name] = await registry.bytes(new URL(name, base));}
+			)
+		]);
+	}
+	finally
+	{
+		stopProgress?.();
+	}
+
+	return assets;
 }
