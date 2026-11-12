@@ -53,6 +53,28 @@ export function phpString(value)
 }
 
 /**
+ * Splits an object's property key, as PHP stores it, into the name and its
+ * visibility. A private property is stored as a NUL byte, the declaring class,
+ * a NUL byte, then the name; a protected one has "*" for the class. Only a key
+ * that starts with a NUL byte is mangled: PHP refuses a property name that
+ * starts with one, but a public name may hold NUL bytes after its first character.
+ */
+export function phpPropertyName(key)
+{
+	const end = key.startsWith('\0') ? key.indexOf('\0', 1) : -1;
+
+	if(end < 0)
+	{
+		return {name: key, visibility: 'public'};
+	}
+
+	return {
+		name: key.slice(end + 1)
+		, visibility: key.slice(1, end) === '*' ? 'protected' : 'private'
+	};
+}
+
+/**
  * A class name as people read it. PHP names an anonymous class
  * "class@anonymous", a NUL byte, then the file and line that declare it;
  * the declaring file's name and line are kept so two such classes differ.
