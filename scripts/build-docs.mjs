@@ -36,11 +36,9 @@ if(process.env.RUNTIME_BUNDLE)
 }
 else
 {
-	await stageRuntime(
-		process.env.PHP_WASM_ROOT || '/app'
-		, staged
-		, (process.env.DOCS_PHP_VERSIONS || '8.4').split(',')
-	);
+	const versions = (process.env.DOCS_PHP_VERSIONS || '8.4').split(',');
+
+	await stageRuntime(process.env.PHP_WASM_ROOT || '/app', staged, versions);
 }
 
 // The editors the home page offers, each with PHP highlighting and a dark theme.
@@ -53,9 +51,11 @@ const copies = [
 	, ['ace-builds/src-noconflict/mode-php.js', 'mode-php.js']
 	, ['ace-builds/src-noconflict/theme-tomorrow_night.js', 'theme-tomorrow_night.js']
 	, ['ace-builds/LICENSE', 'LICENSE-ace']
+
 	, ['codemirror/lib/codemirror.css', 'codemirror5.css']
 	, ['codemirror/theme/material-darker.css', 'codemirror5-dark.css']
 	, ['codemirror/LICENSE', 'LICENSE-codemirror5']
+
 	, ['@codemirror/view/LICENSE', 'LICENSE-codemirror6-view']
 	, ['@codemirror/state/LICENSE', 'LICENSE-codemirror6-state']
 	, ['@codemirror/language/LICENSE', 'LICENSE-codemirror6-language']
@@ -69,13 +69,12 @@ for(const [source, name] of copies)
 }
 
 // CodeMirror 5 with its PHP mode and the modes that one builds on, as the global it expects.
+const codemirror5 = "import CodeMirror from 'codemirror'; import 'codemirror/mode/php/php.js';"
+	+ ' globalThis.CodeMirror = CodeMirror;';
+
 await build(
 	{
-		stdin: {
-			contents: "import CodeMirror from 'codemirror'; import 'codemirror/mode/php/php.js';"
-				+ ' globalThis.CodeMirror = CodeMirror;'
-			, resolveDir: root
-		}
+		stdin: {contents: codemirror5, resolveDir: root}
 		, bundle: true
 		, format: 'iife'
 		, outfile: path.join(editors, 'codemirror5.js')
@@ -83,20 +82,19 @@ await build(
 );
 
 // CodeMirror 6 and the adapter in one module, so they share one copy of the editor's state.
+const codemirror6 = `
+	import {syntaxHighlighting, defaultHighlightStyle} from '@codemirror/language';
+	export {EditorState, Compartment} from '@codemirror/state';
+	export {EditorView, lineNumbers} from '@codemirror/view';
+	export {php} from '@codemirror/lang-php';
+	export {oneDark as dark} from '@codemirror/theme-one-dark';
+	export {createCodeMirror6Adapter} from './src/adapters/codemirror6.mjs';
+	export const light = syntaxHighlighting(defaultHighlightStyle);
+`;
+
 await build(
 	{
-		stdin: {
-			contents: `
-				import {syntaxHighlighting, defaultHighlightStyle} from '@codemirror/language';
-				export {EditorState, Compartment} from '@codemirror/state';
-				export {EditorView, lineNumbers} from '@codemirror/view';
-				export {php} from '@codemirror/lang-php';
-				export {oneDark as dark} from '@codemirror/theme-one-dark';
-				export {createCodeMirror6Adapter} from './src/adapters/codemirror6.mjs';
-				export const light = syntaxHighlighting(defaultHighlightStyle);
-			`
-			, resolveDir: root
-		}
+		stdin: {contents: codemirror6, resolveDir: root}
 		, bundle: true
 		, format: 'esm'
 		, outfile: path.join(editors, 'codemirror6.mjs')

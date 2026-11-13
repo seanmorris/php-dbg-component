@@ -2,6 +2,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 
+/** What is copied from a library's package: directories, modules, binaries and licences. */
+const shipped = filename => !path.extname(filename)
+	|| /\.(mjs|so)$/.test(filename)
+	|| /LICENSE|NOTICE/.test(path.basename(filename));
+
 /** Stage an explicit runtime/extension set; no unrelated native binaries. */
 export async function stageRuntime(root, output, versions, extensions = ['curl', 'dom'])
 {
@@ -124,11 +129,7 @@ export async function stageRuntime(root, output, versions, extensions = ['curl',
 		await fs.cp(
 			path.join(root, 'packages/libxml')
 			, path.join(output, 'php-wasm-libxml')
-			, {
-				recursive: true
-				, filter: filename => !path.extname(filename) || /\.(mjs|so)$/.test(filename)
-		|| /LICENSE|NOTICE/.test(path.basename(filename))
-			}
+			, {recursive: true, filter: shipped}
 		);
 	}
 

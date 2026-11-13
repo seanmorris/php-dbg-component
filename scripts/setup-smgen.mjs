@@ -10,6 +10,15 @@ const checkout = path.join(root, '.cache/smgen');
 
 const git = (...args) => execFileSync('git', ['-C', checkout, ...args], {encoding: 'utf8'}).trim();
 
+/** Start the cache directory over as an empty repository whose origin is SMGen's. */
+async function prepare()
+{
+	await fs.rm(checkout, {recursive: true, force: true});
+	await fs.mkdir(checkout, {recursive: true});
+	git('init', '--quiet');
+	git('remote', 'add', 'origin', lock.repository);
+}
+
 /** The path of smgen.sh at the locked commit, fetched first if it is not there. */
 export async function smgenCommand()
 {
@@ -21,10 +30,7 @@ export async function smgenCommand()
 	}
 	catch
 	{
-		await fs.rm(checkout, {recursive: true, force: true});
-		await fs.mkdir(checkout, {recursive: true});
-		git('init', '--quiet');
-		git('remote', 'add', 'origin', lock.repository);
+		await prepare();
 	}
 
 	if(present !== lock.commit)

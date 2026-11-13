@@ -48,16 +48,20 @@ export async function checkExpectations(result, expectations, assertion)
 
 	if(assertion)
 	{
+		let message = null;
+
 		try
 		{
-			if(await assertion(result) === false)
-			{
-				failures.push({field: 'assertion', message: 'Assertion returned false'});
-			}
+			message = await assertion(result) === false ? 'Assertion returned false' : null;
 		}
 		catch(error)
 		{
-			failures.push({field: 'assertion', message: error.message || String(error)});
+			message = error.message || String(error);
+		}
+
+		if(message !== null)
+		{
+			failures.push({field: 'assertion', message});
 		}
 	}
 

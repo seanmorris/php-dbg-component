@@ -61,11 +61,13 @@ export class DebuggerView
 			Run: 'Start the program'
 			, Continue: 'Resume until the next breakpoint'
 			, Pause: 'Pause the running program at its next line'
+
 			, 'Step over': 'Run this line; a call it makes runs whole'
 			, 'Step into': 'Run this line, entering a call it makes'
 			, 'Step out': 'Run until this function has returned to its caller'
 			, Until: 'Run until execution is past this line; at the end of a loop, finish the loop'
 			, Leave: 'Run to the end of this function and pause before it returns'
+
 			, Restart: 'End this run and start again'
 			, Stop: 'End this run'
 		};
@@ -633,6 +635,45 @@ export class DebuggerView
 		await this.refresh();
 	}
 
+	/** Set a breakpoint on a line of the entrypoint, or remove the one that is there. */
+	toggleBreakpoint(line)
+	{
+		const dbg = this.dbg;
+		const file = dbg.options.entrypoint;
+
+		const here = bp => bp.line === line && bp.file === file;
+
+		return dbg.setBreakpoints(
+			dbg.breakpoints.some(here)
+				? dbg.breakpoints.filter(bp => !here(bp))
+				: [...dbg.breakpoints, line]
+		);
+	}
+
+	/** A watched expression's value, or what went wrong evaluating it. */
+	watchValue(expression)
+	{
+		return this.dbg.evaluate(expression).then(
+			value => ({...value, name: expression})
+			, error => ({name: expression, displayValue: error.message, writable: false})
+		);
+	}
+
+	/** Select a frame from the frame list; for a function, class or file, show where it is. */
+	async openSymbol(value)
+	{
+		if(this.panel === 'frames')
+		{
+			await this.dbg.selectFrame(value.frame);
+
+			return;
+		}
+
+		const file = typeof value === 'string' ? value : value.filename;
+
+		this.showLocation({file, line: value.lineNo || 1});
+	}
+
 	async act(callback)
 	{
 		this.message.textContent = '';
@@ -1008,20 +1049,7 @@ export class DebuggerView
 			b.setAttribute('aria-pressed', String(enabled));
 			b.dataset.breakpoint = String(enabled);
 
-			b.addEventListener(
-				'click'
-				, () => this.act(
-					() => dbg.setBreakpoints(
-						dbg.breakpoints.some(
-							bp => bp.line === line && bp.file === dbg.options.entrypoint
-						)
-							? dbg.breakpoints.filter(
-								bp => bp.line !== line || bp.file !== dbg.options.entrypoint
-							)
-							: [...dbg.breakpoints, line]
-					)
-				)
-			);
+			b.addEventListener('click', () => this.act(() => this.toggleBreakpoint(line)));
 
 			this.gutter.append(b);
 		}
@@ -1166,24 +1194,9 @@ export class DebuggerView
 		}
 
 		await this.act(async() => {
-			let values;
-
-			if(this.panel === 'watches')
-			{
-				values = await Promise.all(this.watches.map(async expression => {
-					try
-					{
-						return {...await this.dbg.evaluate(expression), name: expression};
-					}
-					catch(error)
-					{
-						return {name: expression, displayValue: error.message, writable: false};
-					}}));
-			}
-			else
-			{
-				values = await this.dbg.inspect(this.panel);
-			}
+			let values = this.panel === 'watches'
+				? await Promise.all(this.watches.map(expression => this.watchValue(expression)))
+				: await this.dbg.inspect(this.panel);
 
 			if(generation !== this.refreshNumber || this.dbg.state !== 'paused')
 			{
@@ -1265,28 +1278,7 @@ export class DebuggerView
 						item.setAttribute('aria-current', 'true');
 					}
 
-					item.addEventListener(
-						'click'
-						, () => this.act(
-							async() => {
-								if(this.panel === 'frames')
-								{
-									await this.dbg.selectFrame(value.frame);
-								}
-								else
-								{
-									this.showLocation(
-										{
-											file: typeof value === 'string'
-												? value
-												: value.filename
-											, line: value.lineNo || 1
-										}
-									);
-								}
-							}
-						)
-					);
+					item.addEventListener('click', () => this.act(() => this.openSymbol(value)));
 
 					this.control(rows, `symbol ${rows.size}`, item);
 					this.content.append(item);

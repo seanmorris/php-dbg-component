@@ -25,24 +25,24 @@ for(const execution of ['worker', 'main'])
 					, getFiles: () => [{url: fileUrl, path: '/preload/helper/data.txt'}]
 				};
 
+				/** Each run reads both preloaded files, then writes its own id over one of them. */
+				const options = id => ({
+					version
+					, execution
+					, runtimeBaseUrl: '/runtime/'
+
+					, sharedLibs: [curl, dom, libxml, helper]
+					, libraryUrls: {'unused.so': '/unused.so'}
+					, runtimeArgs: {
+						files: [{parent: '/preload/', name: 'manual.txt', url: fileUrl}]
+					}
+					, code: `<?php $doc=new DOMDocument; $doc->loadXML('<root>yes</root>'); echo extension_loaded('curl') ? 'curl:' : 'missing:'; echo $doc->documentElement->textContent, ':', file_get_contents('/preload/helper/data.txt'), ':', file_get_contents('/preload/manual.txt'); file_put_contents('/preload/helper/data.txt', '${id}');`
+				});
+
 				try
 				{
 					return await Promise.all([1, 2].map(async id => {
-						const d = new PhpDebugger({
-							version
-							, execution
-							, runtimeBaseUrl: '/runtime/'
-							, sharedLibs: [curl, dom, libxml, helper]
-							, libraryUrls: {'unused.so': '/unused.so'}
-							, runtimeArgs: {
-								files: [{
-									parent: '/preload/'
-									, name: 'manual.txt'
-									, url: fileUrl
-								}]
-							}
-							, code: `<?php $doc=new DOMDocument; $doc->loadXML('<root>yes</root>'); echo extension_loaded('curl') ? 'curl:' : 'missing:'; echo $doc->documentElement->textContent, ':', file_get_contents('/preload/helper/data.txt'), ':', file_get_contents('/preload/manual.txt'); file_put_contents('/preload/helper/data.txt', '${id}');`
-						});
+						const d = new PhpDebugger(options(id));
 
 						try{return await d.run({mode: 'test'});}finally{await d.destroy();}
 					}));
@@ -76,17 +76,16 @@ test(
 	, async({page}) => {
 		const results = await page.evaluate(async version => {
 			const module = await import('/php-wasm-curl/index.mjs');
-			const url = new URL(`/php-wasm-curl/php${version}-curl.so`, location.href);
-			const inputs = [{sharedLibs: [url.href]}
+			const name = `php${version}-curl.so`;
+			const url = new URL(`/php-wasm-curl/${name}`, location.href);
+
+			const inputs = [
+				{sharedLibs: [url.href]}
 				, {sharedLibs: [url]}
-				, {sharedLibs: [[{name: `php${version}-curl.so`, url, ini: true}]]}
-				, {runtimeArgs: {sharedLibs: [module]}}, {sharedLibs: [module.default]}
-				, {
-					sharedLibs: [`php${version}-curl.so`]
-					, libraryUrls: {
-						[`php${version}-curl.so`]: url
-					}
-				}
+				, {sharedLibs: [[{name, url, ini: true}]]}
+				, {runtimeArgs: {sharedLibs: [module]}}
+				, {sharedLibs: [module.default]}
+				, {sharedLibs: [name], libraryUrls: {[name]: url}}
 			];
 
 			const results = [];
@@ -130,24 +129,20 @@ for(const execution of ['worker', 'main'])
 
 				const results = [];
 
-				for(const input of [{sharedLibs: [definition]}
+				const inputs = [
+					{sharedLibs: [definition]}
 					, {dynamicLibs: [module]}
-					, {
-						runtimeArgs: {
-							dynamicLibs: [
-								module
-							]
-						}
-					}
-				]){
-					const d = new PhpDebugger({
-						version
-						, execution
-						, runtimeBaseUrl: '/runtime/'
-						, ...input
-						, code:
-							'<?php echo extension_loaded("curl") ? "unexpected" : "not registered";'
-					});
+					, {runtimeArgs: {dynamicLibs: [module]}}
+				];
+
+				const code
+					= '<?php echo extension_loaded("curl") ? "unexpected" : "not registered";';
+
+				for(const input of inputs)
+				{
+					const d = new PhpDebugger(
+						{version, execution, runtimeBaseUrl: '/runtime/', ...input, code}
+					);
 
 					try{results.push(await d.run({mode: 'test'}));}finally{await d.destroy();}
 				}
@@ -191,18 +186,11 @@ test(
 			[`/php-wasm-curl/php${version}-curl.so`]
 		);
 
-		const second = await page.evaluate(
-			async() => {
-				try
-				{
-					return await extensionsDebugger.run({mode: 'test'});
-				}
-				finally
-				{
-					await extensionsDebugger.destroy();
-				}
-			}
-		);
+		const second = await page.evaluate(() => {
+			const d = extensionsDebugger;
+
+			return d.run({mode: 'test'}).finally(() => d.destroy());
+		});
 
 		expect(second.stdout).toBe(`${other}:curl`);
 

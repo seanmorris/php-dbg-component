@@ -125,17 +125,11 @@ const editors = {
 		const cm = await import(asset('editors/codemirror6.mjs'));
 		const colours = new cm.Compartment();
 
-		const editor = new cm.EditorView(
-			{
-				state: cm.EditorState.create(
-					{
-						doc: value
-						, extensions: [cm.lineNumbers(), cm.php(), colours.of(cm.light)]
-					}
-				)
-				, parent: host
-			}
+		const state = cm.EditorState.create(
+			{doc: value, extensions: [cm.lineNumbers(), cm.php(), colours.of(cm.light)]}
 		);
+
+		const editor = new cm.EditorView({state, parent: host});
 
 		return {
 			adapter: cm.createCodeMirror6Adapter(editor)
@@ -178,32 +172,24 @@ async function mount(reset = false)
 	window.phpDebuggerDemo = dbg;
 }
 
+/** Lock or release the controls that rebuild the example. */
+function lock(locked)
+{
+	for(const control of [$('#editor-kind'), $('#reset')])
+	{
+		control.disabled = locked;
+	}
+}
+
 async function change(reset = false)
 {
-	const controls = [$('#editor-kind'), $('#reset')];
-
 	problem('');
+	lock(true);
 
-	for(const control of controls)
-	{
-		control.disabled = true;
-	}
+	// mount() is async, so whatever it throws arrives as a rejection.
+	await mount(reset).catch(error => problem(error.message));
 
-	try
-	{
-		await mount(reset);
-	}
-	catch(error)
-	{
-		problem(error.message);
-	}
-	finally
-	{
-		for(const control of controls)
-		{
-			control.disabled = false;
-		}
-	}
+	lock(false);
 }
 
 /** Run PHP without an interface and report the outcome beside the button that asked. */
@@ -226,23 +212,20 @@ async function runExample(button, output, options)
 
 		const result = await test.run({mode: 'test', timeoutMs: 5000});
 		const said = result.stdout.trim() || result.diagnostics.map(d => d.message).join(' ');
+		const time = Math.round(result.durationMs);
 
 		output.dataset.status = result.test.status;
-
-		output.textContent = `${result.test.status} · ${said} · ${Math.round(
-			result.durationMs
-		)} ms`;
+		output.textContent = `${result.test.status} · ${said} · ${time} ms`;
 	}
 	catch(error)
 	{
 		output.dataset.status = 'failed';
 		output.textContent = error.message;
 	}
-	finally
-	{
-		await test?.destroy();
-		button.disabled = false;
-	}
+
+	// Nothing above escapes its catch, so this runs however the example went.
+	await test?.destroy();
+	button.disabled = false;
 }
 
 $('#run-test')?.addEventListener(
@@ -254,19 +237,16 @@ $('#run-test')?.addEventListener(
 	)
 );
 
+/** What the curl example runs with. The extension is fetched when the button is used. */
+const curlExample = async() => ({
+	sharedLibs: [await import(asset('php-wasm-curl/index.mjs'))]
+	, code: '<?php echo extension_loaded("curl") ? "curl ready" : "curl missing";'
+	, expect: {stdout: 'curl ready', exitCode: 0}
+});
+
 $('#run-curl')?.addEventListener(
 	'click'
-	, event => void runExample(
-		event.currentTarget
-		, $('#curl-result')
-		, async() => (
-			{
-				sharedLibs: [await import(asset('php-wasm-curl/index.mjs'))]
-				, code: '<?php echo extension_loaded("curl") ? "curl ready" : "curl missing";'
-				, expect: {stdout: 'curl ready', exitCode: 0}
-			}
-		)
-	)
+	, event => void runExample(event.currentTarget, $('#curl-result'), curlExample)
 );
 
 if($('#debugger-host') && versions.length)

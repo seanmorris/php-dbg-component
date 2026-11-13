@@ -94,26 +94,7 @@ export class PhpDebugger extends EventTarget
 
 	async readCode()
 	{
-		let code;
-
-		if(typeof this.source?.getCode === 'function')
-		{
-			code = await this.source.getCode();
-		}
-		else if(this.source?.nodeType)
-		{
-			code = 'value' in this.source ? this.source.value : this.source.textContent;
-		}
-		else if(typeof this.source === 'function')
-		{
-			code = await this.source();
-		}
-		else
-		{
-			code = typeof this.options.code === 'function'
-				? await this.options.code()
-				: this.options.code ?? '';
-		}
+		const code = await this.sourceCode();
 
 		if(typeof code !== 'string')
 		{
@@ -121,6 +102,29 @@ export class PhpDebugger extends EventTarget
 		}
 
 		return code;
+	}
+
+	/** The code where the source holds it: an editor, an element, a getter, or the code option. */
+	sourceCode()
+	{
+		if(typeof this.source?.getCode === 'function')
+		{
+			return this.source.getCode();
+		}
+
+		if(this.source?.nodeType)
+		{
+			return 'value' in this.source ? this.source.value : this.source.textContent;
+		}
+
+		if(typeof this.source === 'function')
+		{
+			return this.source();
+		}
+
+		const code = this.options.code;
+
+		return typeof code === 'function' ? this.options.code() : code ?? '';
 	}
 
 	setCode(code)
@@ -134,28 +138,20 @@ export class PhpDebugger extends EventTarget
 
 		this.options.code = code;
 
-		if(typeof code === 'function')
+		// A getter becomes the source, and code given as a string replaces one.
+		if(typeof code === 'function' || typeof this.source === 'function')
 		{
-			this.source = code;
+			this.source = typeof code === 'function' ? code : null;
 		}
-		else if(typeof this.source?.setCode === 'function')
+
+		// Code given as a string goes into the editor or element it came from.
+		if(typeof this.source?.setCode === 'function')
 		{
 			this.source.setCode(code);
 		}
 		else if(this.source?.nodeType)
 		{
-			if('value' in this.source)
-			{
-				this.source.value = code;
-			}
-			else
-			{
-				this.source.textContent = code;
-			}
-		}
-		else if(typeof this.source === 'function')
-		{
-			this.source = null;
+			this.source['value' in this.source ? 'value' : 'textContent'] = code;
 		}
 
 		this.emit(
@@ -337,6 +333,14 @@ export class PhpDebugger extends EventTarget
 			, this.options.loadTimeoutMs ?? 120000
 		);
 
+		/** A failure while starting ends this run, unless the run has already ended. */
+		const failed = error => {
+			if(this.active === active && !active.finishing)
+			{
+				void this.finish('error', {error});
+			}
+		};
+
 		void (async () => {
 			const code = await source;
 
@@ -354,90 +358,95 @@ export class PhpDebugger extends EventTarget
 
 			clearTimeout(active.loadTimer);
 
-			await this.transport.call('execute', {
-				code
-				, files
-				, breakpoints
-				, mode
-				, stdin: options.stdin ?? this.options.stdin
-				, entrypoint: this.options.entrypoint
-			});
-		})().catch(
-			error => {
-				if(this.active === active && !active.finishing)
-				{
-					void this.finish('error', {error});
-				}
-			}
-		);
+			const stdin = options.stdin ?? this.options.stdin;
+			const entrypoint = this.options.entrypoint;
+
+			await this.transport.call(
+				'execute'
+				, {code, files, breakpoints, mode, stdin, entrypoint}
+			);
+		})().catch(failed);
 
 		return wait.promise;
 	}
 
 	handleEvent(event)
 	{
-		if(event.type === 'fatal')
+		switch(event.type)
 		{
-			if(this.active)
-			{
-				void this.finish('error', {error: event.error});
-			}
-			else
-			{
-				void this.teardown();
-				this.transition('error');
-				this.emit('diagnostic', errorRecord(event.error));
-			}
-		}
-		else if(event.type === 'state')
-		{
-			if(event.state === 'running')
-			{
-				this.location = null;
-			}
+			case 'fatal':
+				this.handleFatal(event.error);
+				break;
 
-			this.transition(event.state);
+			case 'state':
+				this.location = event.state === 'running' ? null : this.location;
+				this.transition(event.state);
+				break;
+
+			case 'output':
+				this.handleOutput(event);
+				break;
+
+			case 'paused':
+				this.handlePause(event);
+				break;
+
+			case 'complete':
+				void this.finish('completed', event);
+				break;
+
+			default:
+				this.emit(event.type, event);
 		}
-		else if(event.type === 'output')
+	}
+
+	/** The runtime failed. A run ends with the error; otherwise the debugger reports it. */
+	handleFatal(error)
+	{
+		if(this.active)
 		{
-			if(this.active && (event.channel === 'stdout' || event.channel === 'stderr'))
+			void this.finish('error', {error});
+
+			return;
+		}
+
+		void this.teardown();
+		this.transition('error');
+		this.emit('diagnostic', errorRecord(error));
+	}
+
+	/** Output from the program or from phpdbg. A run that writes too much is ended. */
+	handleOutput(event)
+	{
+		const limit = this.options.outputLimit ?? 10_000_000;
+
+		if(this.active && (event.channel === 'stdout' || event.channel === 'stderr'))
+		{
+			this.active[event.channel] += event.text;
+
+			if(this.active.stdout.length + this.active.stderr.length > limit)
 			{
-				this.active[event.channel] += event.text;
-
-				if(this.active.stdout.length + this.active.stderr.length > (this.options.outputLimit
-			?? 10_000_000
-				)){
-					void this.finish(
-						'error'
-						, {error: new Error('Execution output limit exceeded')}
-					);
-				}
+				void this.finish('error', {error: new Error('Execution output limit exceeded')});
 			}
+		}
 
-			this.emit('output', event);
-		}
-		else if(event.type === 'paused')
-		{
-			this.location = event.location;
-			this.transition('paused');
-			this.emit('pause', event);
-			this.emit('locationchange', event.location);
+		this.emit('output', event);
+	}
 
-			for(const wait of this.pauseWaiters)
-			{
-				wait.resolve(event);
-			}
+	/** The program has paused: record where, and answer everyone waiting for a pause. */
+	handlePause(event)
+	{
+		this.location = event.location;
+		this.transition('paused');
+		this.emit('pause', event);
+		this.emit('locationchange', event.location);
 
-			this.pauseWaiters.clear();
-		}
-		else if(event.type === 'complete')
+		for(const wait of this.pauseWaiters)
 		{
-			void this.finish('completed', event);
+			wait.resolve(event);
 		}
-		else
-		{
-			this.emit(event.type, event);
-		}
+
+		this.pauseWaiters.clear();
 	}
 
 	async finish(status, details = {})

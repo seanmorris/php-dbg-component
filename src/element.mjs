@@ -1,5 +1,11 @@
 import {PhpDebugger} from './index.mjs';
 
+// The debugger's events, which the element dispatches again as phpdbg-<name>.
+const forwarded = [
+	'statechange', 'output', 'pause', 'complete', 'testresult', 'variablechange'
+	, 'breakpointchange', 'locationchange', 'diagnostic', 'progress'
+];
+
 /** Registration is explicit, so importing this module has no DOM side effects. */
 export function definePhpDebugger(name = 'php-debugger', registry = customElements)
 {
@@ -67,14 +73,8 @@ export function definePhpDebugger(name = 'php-debugger', registry = customElemen
 			this.debugger = new PhpDebugger(options);
 			this.forwarding = new AbortController();
 
-			for(const name of ['statechange'
-				, 'output'
-				, 'pause'
-				, 'complete'
-				, 'testresult'
-				, 'variablechange'
-				, 'breakpointchange', 'locationchange', 'diagnostic', 'progress'
-			]){
+			for(const name of forwarded)
+			{
 				this.debugger.addEventListener(
 					name
 					, event => this.dispatchEvent(
@@ -102,28 +102,28 @@ export function definePhpDebugger(name = 'php-debugger', registry = customElemen
 		disconnectedCallback()
 		{
 			// Moving a node within the same document should not terminate its run.
-			queueMicrotask(
-				() => {
-					if(!this.isConnected)
-					{
-						this.forwarding?.abort();
-						void this.debugger?.destroy();
-						this.debugger = null;
-					}
+			queueMicrotask(() => {
+				if(!this.isConnected)
+				{
+					this.forwarding?.abort();
+					void this.debugger?.destroy();
+					this.debugger = null;
 				}
-			);
+			});
 		}
 
 		attributeChangedCallback(name, old, value)
 		{
-			if(name === 'version' && old !== value && this.debugger)
+			if(name !== 'version' || old === value || !this.debugger)
 			{
-				void this.debugger.setVersion(value).catch(
-					error => this.dispatchEvent(
-						new CustomEvent('phpdbg-error', {detail: error, bubbles: true})
-					)
-				);
+				return;
 			}
+
+			void this.debugger.setVersion(value).catch(
+				error => this.dispatchEvent(
+					new CustomEvent('phpdbg-error', {detail: error, bubbles: true})
+				)
+			);
 		}
 
 		get code() {return this._code;}
