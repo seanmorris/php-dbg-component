@@ -294,7 +294,49 @@ export function parseOpcodes(text)
 		}
 	}
 
+	// Which ops each op can jump to, once its operands are whole.
+	for(const listed of functions)
+	{
+		for(const op of listed.ops)
+		{
+			op.jumps = operandParts(op, listed.ops.length).flatMap(part => part.jump ?? []);
+		}
+	}
+
 	return functions;
+}
+
+/**
+ * An op's operands in pieces: text, and the jumps to other ops of its function, as {text, jump}.
+ * The dumper writes a target as four digits or more ("0005"), PHP 8.0 as "J5". A number inside
+ * a quoted string, an INIT_ op's sizes, and a number past the function's last op are text.
+ */
+export function operandParts({opcode, operands}, count = Infinity)
+{
+	const quoted = [...operands.matchAll(/"(?:[^"\\]|\\.)*"/g)].map(
+		match => [match.index, match.index + match[0].length]
+	);
+
+	const parts = [];
+	let from = 0;
+
+	for(const match of operands.matchAll(/(?<![\w$(.\\])(?:J(\d+)|(\d{4,}))(?![\w(])/g))
+	{
+		const jump = Number(match[1] ?? match[2]);
+		const inQuotes = quoted.some(([start, end]) => match.index > start && match.index < end);
+
+		if(inQuotes || jump >= count || opcode.startsWith('INIT_'))
+		{
+			continue;
+		}
+
+		parts.push({text: operands.slice(from, match.index)}, {text: match[0], jump});
+		from = match.index + match[0].length;
+	}
+
+	parts.push({text: operands.slice(from)});
+
+	return parts.filter(part => part.text);
 }
 
 /**

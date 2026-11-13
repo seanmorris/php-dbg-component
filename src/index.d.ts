@@ -59,6 +59,9 @@ export interface Opcode {
 	result: string;
 	opcode: string;
 	operands: string;
+
+	/** The ops of the same function this op can jump to, by their index. */
+	jumps: number[];
 }
 
 /** A function and its ops. The main script is named "{main}". */

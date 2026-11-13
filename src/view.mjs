@@ -1,4 +1,4 @@
-import {versions, phpClassLabel, typeLabel} from './model.mjs';
+import {versions, phpClassLabel, typeLabel, operandParts} from './model.mjs';
 
 let views = 0;
 
@@ -807,7 +807,7 @@ export class DebuggerView
 		bar.append(label);
 
 		const tables = listing.functions.map(
-			(listed, at) => this.opcodeTable(listed, at === 0 ? listing.current : null)
+			(listed, at) => this.opcodeTable(listed, at, at === 0 ? listing.current : null)
 		);
 
 		const held = this.holdFocus();
@@ -820,15 +820,23 @@ export class DebuggerView
 
 		if(here)
 		{
-			// From the top of the panel's scrolled content to the op, kept a third of the way down.
-			const top = here.getBoundingClientRect().top - this.content.getBoundingClientRect().top;
-
-			this.content.scrollTop += top - this.content.clientHeight / 3;
+			this.keepInView(here);
 		}
 	}
 
-	/** One function's ops as a table. The op the paused frame stands on is marked like its line. */
-	opcodeTable(listed, current)
+	/** Scroll the panel so a row of it is a third of the way down. */
+	keepInView(row)
+	{
+		const top = row.getBoundingClientRect().top - this.content.getBoundingClientRect().top;
+
+		this.content.scrollTop += top - this.content.clientHeight / 3;
+	}
+
+	/**
+	 * One function's ops as a table, numbered first, as jumps name them. The op the paused frame
+	 * stands on is marked like its line; a jump target is a link to its op.
+	 */
+	opcodeTable(listed, at, current)
 	{
 		const table = node('table', 'php-debugger-opcodes');
 		const name = listed.name === '{main}' ? '{main}' : `${listed.name}()`;
@@ -838,9 +846,14 @@ export class DebuggerView
 		const head = node('tr');
 		const body = node('tbody');
 
+		/** An op's number as the dumper writes it, and its row's id. */
+		const number = index => String(index).padStart(4, '0');
+
+		const id = index => `${this.id}-op-${at}-${index}`;
+
 		caption.append(node('span', 'php-debugger-opcodes-where', summary));
 
-		for(const title of ['Line', '#', 'Result', 'Opcode', 'Operands'])
+		for(const title of ['Op', 'Line', 'Result', 'Opcode', 'Operands'])
 		{
 			const cell = node('th', '', title);
 
@@ -851,6 +864,9 @@ export class DebuggerView
 		for(const op of listed.ops)
 		{
 			const row = node('tr');
+			const operands = node('td', 'php-debugger-opcode-operands');
+
+			row.id = id(op.index);
 
 			// Where PHP 8.0 gives only the line, every op on it is marked.
 			if(current?.line === op.line && [null, op.index].includes(current.index))
@@ -858,12 +874,24 @@ export class DebuggerView
 				row.setAttribute('aria-current', 'step');
 			}
 
+			for(const part of operandParts(op, listed.ops.length))
+			{
+				if(part.jump === undefined)
+				{
+					operands.append(part.text);
+
+					continue;
+				}
+
+				operands.append(this.jumpLink(number(part.jump), id(part.jump)));
+			}
+
 			row.append(
-				node('td', 'php-debugger-opcode-line', String(op.line))
-				, node('td', 'php-debugger-opcode-index', String(op.index))
+				node('td', 'php-debugger-opcode-index', number(op.index))
+				, node('td', 'php-debugger-opcode-line', String(op.line))
 				, node('td', 'php-debugger-opcode-result', op.result)
 				, node('td', 'php-debugger-opcode', op.opcode)
-				, node('td', 'php-debugger-opcode-operands', op.operands)
+				, operands
 			);
 
 			body.append(row);
@@ -873,6 +901,37 @@ export class DebuggerView
 		table.tHead.append(head);
 
 		return table;
+	}
+
+	/**
+	 * A link to the op a jump names. It brings that op into view and marks it, with focus on its
+	 * number, without touching the page's address.
+	 */
+	jumpLink(text, target)
+	{
+		const link = node('a', 'php-debugger-opcode-jump', text);
+
+		link.href = `#${target}`;
+		link.setAttribute('aria-label', `Go to op ${Number(text)}`);
+
+		link.addEventListener('click', event => {
+			event.preventDefault();
+
+			const row = this.content.querySelector(`#${CSS.escape(target)}`);
+			const cell = row.cells[0];
+
+			for(const marked of this.content.querySelectorAll('tr[data-jumped]'))
+			{
+				marked.removeAttribute('data-jumped');
+			}
+
+			row.dataset.jumped = 'true';
+			cell.tabIndex = -1;
+			cell.focus({preventScroll: true});
+			this.keepInView(row);
+		});
+
+		return link;
 	}
 
 	/** With no pause there is nothing to inspect, so the panel says when there will be. */

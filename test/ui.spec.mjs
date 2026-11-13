@@ -739,7 +739,21 @@ test('the Opcodes panel lists the paused function and anything else asked for', 
 			{
 				version: window.phpVersionUnderTest
 				, runtimeBaseUrl: '/runtime/'
-				, code: '<?php\nfunction twice($n) {\n    return $n * 2;\n}\necho twice(4);'
+				, code: [
+					'<?php'
+					, 'function twice($n) {'
+					, '    return $n * 2;'
+					, '}'
+
+					, 'function count_up($n) {'
+					, '    while($n < 8) {'
+					, '        $n++;'
+					, '    }'
+					, '    return $n;'
+					, '}'
+
+					, 'echo twice(count_up(1));'
+				].join('\n')
 				, breakpoints: [3]
 			}
 		);
@@ -768,6 +782,21 @@ test('the Opcodes panel lists the paused function and anything else asked for', 
 	await expect(scope).toBeFocused();
 	await scope.selectOption('function:twice');
 	await expect(panel.locator('caption')).toContainText('twice()');
+
+	// Ops are numbered first. A jump's target is a link: following it marks that op and puts
+	// focus on its number, and the page's address stays as it was.
+	await scope.selectOption('function:count_up');
+	await expect(panel.getByRole('columnheader').first()).toHaveText('Op');
+
+	const jump = panel.getByRole('link').first();
+	const target = await jump.textContent();
+	const landed = panel.locator('tr[data-jumped] td').first();
+
+	await expect(jump).toHaveAccessibleName(`Go to op ${Number(target)}`);
+	await jump.click();
+	await expect(landed).toHaveText(target);
+	await expect(landed).toBeFocused();
+	expect(page.url()).not.toContain('#');
 
 	// Before the next run's pause there is nothing to list.
 	await page.getByRole('button', {name: 'Continue', exact: true}).click();

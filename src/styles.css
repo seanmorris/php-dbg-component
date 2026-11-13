@@ -318,6 +318,17 @@
 	overflow-wrap: normal;
 }
 
+/* A jump target is a link to its op, and the op last jumped to is tinted until the next jump. */
+.php-debugger .php-debugger-opcodes .php-debugger-opcode-jump {
+	color: var(--php-debugger-accent);
+	text-decoration: underline;
+	text-underline-offset: .15em;
+}
+
+.php-debugger .php-debugger-opcodes tr[data-jumped] td {
+	background: color-mix(in srgb, var(--php-debugger-accent) 14%, transparent);
+}
+
 .php-debugger .php-debugger-opcodes tr[aria-current] td {
 	background: var(--php-debugger-active);
 }
