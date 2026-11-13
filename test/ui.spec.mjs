@@ -1,5 +1,23 @@
 import {test, expect} from '@playwright/test';
 
+/** An inspector tab by its title, whatever count it shows. */
+const tabNamed = (page, title) => page.getByRole('tab', {name: new RegExp(`^${title}( \\d+)?$`)});
+
+/** Show an inspector panel: from its tab, or from More when the tab has folded into it. */
+async function openPanel(page, title)
+{
+	const tab = tabNamed(page, title);
+
+	if(await tab.isVisible())
+	{
+		await tab.click();
+	}
+	else
+	{
+		await page.getByRole('combobox', {name: 'More panels'}).selectOption(title.toLowerCase());
+	}
+}
+
 test.beforeEach(
 	async({page}) => {
 		await page.addInitScript(
@@ -227,22 +245,22 @@ test('GUI edits a live value and exposes symbols, globals, constants and frames'
 	await page.getByRole('textbox', {name: 'New PHP expression for n', exact: true}).fill('42');
 	await page.getByRole('button', {name: 'Apply', exact: true}).click();
 	await expect(page.locator('.php-debugger-value-preview')).toContainText('42');
-	await page.getByRole('tab', {name: 'Globals', exact: true}).click();
+	await openPanel(page, 'Globals');
 	await expect(page.locator('.php-debugger-values')).toContainText('globalValue');
-	await page.getByRole('tab', {name: 'Constants', exact: true}).click();
+	await openPanel(page, 'Constants');
 	await expect(page.locator('.php-debugger-values')).toContainText('EXAMPLE');
 
 	await expect(
 		page.locator('.php-debugger-values').getByRole('button', {name: /^Edit /})
 	).toHaveCount(0);
 
-	await page.getByRole('tab', {name: 'Functions', exact: true}).click();
+	await openPanel(page, 'Functions');
 	await expect(page.locator('.php-debugger-values')).toContainText('example');
-	await page.getByRole('tab', {name: 'Classes', exact: true}).click();
+	await openPanel(page, 'Classes');
 	await expect(page.locator('.php-debugger-values')).toContainText('Example');
-	await page.getByRole('tab', {name: 'Files', exact: true}).click();
+	await openPanel(page, 'Files');
 	await expect(page.locator('.php-debugger-values')).toContainText('/main.php');
-	await page.getByRole('tab', {name: 'Frames', exact: true}).click();
+	await openPanel(page, 'Frames');
 	await expect(page.locator('.php-debugger-values')).toContainText('Frame 0');
 	// Selecting the caller keeps the whole stack listed, marks the selection and moves the
 	// highlight to the call site.
@@ -745,7 +763,7 @@ test('status says where execution is; keys drive it; a version change owns up', 
 
 	// Choosing a frame rebuilds the list it was chosen from; focus stays on the chosen frame, so
 	// the keys still work.
-	await page.getByRole('tab', {name: 'Frames', exact: true}).click();
+	await openPanel(page, 'Frames');
 	await page.locator('.php-debugger-symbol').nth(1).click();
 	await expect(status).toHaveText('Paused. Showing frame 1, at line 5 of /main.php.');
 	await expect(page.locator('.php-debugger-symbol').nth(1)).toBeFocused();
@@ -862,6 +880,82 @@ test('breakpoints list by line and add with Enter; a run clears the console', as
 	await page.evaluate(() => dbg.destroy());
 });
 
+test(
+	'the inspector tabs fold into More as the debugger narrows, and count what they hold'
+	, async({page}) => {
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		await page.evaluate(() => {
+			window.dbg = new PhpDebugger(
+				{
+					version: window.phpVersionUnderTest
+					, runtimeBaseUrl: '/runtime/'
+					, code: '<?php\nfunction twice($n) {\n\treturn $n * 2;\n}\necho twice(4);'
+					, breakpoints: [3]
+				}
+			);
+
+			dbg.mount(document.querySelector('#host'));
+		});
+
+		const tabs = page.getByRole('tab');
+		const more = page.getByRole('combobox', {name: 'More panels'});
+
+		/** Make the debugger this many pixels wide. */
+		const width = pixels => page.locator('#host').evaluate(
+			(host, value) => {host.style.width = value + 'px';}
+			, pixels
+		);
+
+		// Wide enough for every tab: no More.
+		await width(2400);
+		await expect(tabs).toHaveCount(8);
+		await expect(more).toBeHidden();
+
+		// The pause's tabs count its variables and frames; Watch counts the watches.
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Paused at line 3');
+		await expect(tabs.first()).toHaveAccessibleName('Variables 1');
+		await expect(tabs.nth(1)).toHaveAccessibleName('Frames 2');
+		await page.getByRole('textbox', {name: 'PHP expression', exact: true}).fill('$n * 2');
+		await page.getByRole('button', {name: 'Watch', exact: true}).click();
+		await expect(tabs.nth(2)).toHaveAccessibleName('Watches 1');
+
+		// Narrow: the last tabs fold into More, and the row does not scroll.
+		await width(360);
+		await expect(more).toBeVisible();
+		await expect(tabs.first()).toHaveAccessibleName('Variables 1');
+
+		expect(
+			await page.locator('.php-debugger-tabs').evaluate(
+				bar => bar.scrollWidth - bar.clientWidth
+			)
+		).toBeLessThanOrEqual(0);
+
+		// A folded panel is shown from More, which then shows its name. Widening brings its tab
+		// back, still selected.
+		const files = page.getByRole('tabpanel', {name: 'Files', exact: true});
+
+		await more.selectOption('files');
+		await expect(files).toContainText('main.php');
+		await expect(more).toHaveAttribute('data-selected', 'true');
+		await width(2400);
+		await expect(more).toBeHidden();
+		await expect(tabNamed(page, 'Files')).toHaveAttribute('aria-selected', 'true');
+
+		// Only the pause's own tabs are counted: showing the files put no count on their tab.
+		await expect(tabNamed(page, 'Files')).toHaveAccessibleName('Files');
+
+		// The end of the run drops the pause's counts; the watch is still there.
+		await page.getByRole('button', {name: 'Continue', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Finished');
+		await expect(tabs.first()).toHaveAccessibleName('Variables');
+		await expect(tabs.nth(2)).toHaveAccessibleName('Watches 1');
+		await page.evaluate(() => dbg.destroy());
+	}
+);
+
 test('line numbers and tabs are one tab stop each, worked with the arrow keys', async({page}) => {
 	await page.goto('/test/harness.html');
 	await page.waitForFunction(() => window.PhpDebugger);
@@ -881,7 +975,9 @@ test('line numbers and tabs are one tab stop each, worked with the arrow keys', 
 
 	const lines = page.locator('.php-debugger-line');
 
-	const tab = name => page.getByRole('tab', {name, exact: true});
+	const tab = title => tabNamed(page, title);
+
+	const panel = title => page.getByRole('tabpanel', {name: title, exact: true});
 
 	// Tab reaches the line numbers once, not once per line.
 	await expect(page.locator('.php-debugger-line[tabindex="0"]')).toHaveText('1');
@@ -915,14 +1011,23 @@ test('line numbers and tabs are one tab stop each, worked with the arrow keys', 
 		[/^first: /, /^second: /, /^argv: /, /^argc: /]
 	);
 
+	// The pause's own tabs come first and count what they hold.
+	await expect(page.getByRole('tab', {name: 'Variables 4', exact: true})).toBeVisible();
+	await expect(page.getByRole('tab', {name: 'Frames 1', exact: true})).toBeVisible();
+
 	await tab('Variables').focus();
 	await page.keyboard.press('ArrowRight');
-	await expect(tab('Globals')).toBeFocused();
-	await expect(tab('Globals')).toHaveAttribute('aria-selected', 'true');
-	await expect(page.getByRole('tabpanel', {name: 'Globals', exact: true})).toContainText('first');
+	await expect(tab('Frames')).toBeFocused();
+	await expect(tab('Frames')).toHaveAttribute('aria-selected', 'true');
+	await expect(panel('Frames')).toContainText('Frame 0');
+	await page.keyboard.press('ArrowRight');
+	await expect(panel('Watches')).toBeVisible();
+
+	// End reaches the last tab on show; a panel whose tab is in More is shown from there.
 	await page.keyboard.press('End');
-	await expect(tab('Watches')).toHaveAttribute('aria-selected', 'true');
-	await expect(page.getByRole('tabpanel')).toContainText('No watch expressions.');
+	await expect(page.getByRole('tab').last()).toHaveAttribute('aria-selected', 'true');
+	await openPanel(page, 'Globals');
+	await expect(panel('Globals')).toContainText('first');
 	await page.evaluate(() => dbg.destroy());
 });
 
@@ -979,7 +1084,9 @@ test(
 				, toolbarTop: box('.php-debugger-toolbar').top
 				, toolbarRows: rows(toolbar)
 				, toolbarScrolls: toolbar.scrollWidth > toolbar.clientWidth
+
 				, tabRows: rows(tabs)
+				, tabsScroll: tabs.scrollWidth > tabs.clientWidth
 				, stacked: inspector.top >= output.bottom
 				, pageWidth: document.documentElement.scrollWidth
 			};
@@ -993,6 +1100,14 @@ test(
 		expect(layout.tabRows).toBe(1);
 		expect(layout.stacked).toBe(true);
 		expect(layout.pageWidth).toBeLessThanOrEqual(390);
+
+		// The inspector's tabs fit without scrolling; the ones that do not are in More.
+		expect(layout.tabsScroll).toBe(false);
+		await page.getByRole('combobox', {name: 'More panels'}).selectOption('classes');
+
+		await expect(page.getByRole('tabpanel', {name: 'Classes', exact: true})).toHaveText(
+			'No classes here yet.'
+		);
 
 		// Touch emulation reports a coarse pointer in Chromium only.
 		if(browserName === 'chromium')

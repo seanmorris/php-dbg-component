@@ -104,7 +104,6 @@
 
 .php-debugger .php-debugger-toolbar,
 .php-debugger .php-debugger-toolbar-group,
-.php-debugger .php-debugger-tabs,
 .php-debugger .php-debugger-expression-form {
 	display: flex;
 	flex-wrap: wrap;
@@ -275,6 +274,100 @@
 	overflow: auto;
 }
 
+/*
+ * The inspector's tabs: one row, the panel on show underlined. What the pause has in scope comes
+ * first; a rule sets the whole program's tables apart. The row stays in view as the panel scrolls.
+ */
+.php-debugger .php-debugger-tabs {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	display: flex;
+	align-items: stretch;
+	margin-bottom: .35em;
+	overflow-x: auto;
+	background: var(--php-debugger-bg);
+	border-bottom: 1px solid var(--php-debugger-border);
+}
+
+.php-debugger .php-debugger-tablist {
+	display: flex;
+	flex: none;
+	align-items: stretch;
+}
+
+.php-debugger .php-debugger-tab,
+.php-debugger .php-debugger-tab-more {
+	flex: none;
+	padding: .4em .6em;
+	white-space: nowrap;
+	color: var(--php-debugger-muted);
+	background-color: transparent;
+	border: 0;
+	border-bottom: 2px solid transparent;
+	border-radius: 0;
+}
+
+.php-debugger .php-debugger-tab {
+	display: flex;
+	gap: .35em;
+	align-items: baseline;
+}
+
+.php-debugger .php-debugger-tab:hover,
+.php-debugger .php-debugger-tab-more:hover {
+	color: var(--php-debugger-fg);
+}
+
+.php-debugger .php-debugger-tab[aria-selected=true],
+.php-debugger .php-debugger-tab-more[data-selected=true] {
+	color: var(--php-debugger-fg);
+	border-bottom-color: var(--php-debugger-accent);
+}
+
+/* The row scrolls at its narrowest, so a ring outside a tab would be cut off. */
+.php-debugger.php-debugger :is(.php-debugger-tab, .php-debugger-tab-more):focus-visible {
+	outline-offset: -2px;
+}
+
+.php-debugger .php-debugger-tab-count {
+	font-size: .8em;
+	font-variant-numeric: tabular-nums;
+	color: var(--php-debugger-muted);
+}
+
+.php-debugger .php-debugger-tab-count:empty {
+	display: none;
+}
+
+.php-debugger .php-debugger-tab-divider {
+	flex: none;
+	width: 1px;
+	margin: .5em .3em;
+	background: var(--php-debugger-border);
+}
+
+/* A select drawn as a tab, with a chevron in its text colour. */
+.php-debugger .php-debugger-tab-more {
+	appearance: none;
+	padding-right: 1.6em;
+	cursor: pointer;
+	background-image:
+		linear-gradient(45deg, transparent 50%, currentColor 50%),
+		linear-gradient(135deg, currentColor 50%, transparent 50%);
+	background-position: calc(100% - .95em) 55%, calc(100% - .65em) 55%;
+	background-size: .3em .3em;
+	background-repeat: no-repeat;
+}
+
+.php-debugger .php-debugger-tab-sizer {
+	position: absolute;
+	top: 0;
+	left: 0;
+	visibility: hidden;
+	pointer-events: none;
+}
+
 .php-debugger .php-debugger-values {
 	font-family: var(--php-debugger-font);
 	overflow-wrap: anywhere;
@@ -387,8 +480,7 @@
 	text-align: left;
 }
 
-.php-debugger .php-debugger-symbol[aria-current=true],
-.php-debugger .php-debugger-tab[aria-selected=true] {
+.php-debugger .php-debugger-symbol[aria-current=true] {
 	color: var(--php-debugger-accent);
 	border-color: currentColor;
 }
@@ -513,19 +605,13 @@
 		border-bottom: 1px solid var(--php-debugger-border);
 	}
 
-	.php-debugger .php-debugger-toolbar-group,
-	.php-debugger .php-debugger-tabs {
+	.php-debugger .php-debugger-toolbar-group {
 		flex-wrap: nowrap;
-	}
-
-	.php-debugger .php-debugger-tabs {
-		overflow-x: auto;
 	}
 
 	.php-debugger .php-debugger-toolbar-group,
 	.php-debugger .php-debugger-toolbar .php-debugger-button,
-	.php-debugger .php-debugger-version-label,
-	.php-debugger .php-debugger-tab {
+	.php-debugger .php-debugger-version-label {
 		flex: none;
 		white-space: nowrap;
 	}
