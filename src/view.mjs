@@ -729,14 +729,19 @@ export class DebuggerView
 		this.fitTabs();
 	}
 
-	/** Count the pause's variables and frames, reusing the panel that was just loaded. */
+	/**
+	 * Count the pause's variables and frames, reusing the panel that was just loaded when it is
+	 * one of them. Only those two are counted: a count on another tab would widen it and refold
+	 * the row.
+	 */
 	async recount(generation, loaded)
 	{
-		const counts = {...loaded};
+		const counts = {};
 
 		for(const scope of ['variables', 'frames'])
 		{
-			counts[scope] ??= await this.dbg.inspect(scope).then(list => list.length, () => null);
+			counts[scope] = loaded[scope]
+				?? await this.dbg.inspect(scope).then(list => list.length, () => null);
 		}
 
 		if(generation === this.refreshNumber && this.dbg.state === 'paused')
