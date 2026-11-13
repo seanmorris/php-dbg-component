@@ -244,6 +244,88 @@
 	margin: .4em;
 }
 
+/*
+ * The Opcodes panel: what to list, then a table for each function. The op the paused frame
+ * stands on has the paused line's band and bar.
+ */
+.php-debugger .php-debugger-opcodes-bar {
+	padding: .4em;
+	font-family: inherit;
+	border-bottom: 1px solid var(--php-debugger-border);
+}
+
+.php-debugger .php-debugger-opcodes-label {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .35em;
+	align-items: center;
+	color: var(--php-debugger-muted);
+}
+
+.php-debugger .php-debugger-opcodes {
+	width: 100%;
+	font-size: .9em;
+	border-collapse: collapse;
+}
+
+.php-debugger .php-debugger-opcodes caption {
+	padding: .6em .4em .3em;
+	font-weight: 600;
+	text-align: left;
+}
+
+.php-debugger .php-debugger-opcodes-where {
+	margin-left: .6em;
+	font-weight: 400;
+	color: var(--php-debugger-muted);
+}
+
+.php-debugger .php-debugger-opcodes :is(th, td) {
+	padding: .2em .4em;
+	text-align: left;
+	vertical-align: baseline;
+	white-space: nowrap;
+	border-bottom: 1px solid var(--php-debugger-border);
+}
+
+/* The column names stay at the top while the ops scroll under them. */
+.php-debugger .php-debugger-opcodes th {
+	position: sticky;
+	top: 0;
+	font-size: .85em;
+	font-weight: 600;
+	color: var(--php-debugger-muted);
+	background: var(--php-debugger-bg);
+}
+
+.php-debugger .php-debugger-opcodes :is(.php-debugger-opcode-line, .php-debugger-opcode-index) {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+	color: var(--php-debugger-muted);
+}
+
+.php-debugger .php-debugger-opcode {
+	font-weight: 600;
+}
+
+/*
+ * The operands take the room that is left and wrap between them, never inside one: where even
+ * that is too narrow, the panel scrolls sideways.
+ */
+.php-debugger .php-debugger-opcodes .php-debugger-opcode-operands {
+	width: 100%;
+	white-space: normal;
+	overflow-wrap: normal;
+}
+
+.php-debugger .php-debugger-opcodes tr[aria-current] td {
+	background: var(--php-debugger-active);
+}
+
+.php-debugger .php-debugger-opcodes tr[aria-current] td:first-child {
+	box-shadow: inset 3px 0 var(--php-debugger-paused);
+}
+
 /* Each bar's rule is the top of its box. */
 .php-debugger .php-debugger-console-bar {
 	display: flex;

@@ -18,6 +18,17 @@ const values = await dbg.inspect('variables');
 
 if(values[0].reference) await dbg.setVariable(values[0].reference, '42');
 
+// The selected frame's function, the script, a function or a class; each op has its opcode.
+const listing = await dbg.opcodes();
+const ops: string[] = listing.functions.flatMap(listed => listed.ops.map(op => op.opcode));
+
+const script = await dbg.opcodes({script: true});
+
+void [ops, listing.current?.index, script, await dbg.opcodes({class: 'C'})];
+
+// @ts-expect-error a target names one thing
+void dbg.opcodes({function: 'f', class: 'C'});
+
 const ElementClass = definePhpDebugger(); const element = new ElementClass(); element.code
 	= '<?php echo 1;';
 

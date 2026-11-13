@@ -730,6 +730,52 @@ test(
 	}
 );
 
+test('the Opcodes panel lists the paused function and anything else asked for', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	await page.evaluate(() => {
+		window.dbg = new PhpDebugger(
+			{
+				version: window.phpVersionUnderTest
+				, runtimeBaseUrl: '/runtime/'
+				, code: '<?php\nfunction twice($n) {\n    return $n * 2;\n}\necho twice(4);'
+				, breakpoints: [3]
+			}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+	});
+
+	const panel = page.getByRole('tabpanel', {name: 'Opcodes', exact: true});
+	const scope = page.getByRole('combobox', {name: 'Opcodes of', exact: true});
+
+	await page.getByRole('button', {name: 'Run', exact: true}).click();
+	await expect(page.getByRole('status')).toContainText('Paused at line 3');
+	await openPanel(page, 'Opcodes');
+
+	// The paused function, with the statement the frame stands on marked.
+	await expect(panel.getByRole('table')).toHaveCount(1);
+	await expect(panel.locator('caption')).toContainText('twice()');
+	await expect(panel.locator('tr[aria-current] .php-debugger-opcode')).toHaveText(['EXT_STMT']);
+	await expect(panel.locator('tr[aria-current] .php-debugger-opcode-line')).toHaveText(['3']);
+
+	// The script instead, and back; the choice keeps focus as the panel is rebuilt.
+	await scope.focus();
+	await scope.selectOption('script');
+	await expect(panel.locator('caption')).toContainText('{main}');
+	await expect(panel.locator('tr[aria-current]')).toHaveCount(0);
+	await expect(scope).toBeFocused();
+	await scope.selectOption('function:twice');
+	await expect(panel.locator('caption')).toContainText('twice()');
+
+	// Before the next run's pause there is nothing to list.
+	await page.getByRole('button', {name: 'Continue', exact: true}).click();
+	await expect(page.getByRole('status')).toContainText('Finished');
+	await expect(panel).toHaveText('Opcodes appear here when the program pauses.');
+	await page.evaluate(() => dbg.destroy());
+});
+
 test('side by side, the output and every inspector panel are one height', async({page}) => {
 	await page.goto('/test/harness.html');
 	await page.waitForFunction(() => window.PhpDebugger);
@@ -1063,7 +1109,7 @@ test(
 
 		// Wide enough for every tab: no More.
 		await width(2400);
-		await expect(tabs).toHaveCount(9);
+		await expect(tabs).toHaveCount(10);
 		await expect(more).toBeHidden();
 
 		// Before a run, a panel says when it will have something to show.
@@ -1078,7 +1124,7 @@ test(
 		await expect(tabs.nth(1)).toHaveAccessibleName('Frames 2');
 		await page.getByRole('textbox', {name: 'PHP expression', exact: true}).fill('$n * 2');
 		await page.getByRole('button', {name: 'Watch', exact: true}).click();
-		await expect(tabs.nth(2)).toHaveAccessibleName('Watches 1');
+		await expect(tabNamed(page, 'Watches')).toHaveAccessibleName('Watches 1');
 
 		// Narrow: the last tabs fold into More, and the row does not scroll.
 		await width(360);
@@ -1109,7 +1155,7 @@ test(
 		await page.getByRole('button', {name: 'Continue', exact: true}).click();
 		await expect(page.getByRole('status')).toContainText('Finished');
 		await expect(tabs.first()).toHaveAccessibleName('Variables');
-		await expect(tabs.nth(2)).toHaveAccessibleName('Watches 1');
+		await expect(tabNamed(page, 'Watches')).toHaveAccessibleName('Watches 1');
 		await page.evaluate(() => dbg.destroy());
 	}
 );
@@ -1178,6 +1224,8 @@ test('line numbers and tabs are one tab stop each, worked with the arrow keys', 
 	await expect(tab('Frames')).toBeFocused();
 	await expect(tab('Frames')).toHaveAttribute('aria-selected', 'true');
 	await expect(panel('Frames')).toContainText('Frame 0');
+	await page.keyboard.press('ArrowRight');
+	await expect(panel('Opcodes').getByRole('table')).toBeVisible();
 	await page.keyboard.press('ArrowRight');
 	await expect(panel('Watches')).toBeVisible();
 

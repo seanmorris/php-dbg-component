@@ -52,6 +52,42 @@ export interface Frame {
 	className?: string;
 }
 
+/** One op of a function as phpdbg's print lists it. `index` is its number in the function. */
+export interface Opcode {
+	line: number;
+	index: number;
+	result: string;
+	opcode: string;
+	operands: string;
+}
+
+/** A function and its ops. The main script is named "{main}". */
+export interface OpcodeFunction {
+	name: string;
+	file: string | null;
+	start: number | null;
+	end: number | null;
+
+	/** The dumper's summary, such as "lines=17, args=1, vars=3, tmps=6". Null on PHP 8.0. */
+	info: string | null;
+	ops: Opcode[];
+}
+
+/** What opcodes() answers. `current` is set for the selected frame's function only. */
+export interface OpcodeListing {
+	functions: OpcodeFunction[];
+	current: {line: number; index: number | null} | null;
+}
+
+/**
+ * The selected frame's function, the main script, a function, or every method of a class. A
+ * target names one of them.
+ */
+export type OpcodeTarget = {script?: never; function?: never; class?: never}
+	| {script: true; function?: never; class?: never}
+	| {function: string; script?: never; class?: never}
+	| {class: string; script?: never; function?: never};
+
 export interface Diagnostic {
 	name?: string;
 	message: string;
@@ -259,6 +295,8 @@ export class PhpDebugger extends EventTarget
 	evaluate(expression: string, options?: {frame?: number}): Promise<Variable>;
 
 	setVariable(reference: string, expression: string): Promise<Variable>;
+
+	opcodes(target?: OpcodeTarget): Promise<OpcodeListing>;
 
 	selectFrame(frame: number):
 	Promise<{frame: number}>;

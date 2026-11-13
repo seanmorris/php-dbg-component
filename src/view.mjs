@@ -25,6 +25,14 @@ function panelTitle(scope)
 	return scope[0].toUpperCase() + scope.slice(1);
 }
 
+/** What the Opcodes panel's choice asks opcodes() for: "function:total" is {function: 'total'}. */
+function opcodeTarget(choice)
+{
+	const [kind, name] = choice.split(/:(.*)/);
+
+	return kind === 'frame' ? {} : kind === 'script' ? {script: true} : {[kind]: name};
+}
+
 export class DebuggerView
 {
 
@@ -40,6 +48,9 @@ export class DebuggerView
 		this.id = `php-debugger-${++views}`;
 		this.abort = new AbortController();
 		this.panel = 'variables';
+
+		// What the Opcodes panel lists: "frame", "script", "function:name" or "class:name".
+		this.opcodeChoice = 'frame';
 		this.refreshNumber = 0;
 		this.watches = [];
 		// Which values are open, by their path of names from the panel down, so the tree comes back
@@ -397,7 +408,7 @@ export class DebuggerView
 		this.counts = {};
 
 		for(const [group, scopes] of [
-			['pause', ['variables', 'frames', 'watches', 'breakpoints']]
+			['pause', ['variables', 'frames', 'opcodes', 'watches', 'breakpoints']]
 			, ['program', ['globals', 'constants', 'functions', 'classes', 'files']]
 		]){
 			if(group === 'program')
@@ -743,6 +754,127 @@ export class DebuggerView
 		this.fitTabs();
 	}
 
+	/**
+	 * The Opcodes panel: what to list, the paused frame's function by default, then a table of
+	 * ops for each function phpdbg's print lists. The op the frame stands on is kept in view.
+	 */
+	async showOpcodes(generation)
+	{
+		const listing = await this.dbg.opcodes(opcodeTarget(this.opcodeChoice));
+
+		/** The names in a list of symbols, which may come keyed by name or as names alone. */
+		const names = list => (Array.isArray(list) ? list : Object.values(list)).map(
+			entry => typeof entry === 'string' ? entry : entry.name
+		);
+
+		const functions = names(await this.dbg.inspect('functions'));
+		const classes = names(await this.dbg.inspect('classes'));
+
+		if(generation !== this.refreshNumber || this.dbg.state !== 'paused')
+		{
+			return;
+		}
+
+		const rows = new Map();
+		const bar = node('div', 'php-debugger-opcodes-bar');
+		const label = node('label', 'php-debugger-opcodes-label', 'Opcodes of ');
+		const picker = node('select', 'php-debugger-opcodes-scope');
+
+		const choices = [
+			['frame', 'the paused frame']
+			, ['script', 'the main script']
+			, ...functions.map(name => [`function:${name}`, `${name}()`])
+			, ...classes.map(name => [`class:${name}`, `class ${name}`])
+		];
+
+		for(const [value, text] of choices)
+		{
+			const option = node('option', '', text);
+
+			option.value = value;
+			picker.append(option);
+		}
+
+		picker.value = this.opcodeChoice;
+
+		picker.addEventListener('change', () => {
+			this.opcodeChoice = picker.value;
+			void this.refresh();
+		});
+
+		this.control(rows, 'opcodes of', picker);
+		label.append(picker);
+		bar.append(label);
+
+		const tables = listing.functions.map(
+			(listed, at) => this.opcodeTable(listed, at === 0 ? listing.current : null)
+		);
+
+		const held = this.holdFocus();
+
+		this.rows = rows;
+		this.content.replaceChildren(bar, ...tables);
+		this.returnFocus(held);
+
+		const here = this.content.querySelector('tr[aria-current]');
+
+		if(here)
+		{
+			// From the top of the panel's scrolled content to the op, kept a third of the way down.
+			const top = here.getBoundingClientRect().top - this.content.getBoundingClientRect().top;
+
+			this.content.scrollTop += top - this.content.clientHeight / 3;
+		}
+	}
+
+	/** One function's ops as a table. The op the paused frame stands on is marked like its line. */
+	opcodeTable(listed, current)
+	{
+		const table = node('table', 'php-debugger-opcodes');
+		const name = listed.name === '{main}' ? '{main}' : `${listed.name}()`;
+		const caption = node('caption', '', name);
+		const where = listed.file ? ` · ${listed.file}:${listed.start}–${listed.end}` : '';
+		const summary = `${listed.ops.length} ops${where}`;
+		const head = node('tr');
+		const body = node('tbody');
+
+		caption.append(node('span', 'php-debugger-opcodes-where', summary));
+
+		for(const title of ['Line', '#', 'Result', 'Opcode', 'Operands'])
+		{
+			const cell = node('th', '', title);
+
+			cell.scope = 'col';
+			head.append(cell);
+		}
+
+		for(const op of listed.ops)
+		{
+			const row = node('tr');
+
+			// Where PHP 8.0 gives only the line, every op on it is marked.
+			if(current?.line === op.line && [null, op.index].includes(current.index))
+			{
+				row.setAttribute('aria-current', 'step');
+			}
+
+			row.append(
+				node('td', 'php-debugger-opcode-line', String(op.line))
+				, node('td', 'php-debugger-opcode-index', String(op.index))
+				, node('td', 'php-debugger-opcode-result', op.result)
+				, node('td', 'php-debugger-opcode', op.opcode)
+				, node('td', 'php-debugger-opcode-operands', op.operands)
+			);
+
+			body.append(row);
+		}
+
+		table.append(caption, node('thead'), body);
+		table.tHead.append(head);
+
+		return table;
+	}
+
 	/** With no pause there is nothing to inspect, so the panel says when there will be. */
 	showIdle()
 	{
@@ -965,10 +1097,11 @@ export class DebuggerView
 	{
 		const {state, testStatus} = this.dbg;
 
-		// Each run's output stands alone.
+		// Each run's output stands alone, and its opcodes start from the paused frame.
 		if(this.dbg.runNumber !== this.run)
 		{
 			this.run = this.dbg.runNumber;
+			this.opcodeChoice = 'frame';
 			this.clearConsole();
 		}
 
@@ -1421,6 +1554,13 @@ export class DebuggerView
 		const loaded = {};
 
 		await this.act(async() => {
+			if(this.panel === 'opcodes')
+			{
+				await this.showOpcodes(generation);
+
+				return;
+			}
+
 			let values = this.panel === 'watches'
 				? await Promise.all(this.watches.map(expression => this.watchValue(expression)))
 				: await this.dbg.inspect(this.panel);

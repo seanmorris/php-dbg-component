@@ -740,3 +740,82 @@ test('a failed expression names its own problem and leaves the exit code alone',
 	expect(result.exitCode).toBe(0);
 	expect(result.diagnostics).toEqual([]);
 });
+
+test('opcodes() lists what phpdbg prints, and marks the op the frame stands on', async({page}) => {
+	await setup(page);
+
+	await create(
+		page
+		, {
+			code: [
+				'<?php'
+				, 'function twice($n) {'
+				, '    return $n * 2;'
+				, '}'
+				, 'class Shop { function open() { return 1; } }'
+				, 'echo twice(4);'
+			].join('\n')
+			, breakpoints: [3]
+		}
+	);
+
+	const result = await page.evaluate(async() => {
+		const output = [];
+
+		dbg.addEventListener('output', event => output.push(event.detail));
+
+		const done = dbg.run();
+
+		await dbg.whenPaused();
+
+		/** A listing in brief: each function's name and opcodes, and the op marked current. */
+		const brief = ({functions, current}) => ({
+			names: functions.map(listed => listed.name)
+			, opcodes: functions.map(listed => listed.ops.map(op => op.opcode))
+			, current: current && functions[0].ops[current.index]?.opcode
+		});
+
+		const frame = brief(await dbg.opcodes());
+
+		await dbg.selectFrame(1);
+
+		const caller = brief(await dbg.opcodes());
+		const script = brief(await dbg.opcodes({script: true}));
+		const twice = brief(await dbg.opcodes({function: 'twice'}));
+		const shop = brief(await dbg.opcodes({class: 'Shop'}));
+
+		/** Why opcodes() refused a target. */
+		const refusal = target => dbg.opcodes(target).catch(error => error.message);
+
+		const missing = await refusal({function: 'nope'});
+		const unsafe = await refusal({function: 'twice; continue'});
+
+		await dbg.continue();
+
+		const {stdout, diagnostics} = await done;
+
+		return {frame, caller, script, twice, shop, missing, unsafe, stdout, diagnostics, output};
+	});
+
+	// Paused in twice(): its ops, the statement on line 3 current.
+	expect(result.frame.names).toEqual(['twice']);
+	expect(result.frame.opcodes[0]).toEqual(expect.arrayContaining(['RECV', 'MUL']));
+	expect(result.frame.current).toBe('EXT_STMT');
+
+	// The caller's frame is the script, stopped at the call.
+	expect(result.caller.names).toEqual(['{main}']);
+	expect(result.caller.current).toMatch(/^DO_U?FCALL$/);
+	expect(result.script).toEqual({...result.caller, current: null});
+	expect(result.twice).toEqual({...result.frame, current: null});
+	expect(result.shop.names).toEqual(['Shop::open']);
+
+	expect(result.missing).toBe('The function nope could not be found');
+	expect(result.unsafe).toBe('Not a PHP function or class name: twice; continue');
+
+	// None of it reached the console or the run's diagnostics, and the run went on as before.
+	const listing = /EXT_STMT|\d+ ops\)|could not be found/;
+
+	expect(result.output.filter(event => listing.test(event.text))).toEqual([]);
+	expect(result.diagnostics).toEqual([]);
+	expect(result.stdout).toBe('8');
+});

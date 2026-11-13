@@ -5,6 +5,8 @@ import {
 	, phpClassLabel
 	, phpPropertyName
 	, evaluationError
+	, parseOpcodes
+	, parseOpline
 } from './model.mjs';
 
 // What evaluate() runs in the paused frame. The inner eval() compiles and runs the expression
@@ -37,6 +39,9 @@ const unavailable = (name, error) => ({
 	, writable: false
 	, expandable: false
 });
+
+/** A PHP function or class name, namespaced or not. */
+const phpName = /^\\?[A-Za-z_\x80-￿][\w\x80-￿]*(?:\\[A-Za-z_\x80-￿][\w\x80-￿]*)*$/u;
 
 /** Lives beside the runtime, in a worker by default. Live Zend values stay here. */
 export class DebugEngine
@@ -200,6 +205,14 @@ export class DebugEngine
 		}
 
 		const text = stream.decoder.decode(bytes, {stream: true});
+
+		// A print command's lines are its answer, not chatter; each arrives whole.
+		if(this.printing && !evaluating && [0, 3].includes(type))
+		{
+			(type === 3 ? this.printErrors : this.printing).push(type === 3 ? text : text + '\n');
+
+			return;
+		}
 
 		if(type === 3 && text)
 		{
@@ -750,6 +763,70 @@ export class DebugEngine
 		return {values, total: names.length, offset};
 	}
 
+	/**
+	 * The ops phpdbg's print command lists. With no target, the selected frame's function, and
+	 * `current` is the op that frame stands on; or the main script, a function or a class.
+	 */
+	async opcodes(target = {})
+	{
+		this.assertPaused();
+
+		const name = target.function ?? target.class;
+
+		// A name reaches the phpdbg command line, so it must be a PHP name and nothing more.
+		if(name !== undefined && !phpName.test(name))
+		{
+			throw new TypeError(`Not a PHP function or class name: ${name}`);
+		}
+
+		const command = target.function !== undefined
+			? `print func ${name}`
+			: target.class !== undefined
+				? `print class ${name}`
+				: target.script ? 'print exec' : 'print stack';
+
+		const functions = parseOpcodes(await this.printed(command));
+
+		const current = command === 'print stack'
+			? parseOpline(await this.printed('print opline'), functions)
+			: null;
+
+		return {functions, current};
+	}
+
+	/**
+	 * What a print command writes: phpdbg's own lines, and from PHP 8.1 the dump PHP writes to
+	 * standard error. None of it reaches the console or the run's diagnostics; an error is thrown.
+	 */
+	async printed(command)
+	{
+		const lines = [];
+
+		/** Standard error arrives a line at a time. */
+		const listen = event => lines.push(...event.detail);
+
+		this.printing = lines;
+		this.printErrors = [];
+		this.php.addEventListener('error', listen);
+
+		try
+		{
+			await this.command(command);
+		}
+		finally
+		{
+			this.php.removeEventListener('error', listen);
+			this.printing = null;
+		}
+
+		if(this.printErrors.length)
+		{
+			throw new Error(this.printErrors.join('\n'));
+		}
+
+		return lines.join('');
+	}
+
 	async evaluate(expression, {frame = this.frame} = {})
 	{
 		this.assertPaused();
@@ -873,7 +950,7 @@ export class DebugEngine
 	{
 		const allowed = [
 			'execute', 'breakpoints', 'resume', 'pause', 'stop', 'inspect'
-			, 'children', 'selectFrame', 'evaluate', 'setVariable'
+			, 'children', 'selectFrame', 'evaluate', 'setVariable', 'opcodes'
 		];
 
 		if(!allowed.includes(method))

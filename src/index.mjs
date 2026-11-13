@@ -607,6 +607,12 @@ export class PhpDebugger extends EventTarget
 
 	setVariable(reference, expression) {return this.command('setVariable', reference, expression);}
 
+	/**
+	 * The ops phpdbg's print lists: the selected frame's function, or {script: true}, {function}
+	 * or {class}.
+	 */
+	opcodes(target) {return this.command('opcodes', target);}
+
 	async selectFrame(frame)
 	{
 		const result = await this.command('selectFrame', frame);

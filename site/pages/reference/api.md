@@ -76,6 +76,7 @@ const result = await done;
 | `selectFrame(index)`                                          | Choose the call to inspect and evaluate in. 0 is the innermost.                            |
 | `evaluate(expression, {frame})`                               | Evaluate a PHP expression in a paused frame.                                               |
 | `setVariable(reference, expression)`                          | Assign a PHP expression to a variable or to a child of one.                                |
+| `opcodes(target)`                                             | List the ops PHP compiled, as phpdbg's `print` does: the selected frame's function, or `{script: true}`, `{function}` or `{class}`. |
 | `setBreakpoints([...])`                                       | Replace the breakpoints, while idle or paused.                                             |
 | `setCode(code)`                                               | Set the string or function for the next run.                                               |
 | `setVersion(version)`                                         | End any run and select the version for the next.                                           |

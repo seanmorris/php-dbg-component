@@ -57,11 +57,12 @@ When execution pauses, the line is marked across the whole editor and scrolled i
 
 ## Values
 
-The tabs on the right show what is in scope while paused. **Variables**, **Frames**, **Watches** and **Breakpoints** come first, each with a count of what it holds. After them come the whole program's **Globals**, **Constants**, **Functions**, **Classes** and **Files**. When the row is too narrow for every tab, the last ones move into **More**. The panel under the tabs is always as tall as the output beside it.
+The tabs on the right show what is in scope while paused. **Variables**, **Frames**, **Opcodes**, **Watches** and **Breakpoints** come first; all but Opcodes count what they hold. After them come the whole program's **Globals**, **Constants**, **Functions**, **Classes** and **Files**. When the row is too narrow for every tab, the last ones move into **More**. The panel under the tabs is always as tall as the output beside it.
 
 - An array or object opens when you click its name, and closes again. What you opened stays open as you step.
 - **Edit** opens a box for a PHP expression. Enter applies it, Escape cancels. A value PHP refuses is explained under the box.
 - **Frames** lists the call stack. Choosing a frame shows that call's variables and moves the marker to its line.
+- **Opcodes** shows what PHP compiled the paused function to, as phpdbg's `print` command lists it, with the op the frame stands on marked like the paused line. Choose a frame to see its function, or pick the main script, a function or a class from the list above the table.
 
 ## Expressions
 

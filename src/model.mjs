@@ -153,3 +153,185 @@ export function typeLabel({type, className, count, displayValue})
 	return String(displayValue).toLowerCase().startsWith(label.toLowerCase()) ? '' : label;
 }
 
+/*
+ * phpdbg's print command, read into functions and their ops.
+ *
+ * From PHP 8.1 it hands each function to PHP's own dumper, which writes to standard error:
+ *
+ *     total:
+ *          ; (lines=17, args=1, vars=3, tmps=6)
+ *          ; /main.php:2-8
+ *     L0005 0007 T5 = FETCH_DIM_R CV2($item) string("price")
+ *
+ * PHP 8.0's phpdbg prints them itself, the opcode padded to 23 columns and op1, op2 and the
+ * result to 20 each, after the address of the function's first op:
+ *
+ *     L2-8 total() /main.php - 0x23492f0 + 17 ops
+ *      L5    #7     FETCH_DIM_R             $item                "price"              ~5
+ */
+
+/** The width of a zend_op in a 32-bit WebAssembly build, from one op's address to the next. */
+const opSize = 28;
+
+/** One op in the dumper's words: the result, if there is one, then the opcode and operands. */
+function dumpedOp(line, index, text)
+{
+	const [, result = '', opcode = text, operands = ''] = text.match(
+		/^(?:(\S+) = )?([A-Z][A-Z0-9_]*)(?: (.*))?$/
+	) ?? [];
+
+	return {line, index, result, opcode, operands};
+}
+
+/** One op in PHP 8.0's columns. */
+function paddedOp(line, index, text)
+{
+	const [opcode, op1, op2, result] = [[0, 23], [24, 44], [45, 65], [66]].map(
+		([start, end]) => text.slice(start, end).trim()
+	);
+
+	return {line, index, result, opcode, operands: [op1, op2].filter(Boolean).join(' ')};
+}
+
+/** A function the listing begins, named as phpdbg's frames name it: the script is {main}. */
+function listedFunction(name, fields = {})
+{
+	return {
+		name: name === '$_main' ? '{main}' : name
+		, file: null
+		, start: null
+		, end: null
+
+		, info: null
+		, address: null
+		, ops: []
+		, ...fields
+	};
+}
+
+/**
+ * The functions in what a print command wrote, each with its ops in order. Lines that are not a
+ * function, an op or a detail of one, such as phpdbg's own "Stack in total() (17 ops)", are
+ * passed over.
+ */
+export function parseOpcodes(text)
+{
+	const functions = [];
+	let current = null;
+
+	// A string with a line break in it carries its op onto the next line.
+	let last = null;
+
+	for(const line of text.split('\n'))
+	{
+		const dumped = line.match(/^L(\d+) (\d+) (.*)$/);
+		const padded = line.match(/^\s*L(\d+)\s+#(\d+)\s+(.*)$/);
+
+		if(dumped || padded)
+		{
+			const [, number, index, rest] = dumped || padded;
+
+			if(!current)
+			{
+				functions.push(current = listedFunction('?'));
+			}
+
+			last = (dumped ? dumpedOp : paddedOp)(Number(number), Number(index), rest);
+			current.ops.push(last);
+
+			continue;
+		}
+
+		const heading = line.match(/^L(\d+)-(\d+) (.+)\(\) (.*) - (0x[0-9a-f]+) \+ \d+ ops$/);
+
+		if(heading)
+		{
+			const [, start, end, name, file, address] = heading;
+
+			functions.push(current = listedFunction(name, {
+				file
+				, start: Number(start)
+				, end: Number(end)
+				, address: parseInt(address, 16)
+			}));
+
+			last = null;
+
+			continue;
+		}
+
+		const detail = line.match(/^\s+; (?:\((.+)\)|(.+):(\d+)-(\d+))$/);
+
+		if(detail && current)
+		{
+			const [, info, file, start, end] = detail;
+			const range = {file, start: Number(start), end: Number(end)};
+
+			Object.assign(current, info ? {info} : range);
+
+			continue;
+		}
+
+		// The dumper's tables after a function's ops end it.
+		if(/^(?:LIVE RANGES|EXCEPTION TABLE):$/.test(line))
+		{
+			last = null;
+
+			continue;
+		}
+
+		if(/^[^\s;].*:$/.test(line))
+		{
+			functions.push(current = listedFunction(line.slice(0, -1)));
+			last = null;
+
+			continue;
+		}
+
+		if(last && line)
+		{
+			last.operands += '\\n' + line;
+		}
+	}
+
+	return functions;
+}
+
+/**
+ * The op a print opline names, found among the listed functions' ops: {line, index}, with the
+ * index null when only the line is known. PHP 8.0 gives its address, not its number.
+ */
+export function parseOpline(text, functions)
+{
+	const dumped = text.match(/^L(\d+) (\d+) /m);
+
+	if(dumped)
+	{
+		return {line: Number(dumped[1]), index: Number(dumped[2])};
+	}
+
+	const padded = text.match(/^\s*L(\d+)\s+(0x[0-9a-f]+) (\S+)/m);
+
+	if(!padded)
+	{
+		return null;
+	}
+
+	const line = Number(padded[1]);
+	const address = parseInt(padded[2], 16);
+
+	// The address names an op only where it lands on one with the same line and opcode.
+	for(const listed of functions.filter(listed => listed.address !== null))
+	{
+		const index = (address - listed.address) / opSize;
+		const op = listed.ops[index];
+
+		if(op && op.line === line && op.opcode === padded[3])
+		{
+			return {line, index};
+		}
+	}
+
+	return {line, index: null};
+}
+
