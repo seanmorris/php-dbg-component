@@ -132,8 +132,12 @@
 	color: var(--php-debugger-muted);
 }
 
+/* The status line is the foot of the box: edge to edge, under a rule of its own. */
 .php-debugger .php-debugger-status {
+	margin: 0 -1em -.4em;
+	padding: .55em 1em 0;
 	color: var(--php-debugger-muted);
+	border-top: 1px solid var(--php-debugger-border);
 }
 
 .php-debugger .php-debugger-message,
@@ -656,6 +660,11 @@
 @media (max-width: 640px) {
 	.php-debugger {
 		padding: .6em;
+	}
+
+	.php-debugger .php-debugger-status {
+		margin: 0 -.6em -.2em;
+		padding: .5em .6em 0;
 	}
 
 	.php-debugger .php-debugger-toolbar {

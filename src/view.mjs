@@ -185,12 +185,12 @@ export class DebuggerView
 		);
 
 		this.toolbar.append(versionLabel);
+
+		// The status line and what went wrong; both close the box, under the expression box.
 		this.status = node('output', 'php-debugger-status');
 		this.status.setAttribute('aria-live', 'polite');
-		this.root.append(this.status);
 		this.message = node('div', 'php-debugger-message');
 		this.message.setAttribute('role', 'alert');
-		this.root.append(this.message);
 
 		// A textarea the page put inside the mount point, as in <php-debugger><textarea>, is the
 		// editor: it moves into the interface and gets the line numbers. One elsewhere on the page
@@ -499,7 +499,7 @@ export class DebuggerView
 		this.expression.setAttribute('aria-describedby', this.expressionError.id);
 
 		form.append(this.expression, evaluate, watch, this.expressionError);
-		this.root.append(form);
+		this.root.append(form, this.message, this.status);
 
 		form.addEventListener(
 			'submit'

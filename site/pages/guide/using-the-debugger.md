@@ -45,7 +45,7 @@ The button to press next is filled: **Run** before a run, **Continue** during a 
 
 ## Status
 
-The line under the controls says where things stand: `Paused at line 5 of /main.php, on a breakpoint.`, `Finished with exit code 0.`, `Loading PHP 8.4: 40% of 16.6 MB`. Screen readers hear it change.
+The line at the bottom of the debugger says where things stand: `Paused at line 5 of /main.php, on a breakpoint.`, `Finished with exit code 0.`, `Loading PHP 8.4: 40% of 16.6 MB`. Screen readers hear it change.
 
 ## Breakpoints
 
