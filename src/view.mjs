@@ -1,4 +1,4 @@
-import {versions, phpClassLabel} from './model.mjs';
+import {versions, phpClassLabel, typeLabel} from './model.mjs';
 
 let views = 0;
 
@@ -254,6 +254,41 @@ export class DebuggerView
 				, {signal: this.abort.signal}
 			);
 
+			// The line numbers are one tab stop. The arrow keys move along them, and Enter or Space
+			// sets or clears the breakpoint on the line in focus.
+			this.gutter.setAttribute('role', 'group');
+			this.gutter.setAttribute('aria-label', 'Breakpoints by line');
+			this.gutterLine = 1;
+
+			this.gutter.addEventListener(
+				'focusin'
+				, event => this.gutterStop(Number(event.target.textContent))
+				, {signal: this.abort.signal}
+			);
+
+			this.gutter.addEventListener(
+				'keydown'
+				, event => {
+					const last = this.gutter.children.length;
+
+					const to = {
+						ArrowDown: this.gutterLine + 1
+						, ArrowUp: this.gutterLine - 1
+						, PageDown: this.gutterLine + 10
+						, PageUp: this.gutterLine - 10
+						, Home: 1
+						, End: last
+					}[event.key];
+
+					if(to !== undefined)
+					{
+						event.preventDefault();
+						this.gutter.children[Math.min(Math.max(to, 1), last) - 1].focus();
+					}
+				}
+				, {signal: this.abort.signal}
+			);
+
 			editor.append(this.gutter, this.textarea);
 			this.root.append(editor);
 		}
@@ -339,6 +374,8 @@ export class DebuggerView
 		const right = node('div', 'php-debugger-inspector');
 		body.append(right);
 		this.tabs = node('div', 'php-debugger-tabs');
+		this.tabs.setAttribute('role', 'tablist');
+		this.tabs.setAttribute('aria-label', 'Inspect');
 		right.append(this.tabs);
 
 		for(const scope of ['variables'
@@ -350,21 +387,42 @@ export class DebuggerView
 			, 'frames'
 			, 'watches'
 		]){
-			const button = node('button', 'php-debugger-tab', scope);
+			const tab = node('button', 'php-debugger-tab', scope[0].toUpperCase() + scope.slice(1));
 
-			button.type = 'button';
-			button.dataset.panel = scope;
-
-			button.addEventListener(
-				'click'
-				, () => {this.panel = scope; void this.refresh();}
-				, {signal: this.abort.signal}
-			);
-
-			this.tabs.append(button);
+			tab.type = 'button';
+			tab.id = `${this.id}-tab-${scope}`;
+			tab.setAttribute('role', 'tab');
+			tab.dataset.panel = scope;
+			tab.addEventListener('click', () => this.showPanel(scope), {signal: this.abort.signal});
+			this.tabs.append(tab);
 		}
 
+		// One tab stop for the row; the arrow keys move along it and show each panel.
+		this.tabs.addEventListener(
+			'keydown'
+			, event => {
+				const tabs = [...this.tabs.children];
+				const at = tabs.findIndex(tab => tab.dataset.panel === this.panel);
+
+				const to = {
+					ArrowRight: (at + 1) % tabs.length
+					, ArrowLeft: (at + tabs.length - 1) % tabs.length
+					, Home: 0
+					, End: tabs.length - 1
+				}[event.key];
+
+				if(to !== undefined)
+				{
+					event.preventDefault();
+					tabs[to].focus();
+					this.showPanel(tabs[to].dataset.panel);
+				}
+			}
+			, {signal: this.abort.signal}
+		);
+
 		this.content = node('div', 'php-debugger-values');
+		this.content.setAttribute('role', 'tabpanel');
 		this.content.tabIndex = -1;
 		right.append(this.content);
 
@@ -410,8 +468,7 @@ export class DebuggerView
 				if(expression)
 				{
 					this.watches.push(expression);
-					this.panel = 'watches';
-					void this.refresh();
+					this.showPanel('watches');
 				}
 			}
 			, {signal: this.abort.signal}
@@ -481,8 +538,33 @@ export class DebuggerView
 			]))
 		);
 
+		this.markTabs();
 		this.gutterUpdate();
 		this.update();
+	}
+
+	showPanel(panel)
+	{
+		this.panel = panel;
+		this.markTabs();
+		void this.refresh();
+	}
+
+	/** Say which tab's panel is showing; only that tab is a tab stop. */
+	markTabs()
+	{
+		for(const tab of this.tabs.children)
+		{
+			const selected = tab.dataset.panel === this.panel;
+
+			tab.setAttribute('aria-selected', String(selected));
+			tab.tabIndex = selected ? 0 : -1;
+
+			if(selected)
+			{
+				this.content.setAttribute('aria-labelledby', tab.id);
+			}
+		}
 	}
 
 	expressionProblem(message)
@@ -897,8 +979,13 @@ export class DebuggerView
 			return;
 		}
 
+		// The numbers are rebuilt whole; a breakpoint set from the keyboard must keep its place.
+		const held = this.gutter.contains(this.root.getRootNode().activeElement);
+
 		this.gutter.replaceChildren();
 		const lines = this.textarea.value.split('\n').length;
+
+		this.gutterLine = Math.min(Math.max(this.gutterLine, 1), lines);
 
 		// The stylesheet sizes the number column from this, so the breakpoint dot stays clear of
 		// the digits however long the file is.
@@ -911,14 +998,15 @@ export class DebuggerView
 		{
 			const b = node('button', 'php-debugger-line', String(line));
 
-			b.type = 'button';
-			b.setAttribute('aria-label', `Toggle breakpoint on line ${line}`);
-
-			b.dataset.breakpoint = String(
-				dbg.breakpoints.some(
-					bp => bp.file === dbg.options.entrypoint && bp.line === line && bp.enabled
-				)
+			const enabled = dbg.breakpoints.some(
+				bp => bp.file === dbg.options.entrypoint && bp.line === line && bp.enabled
 			);
+
+			b.type = 'button';
+			b.tabIndex = line === this.gutterLine ? 0 : -1;
+			b.setAttribute('aria-label', `Breakpoint on line ${line}`);
+			b.setAttribute('aria-pressed', String(enabled));
+			b.dataset.breakpoint = String(enabled);
 
 			b.addEventListener(
 				'click'
@@ -937,6 +1025,25 @@ export class DebuggerView
 
 			this.gutter.append(b);
 		}
+
+		if(held)
+		{
+			this.gutter.children[this.gutterLine - 1].focus();
+		}
+	}
+
+	/** Make one line number the gutter's tab stop. */
+	gutterStop(line)
+	{
+		const lines = this.gutter.children;
+
+		if(lines[this.gutterLine - 1])
+		{
+			lines[this.gutterLine - 1].tabIndex = -1;
+		}
+
+		this.gutterLine = Math.min(Math.max(line, 1), lines.length);
+		lines[this.gutterLine - 1].tabIndex = 0;
 	}
 
 	showLocation(location)
@@ -962,6 +1069,12 @@ export class DebuggerView
 			for(const line of this.gutter.children)
 			{
 				line.dataset.active = String(Number(line.textContent) === location.line);
+			}
+
+			// Tabbing into the line numbers arrives at the paused line.
+			if(!this.gutter.contains(this.root.getRootNode().activeElement))
+			{
+				this.gutterStop(location.line);
 			}
 
 			this.reveal(location.line);
@@ -1045,10 +1158,7 @@ export class DebuggerView
 	{
 		const generation = ++this.refreshNumber;
 
-		for(const tab of this.tabs.children)
-		{
-			tab.setAttribute('aria-pressed', String(tab.dataset.panel === this.panel));
-		}
+		this.markTabs();
 
 		if(this.dbg.state !== 'paused')
 		{
@@ -1078,6 +1188,15 @@ export class DebuggerView
 			if(generation !== this.refreshNumber || this.dbg.state !== 'paused')
 			{
 				return;
+			}
+
+			if(this.panel === 'variables')
+			{
+				// What PHP puts in every script's scope goes after what the script put there.
+
+				const given = value => ['argv', 'argc'].includes(value.name);
+
+				values = [...values.filter(value => !given(value)), ...values.filter(given)];
 			}
 
 			if(['variables', 'globals', 'constants', 'watches'].includes(this.panel))
@@ -1201,12 +1320,12 @@ export class DebuggerView
 		if(value.type)
 		{
 			preview.dataset.type = value.type;
-			preview.title = (value.className && phpClassLabel(value.className))
-				|| (value.type === 'string'
-	&& value.count != null
-					? `string(${value.count})`
-					: value.type
-				);
+		}
+
+		// The type is on show, not in a tooltip, wherever the value does not already say it.
+		if(typeLabel(value))
+		{
+			line.append(node('span', 'php-debugger-value-type', typeLabel(value)));
 		}
 
 		if(value.expandable && depth < 30)

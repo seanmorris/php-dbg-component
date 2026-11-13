@@ -68,6 +68,7 @@
 
 .php-debugger {
 	box-sizing: border-box;
+	isolation: isolate;
 	display: grid;
 	gap: .65em;
 	min-width: 0;
@@ -194,10 +195,21 @@
 	pointer-events: none;
 }
 
+/*
+ * Output and inspector sit side by side while each has room for about 22em, and
+ * one above the other otherwise. It is the debugger's own width that decides,
+ * so a narrow column on a wide page stacks too.
+ */
 .php-debugger .php-debugger-body {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	display: flex;
+	flex-wrap: wrap;
 	gap: .75em;
+	min-width: 0;
+}
+
+.php-debugger .php-debugger-console-panel,
+.php-debugger .php-debugger-inspector {
+	flex: 1 1 22em;
 	min-width: 0;
 }
 
@@ -205,7 +217,6 @@
 	display: grid;
 	gap: .35em;
 	align-content: start;
-	min-width: 0;
 }
 
 .php-debugger .php-debugger-console-bar {
@@ -260,7 +271,6 @@
 }
 
 .php-debugger .php-debugger-inspector {
-	min-width: 0;
 	max-height: 28em;
 	overflow: auto;
 }
@@ -281,6 +291,11 @@
 
 .php-debugger .php-debugger-value-name {
 	font-weight: 600;
+}
+
+.php-debugger .php-debugger-value-type {
+	font-size: .85em;
+	color: var(--php-debugger-muted);
 }
 
 /* The name of a value that opens is the button that opens it. */
@@ -373,7 +388,7 @@
 }
 
 .php-debugger .php-debugger-symbol[aria-current=true],
-.php-debugger .php-debugger-tab[aria-pressed=true] {
+.php-debugger .php-debugger-tab[aria-selected=true] {
 	color: var(--php-debugger-accent);
 	border-color: currentColor;
 }
@@ -476,9 +491,70 @@
 	color: var(--php-debugger-error);
 }
 
+/*
+ * On a phone the controls stay in reach: the toolbar is one row that scrolls
+ * sideways and sticks to the top while the debugger is on screen, and the tabs
+ * are one row too. Set --php-debugger-sticky-top to clear a fixed page header.
+ */
 @media (max-width: 640px) {
-	.php-debugger .php-debugger-body {
-		grid-template-columns: minmax(0, 1fr);
+	.php-debugger {
+		padding: .6em;
+	}
+
+	.php-debugger .php-debugger-toolbar {
+		position: sticky;
+		top: var(--php-debugger-sticky-top, 0px);
+		z-index: 2;
+		flex-wrap: nowrap;
+		margin: -.6em -.6em 0;
+		padding: .5em .6em;
+		overflow-x: auto;
+		background: var(--php-debugger-bg);
+		border-bottom: 1px solid var(--php-debugger-border);
+	}
+
+	.php-debugger .php-debugger-toolbar-group,
+	.php-debugger .php-debugger-tabs {
+		flex-wrap: nowrap;
+	}
+
+	.php-debugger .php-debugger-tabs {
+		overflow-x: auto;
+	}
+
+	.php-debugger .php-debugger-toolbar-group,
+	.php-debugger .php-debugger-toolbar .php-debugger-button,
+	.php-debugger .php-debugger-version-label,
+	.php-debugger .php-debugger-tab {
+		flex: none;
+		white-space: nowrap;
+	}
+}
+
+/*
+ * Under a finger: controls at least 44px, and text boxes at 16px so the
+ * page is not zoomed when one takes focus. Line numbers keep the source's
+ * pitch; the Line box adds a breakpoint with a full-size target.
+ */
+@media (pointer: coarse) {
+	.php-debugger.php-debugger :where(button, select, input:not([type=checkbox])) {
+		min-width: 44px;
+		min-height: 44px;
+	}
+
+	.php-debugger.php-debugger :where(select, input:not([type=checkbox])),
+	.php-debugger .php-debugger-editor {
+		font-size: max(1em, 16px);
+	}
+
+	.php-debugger .php-debugger-log-toggle,
+	.php-debugger .php-debugger-breakpoint-toggle {
+		min-height: 44px;
+	}
+
+	.php-debugger.php-debugger :where(input[type=checkbox]) {
+		width: 1.4em;
+		height: 1.4em;
 	}
 }
 

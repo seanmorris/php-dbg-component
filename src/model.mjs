@@ -122,3 +122,34 @@ export function evaluationError(expression, className, message, line)
 
 	return lines > 1 && line > 1 && line <= lines + 1 ? `${message} on line ${line - 1}` : message;
 }
+
+/**
+ * The PHP type worth showing beside a value, or '' when the value says it already: "array(3)"
+ * needs no "array" after it, quotes mark a string, and true is a bool. A runtime without
+ * debugger API 2 reports JavaScript's types, which say nothing PHP would.
+ */
+export function typeLabel({type, className, count, displayValue})
+{
+	const plain = [
+		'unset'
+		, 'null'
+		, 'bool'
+		, 'boolean'
+		, 'number'
+		, 'undefined'
+		, 'function'
+		, 'unavailable'
+	];
+
+	if(!type || plain.includes(type) || (type === 'string' && count == null))
+	{
+		return '';
+	}
+
+	const label = className
+		? phpClassLabel(className)
+		: type === 'string' ? `string(${count})` : type;
+
+	return String(displayValue).toLowerCase().startsWith(label.toLowerCase()) ? '' : label;
+}
+

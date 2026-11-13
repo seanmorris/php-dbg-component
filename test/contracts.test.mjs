@@ -784,3 +784,25 @@ test(
 		);
 	}
 );
+
+test('a type is shown beside a value only where the value does not already say it', async () => {
+	const {typeLabel} = await import('../src/model.mjs');
+
+	const shown = (type, displayValue, more = {}) => typeLabel({type, displayValue, ...more});
+
+	assert.equal(shown('int', '8'), 'int');
+	assert.equal(shown('float', '3.0'), 'float');
+	assert.equal(shown('string', '"Notebook"', {count: 8}), 'string(8)');
+	// The value says these itself.
+	assert.equal(shown('array', 'array(3)', {count: 3}), '');
+	assert.equal(shown('object', 'Cart', {className: 'Cart'}), '');
+	assert.equal(shown('bool', 'true'), '');
+	assert.equal(shown('null', 'null'), '');
+	assert.equal(shown('unset', 'unset'), '');
+	// An older runtime reports JavaScript's types, which add nothing.
+	assert.equal(shown('number', '8'), '');
+	assert.equal(shown('string', '"Notebook"'), '');
+	assert.equal(shown('array', 'Array'), '');
+	assert.equal(shown('object', 'Object'), '');
+});
+

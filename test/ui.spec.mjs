@@ -227,22 +227,22 @@ test('GUI edits a live value and exposes symbols, globals, constants and frames'
 	await page.getByRole('textbox', {name: 'New PHP expression for n', exact: true}).fill('42');
 	await page.getByRole('button', {name: 'Apply', exact: true}).click();
 	await expect(page.locator('.php-debugger-value-preview')).toContainText('42');
-	await page.getByRole('button', {name: 'globals', exact: true}).click();
+	await page.getByRole('tab', {name: 'Globals', exact: true}).click();
 	await expect(page.locator('.php-debugger-values')).toContainText('globalValue');
-	await page.getByRole('button', {name: 'constants', exact: true}).click();
+	await page.getByRole('tab', {name: 'Constants', exact: true}).click();
 	await expect(page.locator('.php-debugger-values')).toContainText('EXAMPLE');
 
 	await expect(
 		page.locator('.php-debugger-values').getByRole('button', {name: /^Edit /})
 	).toHaveCount(0);
 
-	await page.getByRole('button', {name: 'functions', exact: true}).click();
+	await page.getByRole('tab', {name: 'Functions', exact: true}).click();
 	await expect(page.locator('.php-debugger-values')).toContainText('example');
-	await page.getByRole('button', {name: 'classes', exact: true}).click();
+	await page.getByRole('tab', {name: 'Classes', exact: true}).click();
 	await expect(page.locator('.php-debugger-values')).toContainText('Example');
-	await page.getByRole('button', {name: 'files', exact: true}).click();
+	await page.getByRole('tab', {name: 'Files', exact: true}).click();
 	await expect(page.locator('.php-debugger-values')).toContainText('/main.php');
-	await page.getByRole('button', {name: 'frames', exact: true}).click();
+	await page.getByRole('tab', {name: 'Frames', exact: true}).click();
 	await expect(page.locator('.php-debugger-values')).toContainText('Frame 0');
 	// Selecting the caller keeps the whole stack listed, marks the selection and moves the
 	// highlight to the call site.
@@ -745,7 +745,7 @@ test('status says where execution is; keys drive it; a version change owns up', 
 
 	// Choosing a frame rebuilds the list it was chosen from; focus stays on the chosen frame, so
 	// the keys still work.
-	await button('frames').click();
+	await page.getByRole('tab', {name: 'Frames', exact: true}).click();
 	await page.locator('.php-debugger-symbol').nth(1).click();
 	await expect(status).toHaveText('Paused. Showing frame 1, at line 5 of /main.php.');
 	await expect(page.locator('.php-debugger-symbol').nth(1)).toBeFocused();
@@ -861,4 +861,169 @@ test('breakpoints list by line and add with Enter; a run clears the console', as
 	await expect(output).toHaveAttribute('data-empty', 'true');
 	await page.evaluate(() => dbg.destroy());
 });
+
+test('line numbers and tabs are one tab stop each, worked with the arrow keys', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	await page.evaluate(() => {
+		window.dbg = new PhpDebugger(
+			{
+				version: window.phpVersionUnderTest
+				, runtimeBaseUrl: '/runtime/'
+				, code: '<?php\n$first = 1;\n$second = 2;\necho $first + $second;'
+				, breakpoints: [4]
+			}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+	});
+
+	const lines = page.locator('.php-debugger-line');
+
+	const tab = name => page.getByRole('tab', {name, exact: true});
+
+	// Tab reaches the line numbers once, not once per line.
+	await expect(page.locator('.php-debugger-line[tabindex="0"]')).toHaveText('1');
+	await expect(page.locator('.php-debugger-line[tabindex="-1"]')).toHaveCount(3);
+	await page.getByRole('combobox', {name: 'PHP', exact: true}).focus();
+	await page.keyboard.press('Tab');
+	await expect(lines.nth(0)).toBeFocused();
+
+	// The arrows move along them; Enter sets a breakpoint and focus stays on the line.
+	await page.keyboard.press('ArrowDown');
+	await page.keyboard.press('ArrowDown');
+	await expect(lines.nth(2)).toBeFocused();
+	await expect(lines.nth(2)).toHaveAttribute('aria-pressed', 'false');
+	await page.keyboard.press('Enter');
+	await expect(lines.nth(2)).toHaveAttribute('aria-pressed', 'true');
+	await expect(lines.nth(2)).toBeFocused();
+
+	await page.keyboard.press('End');
+	await expect(lines.nth(3)).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(page.getByRole('textbox', {name: 'PHP source', exact: true})).toBeFocused();
+
+	// A tab is selected from the start, and the arrows change panel.
+	await expect(tab('Variables')).toHaveAttribute('aria-selected', 'true');
+	await expect(page.getByRole('tab', {selected: true})).toHaveCount(1);
+	await page.getByRole('button', {name: 'Run', exact: true}).click();
+	await expect(page.getByRole('status')).toContainText('Paused at line 3');
+
+	// The script's own variables come before the two PHP gives every script.
+	await expect(page.locator('.php-debugger-values > .php-debugger-value')).toHaveText(
+		[/^first: /, /^second: /, /^argv: /, /^argc: /]
+	);
+
+	await tab('Variables').focus();
+	await page.keyboard.press('ArrowRight');
+	await expect(tab('Globals')).toBeFocused();
+	await expect(tab('Globals')).toHaveAttribute('aria-selected', 'true');
+	await expect(page.getByRole('tabpanel', {name: 'Globals', exact: true})).toContainText('first');
+	await page.keyboard.press('End');
+	await expect(tab('Watches')).toHaveAttribute('aria-selected', 'true');
+	await expect(page.getByRole('tabpanel')).toContainText('No watch expressions.');
+	await page.evaluate(() => dbg.destroy());
+});
+
+test(
+	'on a phone the controls stay in reach and fit a finger'
+	, async({browser, baseURL, browserName}) => {
+		const context = await browser.newContext(
+			{baseURL, viewport: {width: 390, height: 700}, hasTouch: true}
+		);
+
+		const page = await context.newPage();
+
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		await page.evaluate(version => {
+			window.dbg = new PhpDebugger(
+				{
+					version
+					, runtimeBaseUrl: '/runtime/'
+					, code: '<?php\n$item = ["name" => "Notebook", "price" => 8];\necho 1;'
+					, breakpoints: [3]
+				}
+			);
+
+			dbg.mount(document.querySelector('#host'));
+		}, process.env.PHP_VERSION || '8.4'
+		);
+
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Paused');
+		await page.getByRole('button', {name: 'item', exact: true}).click();
+
+		// With the inspector on screen, far below the toolbar's place in the page...
+		await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+
+		const layout = await page.evaluate(() => {
+
+			const box = selector => document.querySelector(selector).getBoundingClientRect();
+			const toolbar = document.querySelector('.php-debugger-toolbar');
+			const tabs = document.querySelector('.php-debugger-tabs');
+
+			// How many rows of its own buttons a bar is tall.
+
+			const rows = bar => Math.round(
+				bar.clientHeight / bar.querySelector('button').offsetHeight
+			);
+
+			const inspector = box('.php-debugger-inspector');
+			const output = box('.php-debugger-console-panel');
+
+			return {
+				scrolled: window.scrollY
+				, toolbarTop: box('.php-debugger-toolbar').top
+				, toolbarRows: rows(toolbar)
+				, toolbarScrolls: toolbar.scrollWidth > toolbar.clientWidth
+				, tabRows: rows(tabs)
+				, stacked: inspector.top >= output.bottom
+				, pageWidth: document.documentElement.scrollWidth
+			};
+		});
+
+		// ...the toolbar is still at the top of the screen, in one row that scrolls sideways.
+		expect(layout.scrolled).toBeGreaterThan(100);
+		expect(Math.abs(layout.toolbarTop)).toBeLessThan(1);
+		expect(layout.toolbarRows).toBe(1);
+		expect(layout.toolbarScrolls).toBe(true);
+		expect(layout.tabRows).toBe(1);
+		expect(layout.stacked).toBe(true);
+		expect(layout.pageWidth).toBeLessThanOrEqual(390);
+
+		// Touch emulation reports a coarse pointer in Chromium only.
+		if(browserName === 'chromium')
+		{
+			// Every control on screen but the line numbers, with its size when it is too small.
+			const small = await page.evaluate(() => {
+				const controls = [...document.querySelectorAll(
+					'.php-debugger :is(button, select, input:not([type=checkbox]))'
+				)].filter(
+					control => control.getClientRects().length
+						&& !control.matches('.php-debugger-line')
+				);
+
+				return controls.map(control => {
+					const {width, height} = control.getBoundingClientRect();
+					const size = parseFloat(getComputedStyle(control).fontSize);
+					const text = control.matches('select, input') && size < 16;
+					const name = control.className || control.localName;
+
+					return width < 44 || height < 44 || text
+						? `${name} ${width}x${height} ${size}px`
+						: null;
+				}).filter(Boolean);
+			});
+
+			expect(small).toEqual([]);
+		}
+
+		await page.getByRole('button', {name: 'Continue', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Finished with exit code 0');
+		await context.close();
+	}
+);
 
