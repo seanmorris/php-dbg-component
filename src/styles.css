@@ -269,9 +269,11 @@
 	color: var(--php-debugger-muted);
 }
 
+/* Room for a scrollbar is kept, so a list that grows long enough to scroll does not narrow. */
 .php-debugger .php-debugger-inspector {
 	max-height: 28em;
 	overflow: auto;
+	scrollbar-gutter: stable;
 }
 
 /*
@@ -373,26 +375,59 @@
 	overflow-wrap: anywhere;
 }
 
-/* A value: its name, what it holds and its Edit button on one line, children beneath. */
+/*
+ * Values are a table: the name, what it holds, and Edit at the right, centred on its row. The
+ * columns are fractions of the panel, not of what is in them, and a child is indented inside the
+ * name column, so opening or closing a value moves no other row sideways.
+ */
 .php-debugger .php-debugger-value-line {
-	display: flex;
-	flex-wrap: wrap;
-	gap: .2em .4em;
-	align-items: baseline;
-	padding: .2em 0;
+	display: grid;
+	grid-template-columns: minmax(8em, 30%) minmax(0, 1fr) auto;
+	gap: 0 .75em;
+	align-items: center;
+	padding: .25em .4em;
+	border-bottom: 1px solid var(--php-debugger-border);
 }
 
+.php-debugger .php-debugger-value-line:hover {
+	background: color-mix(in srgb, var(--php-debugger-fg) 5%, transparent);
+}
+
+/* The triangle, or the space where one would be, never wraps away from the name. */
 .php-debugger .php-debugger-value-name {
+	display: flex;
+	align-items: center;
+	grid-column: 1;
+	min-width: 0;
+	padding-left: calc(var(--php-debugger-depth, 0) * 1.1em);
 	font-weight: 600;
 }
 
+.php-debugger .php-debugger-value-colon {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	white-space: nowrap;
+	clip-path: inset(50%);
+}
+
+.php-debugger .php-debugger-value-data {
+	grid-column: 2;
+	min-width: 0;
+}
+
 .php-debugger .php-debugger-value-type {
+	margin-left: .5em;
 	font-size: .85em;
 	color: var(--php-debugger-muted);
 }
 
 /* The name of a value that opens is the button that opens it. */
 .php-debugger .php-debugger-expand {
+	display: flex;
+	align-items: center;
+	min-width: 0;
 	padding: 0;
 	font: inherit;
 	text-align: left;
@@ -404,9 +439,8 @@
 /* A drawn triangle, not a character: a character would be read out as part of the name. */
 .php-debugger .php-debugger-expand::before {
 	content: '';
-	display: inline-block;
-	margin: 0 .5em .1em .2em;
-	vertical-align: middle;
+	flex: none;
+	margin: 0 .5em 0 .2em;
 	border: solid transparent;
 	border-width: .3em 0 .3em .4em;
 	border-left-color: var(--php-debugger-muted);
@@ -419,7 +453,7 @@
 /* A value with nothing to open lines up with the names of those that do. */
 .php-debugger .php-debugger-value-leaf::before {
 	content: '';
-	display: inline-block;
+	flex: none;
 	width: 1.1em;
 }
 
@@ -432,10 +466,10 @@
 	color: var(--php-debugger-muted);
 }
 
-.php-debugger .php-debugger-children {
-	margin-left: .45em;
-	padding-left: .9em;
-	border-left: 1px solid var(--php-debugger-border);
+/* Show more, and the word for an empty array, line up with the names of the rows beside them. */
+.php-debugger .php-debugger-children > :is(.php-debugger-more, .php-debugger-empty) {
+	display: block;
+	margin: .3em 0 .3em calc(var(--php-debugger-depth, 0) * 1.1em + 1.5em);
 }
 
 .php-debugger .php-debugger-edit,
@@ -444,13 +478,22 @@
 	font-size: .8em;
 }
 
+.php-debugger .php-debugger-edit {
+	grid-column: 3;
+	align-self: center;
+	justify-self: end;
+}
+
+/* Editing opens under the value, across the value and Edit columns. */
 .php-debugger .php-debugger-edit-form {
 	display: flex;
-	flex: 1 1 14em;
 	flex-wrap: wrap;
+	grid-row: 2;
+	grid-column: 2 / -1;
 	gap: .3em;
 	align-items: center;
 	min-width: 0;
+	margin-top: .3em;
 }
 
 .php-debugger .php-debugger-edit-expression {

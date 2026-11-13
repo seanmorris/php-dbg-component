@@ -639,6 +639,101 @@ echo $n;
 	await expect(page.locator('.php-debugger')).toHaveCount(0);
 });
 
+test(
+	'values are a table: Edit is at the right of its row, and opening a value moves no row'
+	, async({page}) => {
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		await page.evaluate(() => {
+			window.dbg = new PhpDebugger(
+				{
+					version: window.phpVersionUnderTest
+					, runtimeBaseUrl: '/runtime/'
+					, code: [
+						'<?php'
+						, '$cart = [["name" => "Notebook", "price" => 8, "tags" => range(1, 15)]];'
+						, '$note = str_repeat("a long piece of text ", 12);'
+						, '$count = 1;'
+						, 'echo $count;'
+					].join('\n')
+					, breakpoints: [5]
+				}
+			);
+
+			dbg.mount(document.querySelector('#host'));
+		});
+
+		const values = page.locator('.php-debugger-values');
+
+		const top = ':scope > .php-debugger-value > .php-debugger-value-line';
+
+		/** Where each row's value starts, and where its Edit button is across and on the row. */
+		const places = (selector = top) => values.evaluate(
+			(panel, lines) => [...panel.querySelectorAll(lines)].map(line => {
+				const row = line.getBoundingClientRect();
+				const data = line.querySelector(':scope > .php-debugger-value-data');
+				const button = line.querySelector(':scope > .php-debugger-edit');
+				const edit = button.getBoundingClientRect();
+
+				return {
+					value: Math.round(data.getBoundingClientRect().left)
+					, edit: Math.round(edit.right)
+					, margin: Math.round(row.right - edit.right)
+					, offCentre: Math.round(edit.top + edit.height / 2 - (row.top + row.height / 2))
+				};
+			})
+			, selector
+		);
+
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Paused at line 5');
+
+		const before = await places();
+
+		// The values start in one column, and every Edit is at the right, centred on its row, even
+		// beside a value that wraps over several lines.
+		expect(before.length).toBeGreaterThan(3);
+		expect(new Set(before.map(place => place.value)).size).toBe(1);
+		expect(new Set(before.map(place => place.edit)).size).toBe(1);
+
+		for(const place of before)
+		{
+			expect(place.margin).toBeLessThan(12);
+			expect(Math.abs(place.offCentre)).toBeLessThanOrEqual(1);
+		}
+
+		// Opening three levels, enough to make the panel scroll, moves none of those rows sideways,
+		// and the rows inside keep the same columns.
+		await values.getByRole('button', {name: 'cart', exact: true}).click();
+		await values.getByRole('button', {name: '0', exact: true}).click();
+		await values.getByRole('button', {name: 'tags', exact: true}).click();
+
+		const last = values.locator('.php-debugger-value-line').filter({hasText: /^14: 15/});
+
+		await expect(last).toHaveCount(1);
+
+		expect(
+			await page.locator('.php-debugger-inspector').evaluate(
+				inspector => inspector.scrollHeight > inspector.clientHeight
+			)
+		).toBe(true);
+
+		expect(await places()).toEqual(before);
+
+		const nested = await places('.php-debugger-children .php-debugger-value-line');
+
+		expect(nested.length).toBeGreaterThan(15);
+		expect(new Set(nested.map(place => place.value))).toEqual(new Set([before[0].value]));
+		expect(new Set(nested.map(place => place.edit))).toEqual(new Set([before[0].edit]));
+
+		// Closing them moves nothing either.
+		await values.getByRole('button', {name: 'cart', exact: true}).click();
+		expect(await places()).toEqual(before);
+		await page.evaluate(() => dbg.destroy());
+	}
+);
+
 test('a nested value is edited by keyboard alone, and the tree stays open', async({page}) => {
 	await page.goto('/test/harness.html');
 	await page.waitForFunction(() => window.PhpDebugger);

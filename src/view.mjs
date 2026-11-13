@@ -1499,15 +1499,23 @@ export class DebuggerView
 		const row = node('div', 'php-debugger-value');
 		const line = node('div', 'php-debugger-value-line');
 		const name = node('span', 'php-debugger-value-name');
+		const data = node('span', 'php-debugger-value-data');
 		const preview = node('span', 'php-debugger-value-preview', value.displayValue);
+
+		// The table has no colon to show, but "price: 10" is how a row reads aloud.
+		const colon = node('span', 'php-debugger-value-colon', ': ');
 
 		const label = value.name + (value.visibility && value.visibility !== 'public'
 			? ` (${value.visibility})`
 			: ''
 		);
 
+		// A row of the table: name, value, and Edit at the right. A child's name is indented
+		// inside the name column, so its row's columns are where every other row has them.
+		line.style.setProperty('--php-debugger-depth', String(depth));
 		row.append(line);
-		line.append(name, preview);
+		line.append(name, data);
+		data.append(preview);
 
 		if(value.type)
 		{
@@ -1517,7 +1525,7 @@ export class DebuggerView
 		// The type is on show, not in a tooltip, wherever the value does not already say it.
 		if(typeLabel(value))
 		{
-			line.append(node('span', 'php-debugger-value-type', typeLabel(value)));
+			data.append(node('span', 'php-debugger-value-type', typeLabel(value)));
 		}
 
 		if(value.expandable && depth < 30)
@@ -1536,8 +1544,9 @@ export class DebuggerView
 			more.type = 'button';
 			more.hidden = true;
 			children.hidden = true;
+			children.style.setProperty('--php-debugger-depth', String(depth + 1));
 			children.append(more);
-			name.append(toggle, ': ');
+			name.append(toggle, colon);
 			row.append(children);
 
 			const load = async() => {
@@ -1602,7 +1611,7 @@ export class DebuggerView
 		else
 		{
 			name.classList.add('php-debugger-value-leaf');
-			name.textContent = label + ': ';
+			name.append(label, colon);
 		}
 
 		if(value.writable)
