@@ -1,9 +1,22 @@
 ---
-title: "Work on this repository"
-description: "Clone, run the example server, run the tests and build this site."
+title: &title "Work on this repository"
+description: &description "Clone, run the example server, run the tests and build this site."
 menus:
   docs:
-    weight: 90
+    weight: &weight 90
+# For contributors, not for people embedding the component.
+llms:
+  section: optional
+  weight: *weight
+jsonld:
+  "@context": https://schema.org
+  "@type": TechArticle
+  headline: *title
+  description: *description
+  about:
+    "@id": https://seanmorris.github.io/php-dbg-component/#software
+  isPartOf:
+    "@id": https://seanmorris.github.io/php-dbg-component/#website
 ---
 
 # Work on this repository
@@ -56,15 +69,17 @@ Both `docs/` and `site/static/assets/` are generated and not committed.
 |---------------------|-------------------------------------------------------------------------------------|
 | `RUNTIME_BUNDLE`    | An unpacked runtime bundle to stage.                                                |
 | `PHP_WASM_ROOT`     | Or a php-wasm checkout to stage from, with `DOCS_PHP_VERSIONS=8.3,8.4` to choose versions. |
-| `DOCS_BASE_URL`     | The path the site is served under. Default `/docs`, which suits `npm start`.        |
+| `DOCS_BASE_URL`     | The path or URL the site is served at. Default `/docs`, which suits `npm start`.    |
 | `SMGEN`             | An SMGen command to use instead of the pinned one.                                  |
 
 </div>
 
 Once the assets are staged you can also run SMGen yourself in `site/`, for example `BASE_URL=/docs smgen build`.
 
+Each page's frontmatter also describes it for machines. `jsonld` is the page's [schema.org](https://schema.org/) structured data, and `llms` places it in `/llms.txt`, the index for language models configured under `LLMS` in `site/.smgen.yaml`. Both repeat the page's `title` and `description` through YAML aliases, so a change to either reaches all three. A new article needs both. The browser tests check that every article is listed and that its structured data matches its heading.
+
 ## Publishing
 
-The **Publish documentation** workflow builds the site on every push to `main` with `DOCS_BASE_URL` set to the path GitHub Pages serves it under, runs the browser tests against it, and deploys `docs/`. It downloads the pinned runtime bundle and verifies its checksum; a runtime is never taken from an unpinned `latest`.
+The **Publish documentation** workflow runs on every push to `main`. It builds the site under `/docs` and runs the browser tests against it, then builds it again for the URL GitHub Pages serves it at, and deploys that `docs/`. It downloads the pinned runtime bundle and verifies its checksum; a runtime is never taken from an unpinned `latest`.
 
 To publish a new runtime, build every version, package it with `scripts/package-runtime.mjs`, upload the archive as a release asset, and record its URL, checksum and source commit in `runtime-lock.json`.

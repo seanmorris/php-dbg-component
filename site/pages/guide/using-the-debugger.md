@@ -1,9 +1,21 @@
 ---
-title: "Using the debugger"
-description: "What your readers see: the controls, the keys, breakpoints, values and output."
+title: &title "Using the debugger"
+description: &description "What your readers see: the controls, the keys, breakpoints, values and output."
 menus:
   docs:
-    weight: 30
+    weight: &weight 30
+llms:
+  section: guide
+  weight: *weight
+jsonld:
+  "@context": https://schema.org
+  "@type": TechArticle
+  headline: *title
+  description: *description
+  about:
+    "@id": https://seanmorris.github.io/php-dbg-component/#software
+  isPartOf:
+    "@id": https://seanmorris.github.io/php-dbg-component/#website
 ---
 
 # Using the debugger

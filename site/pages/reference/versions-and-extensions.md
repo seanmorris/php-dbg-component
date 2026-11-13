@@ -1,9 +1,21 @@
 ---
-title: "PHP versions and extensions"
-description: "Choose a PHP version, load extensions, and pick worker or main-thread execution."
+title: &title "PHP versions and extensions"
+description: &description "Choose a PHP version, load extensions, and pick worker or main-thread execution."
 menus:
   docs:
-    weight: 20
+    weight: &weight 20
+llms:
+  section: reference
+  weight: *weight
+jsonld:
+  "@context": https://schema.org
+  "@type": TechArticle
+  headline: *title
+  description: *description
+  about:
+    "@id": https://seanmorris.github.io/php-dbg-component/#software
+  isPartOf:
+    "@id": https://seanmorris.github.io/php-dbg-component/#website
 ---
 
 # PHP versions and extensions

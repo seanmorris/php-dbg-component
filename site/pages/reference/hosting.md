@@ -1,9 +1,21 @@
 ---
-title: "Host runtime files"
-description: "What to serve, where it comes from, and how the files stay together."
+title: &title "Host runtime files"
+description: &description "What to serve, where it comes from, and how the files stay together."
 menus:
   docs:
-    weight: 40
+    weight: &weight 40
+llms:
+  section: reference
+  weight: *weight
+jsonld:
+  "@context": https://schema.org
+  "@type": TechArticle
+  headline: *title
+  description: *description
+  about:
+    "@id": https://seanmorris.github.io/php-dbg-component/#software
+  isPartOf:
+    "@id": https://seanmorris.github.io/php-dbg-component/#website
 ---
 
 # Host runtime files

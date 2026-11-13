@@ -1,10 +1,19 @@
 ---
-title: "Reference"
-description: "Every option, method, event and file."
+title: &title "Reference"
+description: &description "Every option, method, event and file."
 menus:
   docs:
     weight: 0
     title: Overview
+# llms.txt lists every page this one links to.
+llms: false
+jsonld:
+  "@context": https://schema.org
+  "@type": CollectionPage
+  name: *title
+  description: *description
+  isPartOf:
+    "@id": https://seanmorris.github.io/php-dbg-component/#website
 ---
 
 # Reference

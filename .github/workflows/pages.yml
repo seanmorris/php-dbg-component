@@ -36,12 +36,13 @@ jobs:
       - run: npm run build:docs
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test --project=chromium
-      # Then built again for the path Pages serves it under, which is what gets published.
+      # Then built again for the address Pages serves it at, which is what gets published. The
+      # whole URL, not only its path: the sitemap and llms.txt need absolute links.
       - uses: actions/configure-pages@v5
         id: pages
       - run: npm run build:docs
         env:
-          DOCS_BASE_URL: ${{ steps.pages.outputs.base_path }}
+          DOCS_BASE_URL: ${{ steps.pages.outputs.base_url }}
       - uses: actions/upload-pages-artifact@v4
         with:
           path: docs

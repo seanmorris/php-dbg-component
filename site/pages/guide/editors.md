@@ -1,9 +1,21 @@
 ---
-title: "Sources and editor adapters"
-description: "Pass a string, bind an element, or attach Ace or CodeMirror."
+title: &title "Sources and editor adapters"
+description: &description "Pass a string, bind an element, or attach Ace or CodeMirror."
 menus:
   docs:
-    weight: 60
+    weight: &weight 60
+llms:
+  section: guide
+  weight: *weight
+jsonld:
+  "@context": https://schema.org
+  "@type": TechArticle
+  headline: *title
+  description: *description
+  about:
+    "@id": https://seanmorris.github.io/php-dbg-component/#software
+  isPartOf:
+    "@id": https://seanmorris.github.io/php-dbg-component/#website
 ---
 
 # Sources and editor adapters

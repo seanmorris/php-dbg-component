@@ -1,10 +1,19 @@
 ---
-title: "Guide"
-description: "From an empty page to a debugger your readers can step through."
+title: &title "Guide"
+description: &description "From an empty page to a debugger your readers can step through."
 menus:
   docs:
     weight: 0
     title: Overview
+# llms.txt lists every page this one links to.
+llms: false
+jsonld:
+  "@context": https://schema.org
+  "@type": CollectionPage
+  name: *title
+  description: *description
+  isPartOf:
+    "@id": https://seanmorris.github.io/php-dbg-component/#website
 ---
 
 # Guide

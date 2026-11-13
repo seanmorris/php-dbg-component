@@ -1,9 +1,27 @@
 ---
 title: "Add a PHP debugger to your page"
 pagetitle: "Embed a PHP debugger"
-description-meta: "Embed a PHP debugger in your page. Try live breakpoints, variable editing, and PHP tests with a vanilla JavaScript component."
+description-meta: &description "Embed a PHP debugger in your page. Try live breakpoints, variable editing, and PHP tests with a vanilla JavaScript component."
 template: templates/home.php
 TOC: false
+# llms.txt introduces the project in its own summary.
+llms: false
+# The site and the component. The other pages point at both by their @id.
+jsonld:
+  "@context": https://schema.org
+  "@graph":
+    - "@type": WebSite
+      "@id": https://seanmorris.github.io/php-dbg-component/#website
+      url: https://seanmorris.github.io/php-dbg-component/
+      name: php-dbg-component
+      description: *description
+    - "@type": SoftwareSourceCode
+      "@id": https://seanmorris.github.io/php-dbg-component/#software
+      name: php-dbg-component
+      description: "Let readers step through examples and edit variables as PHP runs in their browser. Embed it with vanilla JavaScript, or connect an existing editor."
+      codeRepository: https://github.com/seanmorris/php-dbg-component
+      programmingLanguage: JavaScript
+      runtimePlatform: Web browser
 ---
 
 :::: {.hero}

@@ -115,9 +115,12 @@ const types = {
 	, '.so': 'application/wasm'
 };
 
-// The built documentation is served from docs/ at /docs. A site built for another path, as the
-// published one is, is served at that path as well.
-const docsBase = (process.env.DOCS_BASE_URL || '/docs').replace(/\/+$/, '');
+// The built documentation is served from docs/ at /docs. A site built for another path, or for
+// a whole URL as the published one is, is served at that path as well.
+const docsBase = new URL(process.env.DOCS_BASE_URL || '/docs', 'http://localhost').pathname.replace(
+	/\/+$/
+	, ''
+);
 
 const server = http.createServer(async(req, res) => {
 	try

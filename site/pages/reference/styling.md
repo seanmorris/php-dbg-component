@@ -1,9 +1,21 @@
 ---
-title: "CSS and themes"
-description: "Variables, light and dark, and how to restyle a part."
+title: &title "CSS and themes"
+description: &description "Variables, light and dark, and how to restyle a part."
 menus:
   docs:
-    weight: 30
+    weight: &weight 30
+llms:
+  section: reference
+  weight: *weight
+jsonld:
+  "@context": https://schema.org
+  "@type": TechArticle
+  headline: *title
+  description: *description
+  about:
+    "@id": https://seanmorris.github.io/php-dbg-component/#software
+  isPartOf:
+    "@id": https://seanmorris.github.io/php-dbg-component/#website
 ---
 
 # CSS and themes

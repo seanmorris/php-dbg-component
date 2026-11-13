@@ -35,3 +35,26 @@ MENUS:
     showLabel: false
 MENU_REGIONS:
   sidebar: [docs]
+
+# /llms.txt, the index of these pages for language models. A page joins a section with "llms" in
+# its frontmatter.
+LLMS:
+  summary: >-
+    A vanilla JavaScript PHP debugger to embed in a web page or drive from a script. PHP 8.0 to
+    8.5, compiled to WebAssembly, runs in the reader's browser.
+  details: |
+    The component is installed from GitHub until its first npm release:
+    `npm install github:seanmorris/php-dbg-component`. It downloads PHP from your site, so the
+    runtime files are served with the page. Until php-dbg-wasm publishes a release with the
+    debugger bridge, they come from this repository's `npm run setup:runtime`. Nothing is
+    downloaded until a reader clicks Run or a script calls `run()` or `prepare()`.
+  sections:
+    guide:
+      title: Guide
+      weight: 0
+    reference:
+      title: Reference
+      weight: 10
+    optional:
+      title: Optional
+      weight: 100
