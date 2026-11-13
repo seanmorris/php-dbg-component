@@ -5,6 +5,9 @@ export default [
 		ignores: [
 			'.cache/**'
 			, 'docs/**'
+
+			// Where SMGen writes a build before it replaces docs/, while a watcher is building.
+			, '.docs.smgen-build.*/**'
 			, 'site/static/assets/**'
 			, 'node_modules/**'
 			, 'playwright-report/**'
