@@ -2,7 +2,7 @@
 
 A vanilla JavaScript PHP debugger you can embed in a page or drive from a script. It runs real PHP through [php-dbg-wasm](https://github.com/seanmorris/php-wasm), with a worker per execution, shared downloads, and an optional, fully styleable interface.
 
-[Live demo](https://seanmorris.github.io/php-dbg-component/) · [Quickstart and API](https://seanmorris.github.io/php-dbg-component/guide.html) · [Source](src/index.mjs)
+[Live demo](https://seanmorris.github.io/php-dbg-component/) · [Get started](https://seanmorris.github.io/php-dbg-component/guide/getting-started.html) · [API](https://seanmorris.github.io/php-dbg-component/reference/api.html) · [Source](src/index.mjs)
 
 - PHP 8.0–8.5, selected at runtime; default 8.4.
 - Breakpoints, pause/continue, stepping, frames, locals, globals, constants, functions, classes, and files.
@@ -216,6 +216,6 @@ npm start
 
 The development server first uses a compatible installed `php-dbg-wasm` package. Until its next npm release includes bridge v1, the server falls back to the pinned demo build in `runtime-bundle/`, downloading it if needed. To use local native builds instead, set `PHP_WASM_ROOT=/path/to/php-wasm`. An explicit path with missing assets produces a setup error at startup.
 
-Install test browsers with `npx playwright install --with-deps`. Browser regressions exercise real native artifacts. `docs/` holds the GitHub Pages documentation/demo site; `npm run build:docs` stages the component, local editor packages, and matching runtime assets. See [docs deployment instructions](docs/DEPLOYMENT.md). Runtime binaries are build outputs and are not checked into source control.
+Install test browsers with `npx playwright install --with-deps`. Browser regressions exercise real native artifacts. The documentation and demo site is an [SMGen](https://seanmorris.github.io/smgen/) project in `site/`. `npm run build:docs` stages the component, the editors and matching runtime assets into it and builds it into `docs/`, which GitHub Pages publishes; it needs PHP 8.1 or newer with the YAML extension, and Pandoc, and fetches SMGen itself at the commit in `site/smgen-lock.json`. The site's own [Work on this repository](site/pages/development.md) page has the details. `docs/` and runtime binaries are build outputs and are not checked into source control.
 
 Licensed under Apache-2.0 or GPL-2.0-only. PHP, php-wasm, and optional editor distributions retain their own licenses; see [NOTICE](NOTICE).

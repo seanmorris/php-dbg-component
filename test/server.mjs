@@ -89,9 +89,16 @@ const types = {
 	, '.json': 'application/json'
 	, '.html': 'text/html'
 	, '.css': 'text/css'
+	, '.svg': 'image/svg+xml'
+	, '.xml': 'application/xml'
+	, '.txt': 'text/plain'
 	, '.wasm': 'application/wasm'
 	, '.so': 'application/wasm'
 };
+
+// The built documentation is served from docs/ at /docs. A site built for another path, as the
+// published one is, is served at that path as well.
+const docsBase = (process.env.DOCS_BASE_URL || '/docs').replace(/\/+$/, '');
 
 const server = http.createServer(async(req, res) => {
 	try
@@ -108,6 +115,11 @@ const server = http.createServer(async(req, res) => {
 
 		let pathname = decodeURIComponent(url.pathname);
 		let base = root;
+
+		if(docsBase !== '/docs' && (pathname === docsBase || pathname.startsWith(docsBase + '/')))
+		{
+			pathname = '/docs' + pathname.slice(docsBase.length);
+		}
 
 		if(pathname.startsWith('/runtime/'))
 		{

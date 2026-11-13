@@ -4,7 +4,8 @@ export default [
 	{
 		ignores: [
 			'.cache/**'
-			, 'docs/assets/**'
+			, 'docs/**'
+			, 'site/static/assets/**'
 			, 'node_modules/**'
 			, 'playwright-report/**'
 			, 'runtime-bundle/**'

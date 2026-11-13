@@ -1,0 +1,37 @@
+PRODUCT_NAME: php-dbg-component
+TITLE_PREFIX: php-dbg-component
+TAGLINE: Embed a PHP debugger in your page
+BASE_URL: ''
+OUTPUT_DIR: ../docs
+
+DEFAULT_THEME: theme-dbg
+PAGES_DIR: ./pages
+TEMPLATE_DIR: ./templates
+STATIC_DIR: ./static
+SMGEN_ENGINE: php
+SEARCH_ENABLED: 0
+INHERIT_CORE_STATIC: 0
+HIGHLIGHT_STYLE: kate
+DOCS_VERSION: v0.1.0
+DOCS_REPOSITORY: https://github.com/seanmorris/php-dbg-component
+CORE_ASSETS:
+  - main.js
+  - nav-state.js
+  - scrollbar.css
+SCRIPTS:
+  - /theme.js
+  - /nav-state.js
+DEFER_SCRIPTS:
+  - /main.js
+STYLES:
+  - /scrollbar.css
+  - /assets/component/styles.css
+  - /site.css
+MENUS:
+  docs:
+    label: Contents
+    renderer: tree
+    hierarchy: source
+    showLabel: false
+MENU_REGIONS:
+  sidebar: [docs]

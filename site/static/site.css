@@ -1,0 +1,271 @@
+/*
+ * php-dbg-component site theme.
+ *
+ * Colour means execution state. The page is paper and ink, with one blue for
+ * things you can click. Amber appears only on the line where execution is
+ * paused, and red only on a breakpoint or an error. Nothing else is coloured.
+ *
+ * No rule here selects a bare button, input, select or textarea: the debugger
+ * is embedded in these pages and must keep its own geometry.
+ */
+
+:root {
+	color-scheme: light;
+	--paper: #ffffff;
+	--paper-2: #f5f7f9;
+	--ink: #20252b;
+	--ink-2: #59636d;
+	--rule: #dce1e6;
+	--rule-2: #c3cad2;
+	--link: #205b95;
+	--paused: #b97400;
+	--paused-bg: #ffe9a6;
+	--stop: #b52132;
+	--scrollbar-thumb: var(--rule-2);
+	--sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+	--mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+	--wrap: 75rem;
+	--measure: 44rem;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		color-scheme: dark;
+		--paper: #15191e;
+		--paper-2: #1c2229;
+		--ink: #e0e5eb;
+		--ink-2: #a1aebb;
+		--rule: #2f3842;
+		--rule-2: #44505c;
+		--link: #8fc2f4;
+		--paused: #f2c14e;
+		--paused-bg: #4a3b12;
+		--stop: #ff7b86;
+	}
+}
+
+:root[data-theme="dark"] {
+	color-scheme: dark;
+	--paper: #15191e;
+	--paper-2: #1c2229;
+	--ink: #e0e5eb;
+	--ink-2: #a1aebb;
+	--rule: #2f3842;
+	--rule-2: #44505c;
+	--link: #8fc2f4;
+	--paused: #f2c14e;
+	--paused-bg: #4a3b12;
+	--stop: #ff7b86;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+	font-family: var(--sans);
+	font-size: 16px;
+	line-height: 1.6;
+	color: var(--ink);
+	background: var(--paper);
+	-webkit-text-size-adjust: 100%;
+}
+
+body { margin: 0; }
+a { color: var(--link); text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.wrap { max-width: var(--wrap); margin-inline: auto; padding-inline: 1.5rem; }
+.skip-link { position: absolute; left: 1rem; top: -4rem; padding: .5rem .75rem; background: var(--paper); z-index: 5; }
+.skip-link:focus { top: .5rem; }
+
+/* Header and footer: one container, the same on every page. */
+
+.masthead { border-bottom: 1px solid var(--rule); }
+.masthead-inner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1.5rem; padding-block: .85rem; }
+.brand { display: inline-flex; align-items: center; gap: .6rem; color: var(--ink); text-decoration: none; }
+.brand-name { font-family: var(--mono); font-size: 1rem; font-weight: 600; }
+.brand-version { font-family: var(--mono); font-size: .75rem; color: var(--ink-2); }
+.masthead-links { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1.4rem; font-size: .9rem; }
+.masthead-links a { color: var(--ink); text-decoration: none; padding-block: .25rem; }
+.masthead-links a:hover { text-decoration: underline; }
+.masthead-links a[aria-current] { box-shadow: inset 0 -2px 0 var(--ink); }
+
+.theme-toggle {
+	display: inline-grid;
+	place-items: center;
+	width: 2.25rem;
+	height: 2.25rem;
+	padding: 0;
+	color: var(--ink);
+	background: none;
+	border: 1px solid var(--rule-2);
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.theme-icon--sun { display: none; }
+:root[data-theme="dark"] .theme-icon--sun { display: block; }
+:root[data-theme="dark"] .theme-icon--moon { display: none; }
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) .theme-icon--sun { display: block; }
+	:root:not([data-theme="light"]) .theme-icon--moon { display: none; }
+}
+
+.colophon { border-top: 1px solid var(--rule); font-size: .85rem; color: var(--ink-2); }
+.colophon-inner { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem 2rem; padding-block: 1.25rem; }
+
+/* Controls the site owns carry a class. */
+
+.btn {
+	display: inline-flex;
+	align-items: center;
+	min-height: 2.5rem;
+	padding: .45rem .95rem;
+	font: inherit;
+	font-size: .95rem;
+	font-weight: 600;
+	color: var(--ink);
+	background: var(--paper);
+	border: 1px solid var(--rule-2);
+	border-radius: 4px;
+	text-decoration: none;
+	cursor: pointer;
+}
+
+.btn:hover { border-color: var(--link); }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn-primary { color: var(--paper); background: var(--link); border-color: var(--link); }
+.field { display: grid; gap: .2rem; font-size: .8rem; color: var(--ink-2); }
+
+.field-select {
+	min-height: 2.5rem;
+	padding: .35rem .6rem;
+	font: inherit;
+	font-size: .9rem;
+	color: var(--ink);
+	background: var(--paper);
+	border: 1px solid var(--rule-2);
+	border-radius: 4px;
+}
+
+/* Landing page: wide bands, the debugger at working size. */
+
+.landing { padding-block: 0 3rem; }
+.hero { padding-block: 3.5rem 2.5rem; }
+.hero h1 { max-width: 20ch; margin: 0 0 1rem; font-size: clamp(2.1rem, 4.4vw, 3.2rem); line-height: 1.08; letter-spacing: -.025em; }
+.hero p { max-width: 40rem; margin: 0 0 1.5rem; font-size: 1.15rem; color: var(--ink-2); }
+.hero p:last-child { display: flex; flex-wrap: wrap; gap: .75rem; margin: 0; }
+.band { padding-block: 2.5rem; border-top: 1px solid var(--rule); scroll-margin-top: 1rem; }
+.band h2 { margin: 0 0 .5rem; font-size: 1.45rem; line-height: 1.25; }
+.band > p { max-width: var(--measure); margin: .5rem 0; }
+.band .note { font-size: .85rem; color: var(--ink-2); }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 1rem 2.5rem; align-items: start; }
+.split > * { min-width: 0; }
+.split-text p { margin: .5rem 0; }
+.demo { margin-top: 1.25rem; }
+.demo-bar { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem 1.25rem; margin-bottom: .75rem; }
+/* Pandoc wraps inline HTML in a paragraph; the bar lays out its controls, not that paragraph. */
+.demo-bar > p, .try-result > p { display: contents; }
+.demo-problem { flex-basis: 100%; color: var(--stop); }
+.demo-problem:empty { display: none; }
+.try-result { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-top: 1rem; }
+.try-result output { font-family: var(--mono); font-size: .85rem; }
+.try-result output[data-status=failed] { color: var(--stop); }
+#editor-host:not(:empty) { height: 17rem; margin-bottom: .75rem; overflow: hidden; border: 1px solid var(--rule-2); border-radius: 4px; }
+#editor-host > .CodeMirror, #editor-host > .cm-editor, #editor-host > .ace_editor { height: 100%; }
+
+/* The debugger takes the page's inks, and the paused line gets the amber. */
+
+.php-debugger {
+	--php-debugger-bg: var(--paper);
+	--php-debugger-fg: var(--ink);
+	--php-debugger-muted: var(--ink-2);
+	--php-debugger-border: var(--rule-2);
+	--php-debugger-accent: var(--link);
+	--php-debugger-active: var(--paused-bg);
+	--php-debugger-paused: var(--paused);
+	--php-debugger-error: var(--stop);
+	--php-debugger-radius: 4px;
+	--php-debugger-font: var(--mono);
+	font-size: .85rem;
+}
+
+/* Parts are restyled from inside the root, after the component's own stylesheet. */
+.php-debugger .php-debugger-source { min-height: 17rem; }
+.php-debugger .php-debugger-console { background: var(--paper-2); }
+
+/* The markers the adapters put inside Ace and CodeMirror take the same amber and red. */
+#editor-host {
+	--php-debugger-active: color-mix(in srgb, var(--paused) 26%, transparent);
+	--php-debugger-paused: var(--paused);
+	--php-debugger-error: var(--stop);
+}
+
+/* Documentation pages: contents, article, outline. */
+
+.frame { display: grid; grid-template-columns: 14rem minmax(0, 1fr) 13rem; gap: 3rem; align-items: start; padding-block: 2.5rem 4rem; }
+.contents, .outline { position: sticky; top: 1.5rem; max-height: calc(100vh - 3rem); overflow: auto; font-size: .9rem; }
+.sheet { min-width: 0; }
+.contents-panel > summary { margin-bottom: .6rem; font-size: .75rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); cursor: pointer; }
+.contents ul, .outline ul { margin: 0; padding: 0; list-style: none; }
+.menu > ul > details, .menu > ul > li { margin-bottom: .9rem; }
+.menu summary { padding: .2rem 0; font-weight: 600; color: var(--ink); cursor: pointer; }
+.menu details > ul { margin: .15rem 0 0; padding-left: .75rem; border-left: 1px solid var(--rule); }
+.contents a, .outline a { display: block; padding: .2rem 0; color: var(--ink-2); text-decoration: none; }
+.contents a:hover, .outline a:hover { color: var(--ink); text-decoration: underline; }
+.menu details a[aria-current="page"] { margin-left: calc(-.75rem - 1px); padding-left: calc(.75rem - 1px); border-left: 2px solid var(--ink); }
+.contents a[aria-current="page"] { color: var(--ink); font-weight: 600; }
+.outline-label { margin: 0 0 .5rem; font-size: .75rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
+.outline nav > ul > li > a { display: none; }
+.outline ul ul ul { padding-left: .9rem; }
+.outline:not(:has(ul ul)) { display: none; }
+
+.prose { max-width: var(--measure); }
+.prose h1 { margin: 0 0 1rem; font-size: 2rem; line-height: 1.2; letter-spacing: -.015em; }
+.prose h2 { margin: 2.5rem 0 .75rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); font-size: 1.35rem; line-height: 1.3; }
+.prose h3 { margin: 1.75rem 0 .5rem; font-size: 1.08rem; }
+.prose p, .prose ul, .prose ol { margin: .9rem 0; }
+.prose li { margin: .3rem 0; }
+.prose :is(h1, h2, h3) { scroll-margin-top: 1rem; }
+.breadcrumbs { margin-bottom: 1rem; font-size: .8rem; color: var(--ink-2); }
+.breadcrumbs a { color: inherit; }
+.breadcrumbs ol, .breadcrumbs ul { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0; padding: 0; list-style: none; }
+.breadcrumbs li + li::before { content: "/"; margin-right: .4rem; color: var(--rule-2); }
+.article-foot { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule); font-size: .85rem; }
+.prose details { margin: 1rem 0; padding: .75rem 1rem; border: 1px solid var(--rule); border-radius: 4px; }
+.prose summary { font-weight: 600; cursor: pointer; }
+.prose table { display: block; width: 100%; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: .9rem; }
+.prose th, .prose td { padding: .55rem .7rem; border: 1px solid var(--rule); text-align: left; vertical-align: top; }
+.prose th { background: var(--paper-2); font-weight: 600; }
+
+/* Code: ink, grey comments, blue keywords. */
+
+code { font-family: var(--mono); font-size: .88em; }
+:not(pre) > code { padding: .1em .3em; background: var(--paper-2); border-radius: 3px; overflow-wrap: anywhere; }
+pre { margin: 1rem 0; padding: .9rem 1.1rem; overflow-x: auto; background: var(--paper-2); border: 1px solid var(--rule); border-radius: 4px; font-size: .85rem; line-height: 1.6; tab-size: 2; }
+pre code { font-size: inherit; }
+div.sourceCode { margin: 1rem 0; overflow: visible; background: none; }
+div.sourceCode > pre { margin: 0; }
+/* Pandoc's own sheet gives every .sourceCode element visible overflow; a long line must scroll inside its block. */
+pre.sourceCode { overflow-x: auto; }
+pre.sourceCode, code.sourceCode, code.sourceCode > span { color: var(--ink); background: none; }
+code.sourceCode span { color: inherit; font-weight: inherit; font-style: inherit; text-decoration: none; }
+code.sourceCode span:is(.kw, .cf, .fu, .bu, .dt, .at, .pp, .ex, .im, .ot) { color: var(--link); }
+code.sourceCode span:is(.co, .do, .in, .an, .cv) { color: var(--ink-2); font-style: italic; }
+code.sourceCode span:is(.al, .er) { color: var(--stop); }
+
+@media (max-width: 1100px) {
+	.frame { grid-template-columns: 13rem minmax(0, 1fr); gap: 2rem; }
+	.outline { display: none; }
+}
+
+@media (max-width: 760px) {
+	.wrap { padding-inline: 1rem; }
+	.frame { display: block; padding-block: 1.25rem 2.5rem; }
+	.contents { position: static; max-height: none; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--rule); }
+	.hero { padding-block: 2rem 1.5rem; }
+	.band { padding-block: 1.75rem; }
+	.split { grid-template-columns: minmax(0, 1fr); }
+	.prose h1 { font-size: 1.6rem; }
+	pre { padding: .7rem .8rem; font-size: .8rem; }
+}

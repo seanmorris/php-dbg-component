@@ -24,10 +24,24 @@ jobs:
       - run: npm ci
       - run: npm test && npm run test:types
       - run: node scripts/download-runtime.mjs
+      # SMGen, which builds the site, needs PHP with the YAML extension on the runner, and
+      # Pandoc. This PHP is the build tool's; the PHP the site runs is in the runtime bundle.
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: yaml
+          coverage: none
+      - run: sudo apt-get update && sudo apt-get install --yes pandoc
+      # Tested as "npm start" serves it, under /docs.
       - run: npm run build:docs
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test --project=chromium
+      # Then built again for the path Pages serves it under, which is what gets published.
       - uses: actions/configure-pages@v5
+        id: pages
+      - run: npm run build:docs
+        env:
+          DOCS_BASE_URL: ${{ steps.pages.outputs.base_path }}
       - uses: actions/upload-pages-artifact@v4
         with:
           path: docs
