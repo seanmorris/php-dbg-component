@@ -198,31 +198,56 @@
  * Output and inspector sit side by side while each has room for about 22em, and
  * one above the other otherwise. It is the debugger's own width that decides,
  * so a narrow column on a wide page stacks too.
+ *
+ * Each side is a bar over a box, two rows of this grid. Side by side they share
+ * both rows, so the bars line up and the two boxes are always one height.
  */
 .php-debugger .php-debugger-body {
-	display: flex;
-	flex-wrap: wrap;
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(22em, 100%), 1fr));
 	gap: .75em;
 	min-width: 0;
 }
 
 .php-debugger .php-debugger-console-panel,
 .php-debugger .php-debugger-inspector {
-	flex: 1 1 22em;
+	display: grid;
+	grid-row: span 2;
+	grid-template-rows: subgrid;
+	row-gap: 0;
 	min-width: 0;
 }
 
-.php-debugger .php-debugger-console-panel {
-	display: grid;
-	gap: .35em;
-	align-content: start;
+/* The boxes start at 10em, grow together with the longer of the two, and scroll past 24em. */
+.php-debugger .php-debugger-console,
+.php-debugger .php-debugger-values,
+.php-debugger .php-debugger-breakpoints {
+	min-height: 10em;
+	max-height: 24em;
+	overflow: auto;
+	border: 1px solid var(--php-debugger-border);
+	border-top: 0;
 }
 
+/* The inspector's panels take turns in the same place, under the tabs. */
+.php-debugger .php-debugger-inspector > :is(.php-debugger-values, .php-debugger-breakpoints) {
+	grid-row: 2;
+	grid-column: 1;
+}
+
+/* What is not a table row keeps off the box's edges. */
+.php-debugger .php-debugger-values > :is(.php-debugger-symbol, .php-debugger-empty) {
+	margin: .4em;
+}
+
+/* Each bar's rule is the top of its box. */
 .php-debugger .php-debugger-console-bar {
 	display: flex;
 	gap: .75em;
 	align-items: center;
 	justify-content: space-between;
+	padding-bottom: .35em;
+	border-bottom: 1px solid var(--php-debugger-border);
 }
 
 .php-debugger .php-debugger-log-toggle {
@@ -246,15 +271,11 @@
 }
 
 .php-debugger .php-debugger-console {
-	min-height: 10em;
-	max-height: 24em;
 	margin: 0;
 	padding: .6em;
-	overflow: auto;
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 	font-family: var(--php-debugger-font);
-	border: 1px solid var(--php-debugger-border);
 }
 
 .php-debugger .php-debugger-output-debug {
@@ -270,25 +291,19 @@
 }
 
 /* Room for a scrollbar is kept, so a list that grows long enough to scroll does not narrow. */
-.php-debugger .php-debugger-inspector {
-	max-height: 28em;
-	overflow: auto;
+.php-debugger .php-debugger-values {
 	scrollbar-gutter: stable;
 }
 
 /*
  * The inspector's tabs: one row, the panel on show underlined. What the pause has in scope comes
- * first; a rule sets the whole program's tables apart. The row stays in view as the panel scrolls.
+ * first; a rule sets the whole program's tables apart. The panel scrolls under the row.
  */
 .php-debugger .php-debugger-tabs {
-	position: sticky;
-	top: 0;
-	z-index: 1;
+	position: relative;
 	display: flex;
 	align-items: stretch;
-	margin-bottom: .35em;
 	overflow-x: auto;
-	background: var(--php-debugger-bg);
 	border-bottom: 1px solid var(--php-debugger-border);
 }
 
@@ -551,18 +566,17 @@
 	display: none;
 }
 
-/* The box to add a breakpoint, then the breakpoints there are, each a small chip. */
-.php-debugger .php-debugger-breakpoints,
-.php-debugger .php-debugger-breakpoint-form,
-.php-debugger .php-debugger-breakpoint-list {
+/*
+ * The Breakpoints panel: the box to add one, then a row for each, like the rows of values, with
+ * its Remove button at the right.
+ */
+.php-debugger .php-debugger-breakpoint-form {
 	display: flex;
 	flex-wrap: wrap;
 	gap: .35em;
 	align-items: center;
-}
-
-.php-debugger .php-debugger-breakpoints {
-	gap: .35em .75em;
+	padding: .4em;
+	border-bottom: 1px solid var(--php-debugger-border);
 }
 
 .php-debugger .php-debugger-breakpoint-line {
@@ -581,11 +595,19 @@
 
 .php-debugger .php-debugger-breakpoint {
 	display: flex;
-	gap: .15em;
+	gap: .5em;
 	align-items: center;
-	padding: .05em .1em .05em .4em;
-	border: 1px solid var(--php-debugger-border);
-	border-radius: var(--php-debugger-radius);
+	justify-content: space-between;
+	padding: .25em .4em;
+	border-bottom: 1px solid var(--php-debugger-border);
+}
+
+.php-debugger .php-debugger-breakpoint:hover {
+	background: color-mix(in srgb, var(--php-debugger-fg) 5%, transparent);
+}
+
+.php-debugger .php-debugger-breakpoint-list > .php-debugger-empty {
+	margin: .4em;
 }
 
 .php-debugger .php-debugger-breakpoint-toggle {

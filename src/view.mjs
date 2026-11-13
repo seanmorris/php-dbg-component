@@ -301,7 +301,13 @@ export class DebuggerView
 			this.root.append(editor);
 		}
 
+		// The Breakpoints panel, one of the inspector's: the box to add one, then the list. It is
+		// placed with the other panels below.
 		this.breakpoints = node('div', 'php-debugger-breakpoints');
+		this.breakpoints.id = `${this.id}-breakpoints`;
+		this.breakpoints.setAttribute('role', 'tabpanel');
+		this.breakpoints.setAttribute('aria-label', 'Breakpoints');
+		this.breakpoints.hidden = true;
 		const breakpointForm = node('form', 'php-debugger-breakpoint-form');
 		const lineInput = node('input', 'php-debugger-breakpoint-line');
 		const add = node('button', 'php-debugger-button', 'Add breakpoint');
@@ -335,9 +341,8 @@ export class DebuggerView
 
 		this.breakpointList = node('ul', 'php-debugger-breakpoint-list');
 		this.breakpointList.setAttribute('aria-label', 'Breakpoints');
-		breakpointForm.append(lineInput, add);
-		this.breakpoints.append(breakpointForm, this.breakpointList, this.breakpointError);
-		this.root.append(this.breakpoints);
+		breakpointForm.append(lineInput, add, this.breakpointError);
+		this.breakpoints.append(breakpointForm, this.breakpointList);
 
 		const body = node('div', 'php-debugger-body');
 		this.root.append(body);
@@ -382,8 +387,8 @@ export class DebuggerView
 		const right = node('div', 'php-debugger-inspector');
 		body.append(right);
 
-		// The tabs: what the pause has in scope first, then the whole program's tables. When the
-		// row is too narrow, the last of those fold into More.
+		// The tabs: what the pause has in scope and what you set to watch it, then the whole
+		// program's tables. When the row is too narrow, the last of those fold into More.
 		this.tabBar = node('div', 'php-debugger-tabs');
 		this.tabs = node('div', 'php-debugger-tablist');
 		this.tabs.setAttribute('role', 'tablist');
@@ -392,7 +397,7 @@ export class DebuggerView
 		this.counts = {};
 
 		for(const [group, scopes] of [
-			['pause', ['variables', 'frames', 'watches']]
+			['pause', ['variables', 'frames', 'watches', 'breakpoints']]
 			, ['program', ['globals', 'constants', 'functions', 'classes', 'files']]
 		]){
 			if(group === 'program')
@@ -475,7 +480,7 @@ export class DebuggerView
 		this.content = node('div', 'php-debugger-values');
 		this.content.setAttribute('role', 'tabpanel');
 		this.content.tabIndex = -1;
-		right.append(this.content);
+		right.append(this.content, this.breakpoints);
 
 		const form = node('form', 'php-debugger-expression-form');
 		this.expression = node('input', 'php-debugger-expression');
@@ -636,13 +641,17 @@ export class DebuggerView
 			tab.tabIndex = tab === stop ? 0 : -1;
 		}
 
+		// The Breakpoints panel is its own; every other tab shows in the values panel.
+		this.breakpoints.hidden = this.panel !== 'breakpoints';
+		this.content.hidden = !this.breakpoints.hidden;
 		this.content.setAttribute('aria-label', panelTitle(this.panel));
 		this.fillMore();
 	}
 
 	/**
 	 * Fold tabs into More, last first, until the row fits, and unfold them when it has room: the
-	 * program's tables, then Watches and Frames at the narrowest. Variables always stays.
+	 * program's tables, then Breakpoints, Watches and Frames at the narrowest. Variables always
+	 * stays.
 	 */
 	fitTabs()
 	{
@@ -713,20 +722,39 @@ export class DebuggerView
 		this.sizeMore(this.more.selectedOptions[0].textContent);
 	}
 
-	/** Put the counts on their tabs; the watches are counted here. No count is shown for none. */
+	/**
+	 * Put the counts on their tabs. Watches and breakpoints are counted here, at any time; no count
+	 * is shown for none.
+	 */
 	showCounts(counts)
 	{
 		this.counts = counts;
 
+		const own = {watches: this.watches.length, breakpoints: this.dbg.breakpoints.length};
+
 		for(const tab of this.tabList)
 		{
 			const scope = tab.dataset.panel;
-			const count = scope === 'watches' ? this.watches.length : counts[scope];
+			const count = own[scope] ?? counts[scope];
 
 			tab.querySelector('.php-debugger-tab-count').textContent = count ? String(count) : '';
 		}
 
 		this.fitTabs();
+	}
+
+	/** With no pause there is nothing to inspect, so the panel says when there will be. */
+	showIdle()
+	{
+		const waiting = {
+			frames: 'The call stack appears here when the program pauses.'
+			, watches: this.watches.length
+				? 'Watches are evaluated when the program pauses.'
+				: 'No watch expressions. Type one below and choose Watch.'
+		}[this.panel] ?? `${panelTitle(this.panel)} appear here when the program pauses.`;
+
+		this.rows = new Map();
+		this.content.replaceChildren(node('p', 'php-debugger-empty', waiting));
 	}
 
 	/**
@@ -996,9 +1024,7 @@ export class DebuggerView
 			this.refreshNumber++;
 			this.holdFocus();
 
-			this.content.replaceChildren(
-				node('p', 'php-debugger-empty', 'Pause execution to inspect values.')
-			);
+			this.showIdle();
 		}
 	}
 
@@ -1191,6 +1217,9 @@ export class DebuggerView
 			);
 		}
 
+		// The Breakpoints tab counts them.
+		this.showCounts(this.counts);
+
 		if(focused >= 0)
 		{
 			const controls = [...this.breakpointList.querySelectorAll('input, button')];
@@ -1375,8 +1404,16 @@ export class DebuggerView
 
 		this.markTabs();
 
+		// The breakpoints are the view's own, there at any time: nothing is loaded for them.
+		if(this.panel === 'breakpoints')
+		{
+			return;
+		}
+
 		if(this.dbg.state !== 'paused')
 		{
+			this.showIdle();
+
 			return;
 		}
 
