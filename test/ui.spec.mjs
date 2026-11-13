@@ -944,6 +944,9 @@ test(
 		await expect(more).toBeHidden();
 		await expect(tabNamed(page, 'Files')).toHaveAttribute('aria-selected', 'true');
 
+		// Only the pause's own tabs are counted: showing the files put no count on their tab.
+		await expect(tabNamed(page, 'Files')).toHaveAccessibleName('Files');
+
 		// The end of the run drops the pause's counts; the watch is still there.
 		await page.getByRole('button', {name: 'Continue', exact: true}).click();
 		await expect(page.getByRole('status')).toContainText('Finished');
