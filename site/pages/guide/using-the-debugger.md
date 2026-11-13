@@ -61,7 +61,8 @@ The tabs on the right show what is in scope while paused. **Variables**, **Frame
 
 - An array or object opens when you click its name, and closes again. What you opened stays open as you step.
 - **Edit** opens a box for a PHP expression. Enter applies it, Escape cancels. A value PHP refuses is explained under the box.
-- **Frames** lists the call stack. Choosing a frame shows that call's variables and moves the marker to its line.
+- **Frames** lists the call stack, a row per call. Choosing a frame shows that call's variables and moves the marker to its line.
+- **Frames**, **Functions**, **Classes** and **Files** are lists of rows. Click a row, or reach the list with Tab, move along it with the arrow keys and press Enter. A function, class or file shows where it is in the source.
 - **Opcodes** shows what PHP compiled the paused function to, as phpdbg's `print` command lists it, with the op the frame stands on marked like the paused line. Each op's number comes first; where an op can jump, its target is a link to that op. Choose a frame to see its function, or pick the main script, a function or a class from the list above the table.
 
 ## Expressions

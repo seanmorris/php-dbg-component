@@ -240,8 +240,75 @@
 }
 
 /* What is not a table row keeps off the box's edges. */
-.php-debugger .php-debugger-values > :is(.php-debugger-symbol, .php-debugger-empty) {
+.php-debugger .php-debugger-values > .php-debugger-empty {
 	margin: .4em;
+}
+
+/*
+ * Frames, functions, classes and files: a row each, across the panel, chosen with a click or
+ * with Enter. The rows share their columns, so the places line up down the list.
+ */
+.php-debugger .php-debugger-symbols {
+	display: grid;
+	grid-template-columns: minmax(8em, 30%) minmax(0, 1fr);
+	column-gap: .75em;
+}
+
+.php-debugger .php-debugger-symbols[data-layout=frames] {
+	grid-template-columns: auto minmax(0, 1fr);
+}
+
+.php-debugger .php-debugger-symbols[data-layout=named-frames] {
+	grid-template-columns: auto minmax(8em, 30%) minmax(0, 1fr);
+}
+
+.php-debugger .php-debugger-symbols[data-layout=files] {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+.php-debugger .php-debugger-symbol {
+	position: relative;
+	display: grid;
+	grid-column: 1 / -1;
+	grid-template-columns: subgrid;
+	align-items: center;
+	padding: .25em .4em;
+	cursor: pointer;
+	border-bottom: 1px solid var(--php-debugger-border);
+}
+
+.php-debugger .php-debugger-symbol:hover {
+	background: color-mix(in srgb, var(--php-debugger-fg) 5%, transparent);
+}
+
+/* The chosen row has the accent's tint and a bar at its start. */
+.php-debugger .php-debugger-symbol[aria-selected=true] {
+	background: color-mix(in srgb, var(--php-debugger-accent) 14%, transparent);
+	box-shadow: inset 3px 0 var(--php-debugger-accent);
+}
+
+/* The panel scrolls, so a ring outside a row would be cut off. */
+.php-debugger.php-debugger .php-debugger-symbol:focus-visible {
+	outline-offset: -2px;
+}
+
+.php-debugger .php-debugger-symbol > * {
+	min-width: 0;
+}
+
+/* A function listed by its name alone has the whole row. */
+.php-debugger .php-debugger-symbol > :only-child {
+	grid-column: 1 / -1;
+}
+
+.php-debugger .php-debugger-symbol-index {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+	color: var(--php-debugger-muted);
+}
+
+.php-debugger .php-debugger-symbol-name {
+	font-weight: 600;
 }
 
 /*
@@ -510,7 +577,7 @@
 	font-weight: 600;
 }
 
-.php-debugger .php-debugger-value-colon {
+.php-debugger :is(.php-debugger-value-colon, .php-debugger-symbol-spoken) {
 	position: absolute;
 	width: 1px;
 	height: 1px;
@@ -622,17 +689,6 @@
 .php-debugger .php-debugger-empty {
 	margin: .3em 0;
 	color: var(--php-debugger-muted);
-}
-
-.php-debugger .php-debugger-symbol {
-	display: block;
-	margin: .3em 0;
-	text-align: left;
-}
-
-.php-debugger .php-debugger-symbol[aria-current=true] {
-	color: var(--php-debugger-accent);
-	border-color: currentColor;
 }
 
 .php-debugger .php-debugger-expression {
@@ -796,7 +852,8 @@
 	}
 
 	.php-debugger .php-debugger-log-toggle,
-	.php-debugger .php-debugger-breakpoint-toggle {
+	.php-debugger .php-debugger-breakpoint-toggle,
+	.php-debugger .php-debugger-symbol {
 		min-height: 44px;
 	}
 

@@ -1324,20 +1324,146 @@ export class DebuggerView
 		}
 	}
 
-	frameLabel(frame)
+	/**
+	 * Frames, functions, classes or files, a row each across the panel. The list is one tab stop:
+	 * the arrow keys move along it, and Enter, Space or a click chooses a row. The chosen frame
+	 * is the selected one; a function, class or file stays selected while its place is shown.
+	 */
+	symbolList(values, rows)
 	{
-		// Only an API 2 runtime names the function; an empty name there means top-level code.
-		const callee = frame.functionName === undefined
-			? ''
-			: ` · ${frame.functionName
-				? `${frame.className
-					? phpClassLabel(frame.className) + '::'
-					: ''}${frame.functionName}()`
-				: '{main}'}`;
+		const list = node('div', 'php-debugger-symbols');
+		const frames = this.panel === 'frames';
+		// Only an API 2 runtime names a frame's function.
+		const named = frames && values.some(frame => frame.functionName !== undefined);
+		const layout = frames || this.panel === 'files' ? this.panel : 'symbols';
 
-		return `Frame ${frame.frame}${callee} — ${frame.filename
-			? `${frame.filename}:${frame.lineNo}`
-			: 'internal'}`;
+		list.setAttribute('role', 'listbox');
+		list.setAttribute('aria-label', panelTitle(this.panel));
+		list.dataset.layout = named ? 'named-frames' : layout;
+
+		for(const value of values)
+		{
+			const item = node('div', 'php-debugger-symbol');
+
+			item.setAttribute('role', 'option');
+			item.setAttribute('aria-selected', String(!!(frames && value.selected)));
+			item.tabIndex = -1;
+			item.append(...this.symbolCells(value, named));
+			item.addEventListener('click', () => this.chooseSymbol(rows, item, value));
+
+			this.control(rows, `symbol ${rows.size}`, item);
+			list.append(item);
+		}
+
+		const options = [...rows.values()];
+		const stop = options.find(option => option.getAttribute('aria-selected') === 'true')
+			?? options[0];
+
+		if(stop)
+		{
+			stop.tabIndex = 0;
+		}
+
+		list.addEventListener('focusin', event => {
+			for(const option of options)
+			{
+				option.tabIndex = option === event.target ? 0 : -1;
+			}
+		});
+
+		list.addEventListener('keydown', event => this.symbolKey(event, options));
+
+		return list;
+	}
+
+	/** Move along a list of symbols, or choose the row in focus. */
+	symbolKey(event, options)
+	{
+		const at = options.indexOf(event.target);
+
+		if(at < 0 || event.ctrlKey || event.altKey || event.metaKey)
+		{
+			return;
+		}
+
+		if(event.key === 'Enter' || event.key === ' ')
+		{
+			event.preventDefault();
+			event.target.click();
+
+			return;
+		}
+
+		const to = {
+			ArrowDown: Math.min(at + 1, options.length - 1)
+			, ArrowUp: Math.max(at - 1, 0)
+			, Home: 0
+			, End: options.length - 1
+		}[event.key];
+
+		if(to !== undefined)
+		{
+			event.preventDefault();
+			options[to].focus();
+		}
+	}
+
+	/** Select a row's frame or show where its symbol is, then mark the row selected. */
+	chooseSymbol(rows, item, value)
+	{
+		return this.act(async() => {
+			await this.openSymbol(value);
+
+			for(const option of rows.values())
+			{
+				option.setAttribute('aria-selected', String(option === item));
+			}
+		});
+	}
+
+	/**
+	 * The cells of one row: a frame's number, function and place; a function's or class's name
+	 * and place; a file's path. Unseen words between them read the row as one phrase: "Frame 1 ·
+	 * total() — /main.php:4".
+	 */
+	symbolCells(value, named)
+	{
+
+		/** A cell, after any words only a screen reader says. */
+		const cell = (className, text, spoken) => {
+			const element = node('span', `php-debugger-symbol-${className}`);
+
+			if(spoken)
+			{
+				element.append(node('span', 'php-debugger-symbol-spoken', spoken));
+			}
+
+			element.append(text);
+
+			return element;
+		};
+
+		if(typeof value === 'string')
+		{
+			return [cell(this.panel === 'files' ? 'place' : 'name', value)];
+		}
+
+		const where = value.filename ? `${value.filename}:${value.lineNo}` : 'internal';
+
+		if(this.panel !== 'frames')
+		{
+			return [cell('name', value.name), cell('place', where, ' — ')];
+		}
+
+		const owner = value.className ? phpClassLabel(value.className) + '::' : '';
+		// An empty function name is top-level code.
+		const callee = value.functionName ? `${owner}${value.functionName}()` : '{main}';
+
+		return [
+			cell('index', String(value.frame), 'Frame ')
+			, ...named ? [cell('name', callee, ' · ')] : []
+			, cell('place', where, ' — ')
+		];
 	}
 
 	gutterUpdate()
@@ -1682,44 +1808,19 @@ export class DebuggerView
 			else
 			{
 				const rows = new Map();
+				const listed = Array.isArray(values) ? values : Object.values(values);
+				const list = this.symbolList(listed, rows);
+				const scrolled = this.content.scrollTop;
 				const held = this.holdFocus();
 
 				this.rows = rows;
-				this.content.replaceChildren();
-
-				for(const value of Array.isArray(values) ? values : Object.values(values))
-				{
-					const item = node(
-						'button'
-						, 'php-debugger-symbol'
-						, typeof value === 'string'
-							? value
-							: this.panel === 'frames'
-								? this.frameLabel(value)
-								: `${value.name} — ${value.filename}:${value.lineNo}`
-					);
-
-					item.type = 'button';
-
-					if(this.panel === 'frames' && value.selected)
-					{
-						item.setAttribute('aria-current', 'true');
-					}
-
-					item.addEventListener('click', () => this.act(() => this.openSymbol(value)));
-
-					this.control(rows, `symbol ${rows.size}`, item);
-					this.content.append(item);
-				}
 
 				// An empty panel says so rather than showing nothing.
-				if(!rows.size)
-				{
-					const empty = `No ${this.panel} here yet.`;
+				this.content.replaceChildren(
+					rows.size ? list : node('p', 'php-debugger-empty', `No ${this.panel} here yet.`)
+				);
 
-					this.content.append(node('p', 'php-debugger-empty', empty));
-				}
-
+				this.content.scrollTop = scrolled;
 				this.returnFocus(held);
 			}
 		});

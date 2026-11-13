@@ -256,6 +256,14 @@ test('GUI edits a live value and exposes symbols, globals, constants and frames'
 
 	await openPanel(page, 'Functions');
 	await expect(page.locator('.php-debugger-values')).toContainText('example');
+
+	// A function's row is chosen with a click and stays selected while its place is shown.
+	const example = page.getByRole('listbox', {name: 'Functions', exact: true})
+		.getByRole('option', {name: /^example\b/});
+
+	await expect(example).toHaveAttribute('aria-selected', 'false');
+	await example.click();
+	await expect(example).toHaveAttribute('aria-selected', 'true');
 	await openPanel(page, 'Classes');
 	await expect(page.locator('.php-debugger-values')).toContainText('Example');
 	await openPanel(page, 'Files');
@@ -264,17 +272,37 @@ test('GUI edits a live value and exposes symbols, globals, constants and frames'
 	await expect(page.locator('.php-debugger-values')).toContainText('Frame 0');
 	// Selecting the caller keeps the whole stack listed, marks the selection and moves the
 	// highlight to the call site.
-	const frames = page.locator('.php-debugger-symbol');
+	const frames = page.getByRole('listbox', {name: 'Frames', exact: true}).getByRole('option');
 	await expect(frames).toHaveCount(2);
-	await expect(frames.nth(0)).toHaveAttribute('aria-current', 'true');
+	await expect(frames.nth(0)).toHaveAttribute('aria-selected', 'true');
 
 	await frames.nth(1).click();
-	await expect(frames.nth(1)).toHaveAttribute('aria-current', 'true');
+	await expect(frames.nth(1)).toHaveAttribute('aria-selected', 'true');
 	await expect(frames).toHaveCount(2);
-	await expect(frames.nth(0)).toHaveText(/^Frame 0( · example\(\))? — \/main\.php:7$/);
-	await expect(frames.nth(0)).not.toHaveAttribute('aria-current', 'true');
+	await expect(frames.nth(0)).toHaveAccessibleName(/^Frame 0( · example\(\))? — \/main\.php:7$/);
+	await expect(frames.nth(0)).toHaveAttribute('aria-selected', 'false');
 
 	await expect(page.locator('.php-debugger-line[data-active=true]')).toHaveText('9');
+
+	// Each frame is a row across the panel, not a button the width of its words.
+	const values = page.locator('.php-debugger-values');
+	const box = await values.evaluate(element => element.clientWidth);
+	const row = await frames.nth(0).boundingBox();
+
+	expect(Math.abs(row.width - box)).toBeLessThan(1);
+
+	// The list is one tab stop. The arrows move along it and Enter chooses the row in focus.
+	await expect(frames.nth(1)).toBeFocused();
+	await expect(frames.nth(0)).toHaveAttribute('tabindex', '-1');
+	await page.keyboard.press('ArrowUp');
+	await expect(frames.nth(0)).toBeFocused();
+	await expect(frames.nth(0)).toHaveAttribute('tabindex', '0');
+	await expect(frames.nth(1)).toHaveAttribute('tabindex', '-1');
+
+	await page.keyboard.press('Enter');
+	await expect(frames.nth(0)).toHaveAttribute('aria-selected', 'true');
+	await expect(page.locator('.php-debugger-line[data-active=true]')).toHaveText('7');
+	await expect(frames.nth(0)).toBeFocused();
 	await page.getByRole('button', {name: 'Continue', exact: true}).click();
 	await expect(page.getByRole('status')).toContainText('Finished');
 	expect(await page.evaluate(() => dbg.result.stdout)).toBe('42');
