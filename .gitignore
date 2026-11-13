@@ -3,7 +3,7 @@ test-results/
 playwright-report/
 .cache/
 *.tgz
-docs/assets/
-docs/README.md
+docs/
+site/static/assets/
 runtime-bundle/
 runtime-bundle.tar.gz

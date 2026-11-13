@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="php-dbg-component">
+	<rect width="32" height="32" rx="6" fill="#20252b"/>
+	<rect x="4" y="13" width="24" height="6" fill="#f2c14e"/>
+	<circle cx="9" cy="16" r="3.2" fill="#d6394a"/>
+	<rect x="15" y="6.5" width="11" height="2.4" rx="1.2" fill="#e0e5eb"/>
+	<rect x="15" y="23" width="8" height="2.4" rx="1.2" fill="#e0e5eb"/>
+</svg>

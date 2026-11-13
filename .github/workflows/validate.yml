@@ -37,7 +37,18 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node scripts/download-runtime.mjs
-      - run: npm run build:docs
+      # The documentation site is built and tested once, beside the PHP 8.4 runtime. SMGen,
+      # which builds it, needs PHP with the YAML extension on the runner, and Pandoc.
+      - uses: shivammathur/setup-php@v2
+        if: matrix.php == '8.4'
+        with:
+          php-version: '8.3'
+          extensions: yaml
+          coverage: none
+      - if: matrix.php == '8.4'
+        run: sudo apt-get update && sudo apt-get install --yes pandoc
+      - if: matrix.php == '8.4'
+        run: npm run build:docs
       - run: npx playwright install --with-deps chromium firefox webkit
       - name: Verify real PHP and browser integrations
         run: |
