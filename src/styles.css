@@ -88,6 +88,15 @@
 	border-radius: var(--php-debugger-radius);
 }
 
+/*
+ * The browser draws a select's list from the select's colours. More is a tab, with no background
+ * of its own, so on a dark page its list would be the browser's white under light text.
+ */
+.php-debugger.php-debugger :where(option) {
+	color: var(--php-debugger-fg);
+	background-color: var(--php-debugger-bg);
+}
+
 .php-debugger.php-debugger :where(button) {
 	cursor: pointer;
 }

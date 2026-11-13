@@ -527,6 +527,20 @@ test('the breakpoint dot clears long line numbers; colours follow a dark page', 
 	await expect(root).toHaveCSS('background-color', 'rgb(21, 27, 35)');
 	await expect(root).toHaveCSS('color', 'rgb(230, 237, 243)');
 	await expect(breakpoint).toHaveCSS('color', 'rgb(255, 142, 142)');
+
+	// The list More opens is dark too, although More itself is a tab with no background.
+	const more = page.getByRole('combobox', {name: 'More panels'}).locator('option');
+
+	const colours = await more.evaluateAll(
+		options => options.map(option => {
+			const style = getComputedStyle(option);
+
+			return `${style.color} on ${style.backgroundColor}`;
+		})
+	);
+
+	expect(colours.length).toBeGreaterThan(1);
+	expect(new Set(colours)).toEqual(new Set(['rgb(230, 237, 243) on rgb(21, 27, 35)']));
 	await page.evaluate(() => dbg.destroy());
 });
 
