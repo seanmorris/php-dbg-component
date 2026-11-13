@@ -387,11 +387,6 @@
 	color: var(--php-debugger-muted);
 }
 
-/* Room for a scrollbar is kept, so a list that grows long enough to scroll does not narrow. */
-.php-debugger .php-debugger-values {
-	scrollbar-gutter: stable;
-}
-
 /*
  * The inspector's tabs: one row, the panel on show underlined. What the pause has in scope comes
  * first; a rule sets the whole program's tables apart. The panel scrolls under the row.
