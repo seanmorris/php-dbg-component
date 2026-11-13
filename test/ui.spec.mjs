@@ -713,11 +713,7 @@ test(
 
 		await expect(last).toHaveCount(1);
 
-		expect(
-			await page.locator('.php-debugger-inspector').evaluate(
-				inspector => inspector.scrollHeight > inspector.clientHeight
-			)
-		).toBe(true);
+		expect(await values.evaluate(panel => panel.scrollHeight > panel.clientHeight)).toBe(true);
 
 		expect(await places()).toEqual(before);
 
@@ -733,6 +729,61 @@ test(
 		await page.evaluate(() => dbg.destroy());
 	}
 );
+
+test('side by side, the output and every inspector panel are one height', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	await page.evaluate(() => {
+		window.dbg = new PhpDebugger(
+			{
+				version: window.phpVersionUnderTest
+				, runtimeBaseUrl: '/runtime/'
+				, code: '<?php\n$list = range(1, 40);\necho count($list);'
+				, breakpoints: [3]
+			}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+	});
+
+	/** The top and bottom of the output box and of the inspector panel on show. */
+	const edges = () => page.evaluate(() => [...document.querySelectorAll(
+		'.php-debugger-console, .php-debugger-values, .php-debugger-breakpoints'
+	)].filter(box => box.getClientRects().length).map(box => {
+		const {top, bottom} = box.getBoundingClientRect();
+
+		return [Math.round(top), Math.round(bottom)];
+	}));
+
+	/** Both boxes start and end level, and are this tall. */
+	const level = async() => {
+		const [output, panel] = await edges();
+
+		expect(panel).toEqual(output);
+
+		return output[1] - output[0];
+	};
+
+	const idle = await level();
+
+	await openPanel(page, 'Breakpoints');
+	await level();
+	await page.getByRole('button', {name: 'Run', exact: true}).click();
+	await expect(page.getByRole('status')).toContainText('Paused at line 3');
+	await openPanel(page, 'Variables');
+	await level();
+
+	// A long list grows both boxes alike, up to where the panel scrolls.
+	const values = page.locator('.php-debugger-values');
+
+	const last = values.locator('.php-debugger-value-line').filter({hasText: /^39: 40/});
+
+	await values.getByRole('button', {name: 'list', exact: true}).click();
+	await expect(last).toHaveCount(1);
+	expect(await level()).toBeGreaterThan(idle);
+	await page.evaluate(() => dbg.destroy());
+});
 
 test('a nested value is edited by keyboard alone, and the tree stays open', async({page}) => {
 	await page.goto('/test/harness.html');
@@ -914,6 +965,12 @@ test('breakpoints list by line and add with Enter; a run clears the console', as
 
 	const shown = () => output.evaluate(element => element.innerText);
 
+	// The breakpoints are an inspector panel, there before any run, and its tab counts them.
+	await expect(list).toBeHidden();
+	await openPanel(page, 'Breakpoints');
+	await expect(page.getByRole('tabpanel', {name: 'Breakpoints', exact: true})).toBeVisible();
+	await expect(tabNamed(page, 'Breakpoints')).toHaveAccessibleName('Breakpoints 1');
+
 	// A breakpoint is named by its line; unticking keeps it without stopping there.
 	await expect(list.getByRole('listitem')).toHaveText(['Line 3×']);
 	await list.getByRole('checkbox', {name: 'Line 3', exact: true}).uncheck();
@@ -928,6 +985,7 @@ test('breakpoints list by line and add with Enter; a run clears the console', as
 	await expect(list.getByRole('listitem')).toHaveText(['Line 2×', 'Line 3×']);
 	await expect(line).toHaveValue('');
 	await expect(line).toBeFocused();
+	await expect(tabNamed(page, 'Breakpoints')).toHaveAccessibleName('Breakpoints 2');
 
 	// What cannot be a breakpoint is refused beside the box, in the user's terms.
 	await line.press('Enter');
@@ -1005,8 +1063,13 @@ test(
 
 		// Wide enough for every tab: no More.
 		await width(2400);
-		await expect(tabs).toHaveCount(8);
+		await expect(tabs).toHaveCount(9);
 		await expect(more).toBeHidden();
+
+		// Before a run, a panel says when it will have something to show.
+		await expect(page.getByRole('tabpanel', {name: 'Variables', exact: true})).toHaveText(
+			'Variables appear here when the program pauses.'
+		);
 
 		// The pause's tabs count its variables and frames; Watch counts the watches.
 		await page.getByRole('button', {name: 'Run', exact: true}).click();

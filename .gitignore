@@ -4,6 +4,7 @@ playwright-report/
 .cache/
 *.tgz
 docs/
+.docs.smgen-build.*/
 site/static/assets/
 runtime-bundle/
 runtime-bundle.tar.gz

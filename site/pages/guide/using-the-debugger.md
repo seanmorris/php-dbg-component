@@ -45,11 +45,11 @@ The button to press next is filled: **Run** before a run, **Continue** during a 
 
 ## Status
 
-The line under the controls says where things stand: `Paused at line 5 of /main.php, on a breakpoint.`, `Finished with exit code 0.`, `Loading PHP 8.4: 40% of 16.6 MB`. Screen readers hear it change.
+The line at the bottom of the debugger says where things stand: `Paused at line 5 of /main.php, on a breakpoint.`, `Finished with exit code 0.`, `Loading PHP 8.4: 40% of 16.6 MB`. Screen readers hear it change.
 
 ## Breakpoints
 
-Click a line number to set a breakpoint, and again to clear it. Or type a line in the **Line** box and press Enter. Each breakpoint is listed beside the box; untick one to keep it without stopping there.
+Click a line number to set a breakpoint, and again to clear it. Or open the **Breakpoints** tab on the right, type a line in the **Line** box and press Enter. The tab lists every breakpoint, before a run as well as during one. Untick a breakpoint to keep it without stopping there, or remove it with ×.
 
 From the keyboard, the line numbers are one tab stop: the arrow keys move along them, and Enter sets or clears the breakpoint on the line in focus.
 
@@ -57,7 +57,7 @@ When execution pauses, the line is marked across the whole editor and scrolled i
 
 ## Values
 
-The tabs on the right show what is in scope while paused. **Variables**, **Frames** and **Watches** come first, each with a count of what it holds. After them come the whole program's **Globals**, **Constants**, **Functions**, **Classes** and **Files**. When the row is too narrow for every tab, the last ones move into **More**.
+The tabs on the right show what is in scope while paused. **Variables**, **Frames**, **Watches** and **Breakpoints** come first, each with a count of what it holds. After them come the whole program's **Globals**, **Constants**, **Functions**, **Classes** and **Files**. When the row is too narrow for every tab, the last ones move into **More**. The panel under the tabs is always as tall as the output beside it.
 
 - An array or object opens when you click its name, and closes again. What you opened stays open as you step.
 - **Edit** opens a box for a PHP expression. Enter applies it, Escape cancels. A value PHP refuses is explained under the box.
