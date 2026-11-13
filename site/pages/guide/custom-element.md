@@ -1,9 +1,21 @@
 ---
-title: "Custom element"
-description: "The debugger as an HTML tag, with the PHP in a textarea inside it."
+title: &title "Custom element"
+description: &description "The debugger as an HTML tag, with the PHP in a textarea inside it."
 menus:
   docs:
-    weight: 20
+    weight: &weight 20
+llms:
+  section: guide
+  weight: *weight
+jsonld:
+  "@context": https://schema.org
+  "@type": TechArticle
+  headline: *title
+  description: *description
+  about:
+    "@id": https://seanmorris.github.io/php-dbg-component/#software
+  isPartOf:
+    "@id": https://seanmorris.github.io/php-dbg-component/#website
 ---
 
 # Custom element

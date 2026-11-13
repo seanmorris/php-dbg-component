@@ -1,9 +1,21 @@
 ---
-title: "Run PHP tests"
-description: "Check output and exit codes with the same controller, with or without the interface."
+title: &title "Run PHP tests"
+description: &description "Check output and exit codes with the same controller, with or without the interface."
 menus:
   docs:
-    weight: 50
+    weight: &weight 50
+llms:
+  section: guide
+  weight: *weight
+jsonld:
+  "@context": https://schema.org
+  "@type": TechArticle
+  headline: *title
+  description: *description
+  about:
+    "@id": https://seanmorris.github.io/php-dbg-component/#software
+  isPartOf:
+    "@id": https://seanmorris.github.io/php-dbg-component/#website
 ---
 
 # Run PHP tests

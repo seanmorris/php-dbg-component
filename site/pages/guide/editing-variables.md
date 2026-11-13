@@ -1,9 +1,21 @@
 ---
-title: "Edit variables from JavaScript"
-description: "Change a value at a breakpoint and continue with it."
+title: &title "Edit variables from JavaScript"
+description: &description "Change a value at a breakpoint and continue with it."
 menus:
   docs:
-    weight: 40
+    weight: &weight 40
+llms:
+  section: guide
+  weight: *weight
+jsonld:
+  "@context": https://schema.org
+  "@type": TechArticle
+  headline: *title
+  description: *description
+  about:
+    "@id": https://seanmorris.github.io/php-dbg-component/#software
+  isPartOf:
+    "@id": https://seanmorris.github.io/php-dbg-component/#website
 ---
 
 # Edit variables from JavaScript

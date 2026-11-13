@@ -4,6 +4,9 @@ import fs from 'node:fs';
 // Where the built site is served: /docs by "npm start", or the path it was built for.
 const docs = (process.env.DOCS_BASE_URL || '/docs').replace(/\/+$/, '');
 
+/** Text as a reader sees it, without the line breaks Pandoc wraps it at. */
+const words = text => text.replace(/\s+/g, ' ').trim();
+
 // Uncaught errors on the pages of the test that is running; any one fails it.
 let errors = [];
 
@@ -202,5 +205,85 @@ test(
 				await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)
 			).toBeLessThanOrEqual(0);
 		}
+	}
+);
+
+test(
+	'every article is listed in llms.txt and describes itself as its heading does'
+	, async({page}) => {
+		const index = await page.request.get(docs + '/llms.txt');
+
+		expect(index.ok()).toBe(true);
+		expect(index.headers()['content-type']).toContain('text/plain');
+
+		// Each entry is "- [title](link): description".
+		const listed = {};
+
+		for(const [, title, link, description] of (await index.text()).matchAll(
+			/^- \[(.+)\]\((.+)\): (.+)$/gm
+		)){
+			listed[new URL(link, index.url()).href] = {title, description};
+		}
+
+		const sitemap = await (await page.request.get(docs + '/sitemap.xml')).text();
+
+		const pages = [...sitemap.matchAll(/<loc>(.+?)<\/loc>/g)].map(
+			match => new URL(match[1], index.url()).href
+		);
+
+		// What the pages say about themselves, and the site and component the home page defines.
+		const articles = {};
+		const references = new Set();
+		let defined = [];
+
+		for(const url of pages)
+		{
+			await page.goto(url);
+
+			const data = JSON.parse(
+				await page.locator('script[type="application/ld+json"]').textContent()
+			);
+
+			const discovery = await page.locator('link[rel=describedby]').evaluate(
+				link => link.href
+			);
+
+			expect(data['@context']).toBe('https://schema.org');
+			expect(discovery).toBe(index.url());
+
+			if(data['@graph'])
+			{
+				const software = data['@graph'].find(
+					entity => entity['@type'] === 'SoftwareSourceCode'
+				);
+
+				const lede = await page.locator('.hero p').first().textContent();
+
+				expect(software.description).toBe(words(lede));
+				defined = data['@graph'].map(entity => entity['@id']);
+
+				continue;
+			}
+
+			const heading = words(await page.getByRole('heading', {level: 1}).textContent());
+			const summary = await page.locator('meta[name=description]').getAttribute('content');
+
+			expect(data.headline ?? data.name).toBe(heading);
+			expect(data.description).toBe(words(summary));
+
+			for(const entity of [data.isPartOf, data.about].filter(Boolean))
+			{
+				references.add(entity['@id']);
+			}
+
+			if(['TechArticle', 'APIReference'].includes(data['@type']))
+			{
+				articles[url] = {title: heading, description: data.description};
+			}
+		}
+
+		expect(listed).toEqual(articles);
+		expect(Object.keys(articles).length).toBeGreaterThan(9);
+		expect(defined).toEqual(expect.arrayContaining([...references]));
 	}
 );

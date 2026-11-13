@@ -1,9 +1,21 @@
 ---
-title: "Get started"
-description: "Install the component, serve a runtime and mount the debugger on a page."
+title: &title "Get started"
+description: &description "Install the component, serve a runtime and mount the debugger on a page."
 menus:
   docs:
-    weight: 10
+    weight: &weight 10
+llms:
+  section: guide
+  weight: *weight
+jsonld:
+  "@context": https://schema.org
+  "@type": TechArticle
+  headline: *title
+  description: *description
+  about:
+    "@id": https://seanmorris.github.io/php-dbg-component/#software
+  isPartOf:
+    "@id": https://seanmorris.github.io/php-dbg-component/#website
 ---
 
 # Get started

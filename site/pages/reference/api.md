@@ -1,9 +1,21 @@
 ---
-title: "API reference"
-description: "Options, methods, events and state of the controller."
+title: &title "API reference"
+description: &description "Options, methods, events and state of the controller."
 menus:
   docs:
-    weight: 10
+    weight: &weight 10
+llms:
+  section: reference
+  weight: *weight
+jsonld:
+  "@context": https://schema.org
+  "@type": APIReference
+  headline: *title
+  description: *description
+  about:
+    "@id": https://seanmorris.github.io/php-dbg-component/#software
+  isPartOf:
+    "@id": https://seanmorris.github.io/php-dbg-component/#website
 ---
 
 # API reference
