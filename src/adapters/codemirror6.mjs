@@ -47,6 +47,11 @@ export function createCodeMirror6Adapter(view, {file = '/main.php'} = {})
 		}
 	);
 
+	/** The band across the line where execution is paused, or nothing when it is not. */
+	const band = line => line === null
+		? Decoration.none
+		: Decoration.set([Decoration.line({class: 'php-debugger-active-line'}).range(line)]);
+
 	const active = StateField.define(
 		{
 			create: () => Decoration.none
@@ -58,13 +63,7 @@ export function createCodeMirror6Adapter(view, {file = '/main.php'} = {})
 				{
 					if(effect.is(position))
 					{
-						value = effect.value === null
-							? Decoration.none
-							: Decoration.set(
-								[Decoration.line({class: 'php-debugger-active-line'}).range(
-									effect.value
-								)]
-							);
+						value = band(effect.value);
 					}
 				}
 

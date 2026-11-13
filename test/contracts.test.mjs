@@ -269,6 +269,17 @@ test(
 			, value
 		});
 
+		/** A variable as describeVars() reports it. */
+		const symbol = (name, type, value, more = {}) => ({
+			name
+			, type
+			, className: null
+			, count: null
+			, reference: false
+			, value
+			, ...more
+		});
+
 		const calls = [];
 		engine.php = {
 
@@ -276,47 +287,11 @@ test(
 				calls.push('vars');
 
 				return [
-					{
-						name: 'count'
-						, type: 'int'
-						, className: null
-						, count: null
-						, reference: false
-						, value: 3
-					}
-					, {
-						name: 'ratio'
-						, type: 'float'
-						, className: null
-						, count: null
-						, reference: false
-						, value: 3
-					}
-					, {
-						name: 'later'
-						, type: 'undefined'
-						, className: null
-						, count: null
-						, reference: false
-						, value: undefined
-					}
-
-					, {
-						name: 'list'
-						, type: 'array'
-						, className: null
-						, count: 2
-						, reference: false
-						, value: list
-					}
-					, {
-						name: 'item'
-						, type: 'object'
-						, className: 'App\\Item'
-						, count: null
-						, reference: false
-						, value: item
-					}
+					symbol('count', 'int', 3)
+					, symbol('ratio', 'float', 3)
+					, symbol('later', 'undefined', undefined)
+					, symbol('list', 'array', list, {count: 2})
+					, symbol('item', 'object', item, {className: 'App\\Item'})
 				];
 			}
 
@@ -438,18 +413,16 @@ test(
 					{
 						const environment = url.includes('-dbg-worker.') ? 'worker' : 'web';
 
-						return new Response(
-							JSON.stringify(
-								{
-									schemaVersion: 1
-									, bridgeVersion: 1
-									, version: '8.4'
-									, environment
-									, wasm: 'php.wasm'
-									, sha256
-								}
-							)
-						);
+						const manifest = {
+							schemaVersion: 1
+							, bridgeVersion: 1
+							, version: '8.4'
+							, environment
+							, wasm: 'php.wasm'
+							, sha256
+						};
+
+						return new Response(JSON.stringify(manifest));
 					}
 
 					fetched.push(url);
@@ -705,12 +678,15 @@ test(
 
 			engine.paused = true;
 			engine.dbgApi = api;
+
+			/** The value under the first key is a float; the others are strings or ints. */
+			const type = key => typeof stored[key] === 'string'
+				? 'string'
+				: key === keys[0] ? 'float' : 'int';
+
 			engine.php = {
 				describeChild: async (parent, key) => ({
-					type: typeof stored[key]
-						=== 'string'
-						? 'string'
-						: key === keys[0] ? 'float' : 'int'
+					type: type(key)
 					, className: null
 					, count: null
 					, reference: false
@@ -756,6 +732,7 @@ test(
 
 		engine.paused = true;
 		engine.dbgApi = 2;
+
 		engine.php = {
 			describeChild: async (parent, key) => ({
 				type: 'int'

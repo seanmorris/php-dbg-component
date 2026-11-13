@@ -120,15 +120,13 @@ export class AssetRegistry
 
 	async json(url)
 	{
-		try
-		{
-			return JSON.parse(new TextDecoder().decode(await this._bytes(url)));
-		}
-		catch(error)
-		{
+		const parsed = this._bytes(url).then(bytes => JSON.parse(new TextDecoder().decode(bytes)));
+
+		// A download that failed or is not JSON is forgotten, so that asking again fetches it.
+		return parsed.catch(error => {
 			this.downloads.delete(String(url));
 			throw error;
-		}
+		});
 	}
 
 	async module(url, sha256)
@@ -232,6 +230,21 @@ export class AssetRegistry
 
 export function sharedAssets() { return globalThis[registryKey] ??= new AssetRegistry(); }
 
+/** Where an extension's module is: the URL given for it, or its package beside the runtime. */
+function extensionUrl(extension, options, base)
+{
+	if(typeof extension !== 'string')
+	{
+		return extension.module;
+	}
+
+	// libxml and zlib load through index.mjs; every other package has a module per PHP version.
+	const name = ['libxml', 'zlib'].includes(extension) ? 'index' : options.version;
+
+	return options.extensionUrls?.[extension]
+		|| new URL(`../php-wasm-${extension}/${name}.mjs`, base).href;
+}
+
 export async function prepareAssets(options)
 {
 	const registry = options.assetRegistry || sharedAssets();
@@ -257,17 +270,7 @@ export async function prepareAssets(options)
 	const [{resolveDependencies}, modules] = await Promise.all([
 		import(/* webpackIgnore: true */ new URL('resolveDependencies.mjs', base).href)
 		, Promise.all((options.extensions || []).map(async extension => {
-			const url = typeof extension === 'string'
-				? options.extensionUrls?.[extension]
-					|| new URL(
-						`../php-wasm-${extension}/${['libxml', 'zlib'].includes(
-							extension
-						)
-							? 'index'
-							: options.version}.mjs`
-						, base
-					).href
-				: extension.module;
+			const url = extensionUrl(extension, options, base);
 
 			if(!url)
 			{

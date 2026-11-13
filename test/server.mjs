@@ -71,6 +71,23 @@ if(!await compatible(nativeDirectory))
 	}
 }
 
+/** Where an extension's package is served from; nothing when it is not installed. */
+function extensionDirectory(name)
+{
+	if(bundle)
+	{
+		return path.join(bundle, `php-wasm-${name}`);
+	}
+
+	if(runtimeRoot)
+	{
+		// php-wasm keeps the yaml extension's package in packages/libyaml.
+		return path.join(runtimeRoot, 'packages', name === 'yaml' ? 'libyaml' : name);
+	}
+
+	return installedPackage(`php-wasm-${name}`);
+}
+
 const counts = new Map();
 await fs.mkdir(path.join(root, '.cache'), {recursive: true});
 
@@ -92,6 +109,8 @@ const types = {
 	, '.svg': 'image/svg+xml'
 	, '.xml': 'application/xml'
 	, '.txt': 'text/plain'
+
+	// An extension's .so is a WebAssembly side module.
 	, '.wasm': 'application/wasm'
 	, '.so': 'application/wasm'
 };
@@ -131,15 +150,7 @@ const server = http.createServer(async(req, res) => {
 
 		if(extension)
 		{
-			base = bundle
-				? path.join(bundle, `php-wasm-${extension[1]}`)
-				: runtimeRoot
-					? path.join(
-						runtimeRoot
-						, 'packages'
-						, extension[1] === 'yaml' ? 'libyaml' : extension[1]
-					)
-					: installedPackage(`php-wasm-${extension[1]}`);
+			base = extensionDirectory(extension[1]);
 
 			if(!base)
 			{

@@ -30,26 +30,24 @@ dbg.addEventListener('complete', event => {const result: RunResult = event.detai
 
 new PhpDebugger(
 	{
-		sharedLibs: [new URL('https://example.test/curl.so')
+		// A library as a URL, as its text, and as a definition.
+		sharedLibs: [
+			new URL('https://example.test/curl.so')
 			, 'https://example.test/curl.so'
-			, [{url: 'https://example.test/curl.so',ini: true}]
+			, [{url: 'https://example.test/curl.so', ini: true}]
+
+			// A package module, which names its library for the PHP version that loads it.
 			, {
-				getLibs: php => [{
-					url: `https://example.test/php${php.phpVersion}-curl.so`
-					, ini: true
-				}]
-				, getFiles: () => [
-					{url: 'https://example.test/data',path: '/preload/data'}
+				getLibs: php => [
+					{url: `https://example.test/php${php.phpVersion}-curl.so`, ini: true}
 				]
+				, getFiles: () => [{url: 'https://example.test/data', path: '/preload/data'}]
 			}
 		]
+
 		, dynamicLibs: [{getLibs: () => []}]
 		, runtimeArgs: {
-			files: [{
-				url: 'https://example.test/data'
-				, parent: '/preload/'
-				, name: 'data'
-			}]
+			files: [{url: 'https://example.test/data', parent: '/preload/', name: 'data'}]
 		}
 	}
 );

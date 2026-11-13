@@ -21,11 +21,7 @@ test(
 			page
 			, {
 				code: '<?php echo "ok\\n"; fwrite(STDERR, "err");'
-				, expect: {
-					stdout: 'ok\n'
-					, stderr: 'err'
-					, exitCode: 0
-				}
+				, expect: {stdout: 'ok\n', stderr: 'err', exitCode: 0}
 			}
 		);
 
@@ -76,18 +72,24 @@ test(
 		const result = await page.evaluate(async () => {
 			const done = dbg.run();
 			await dbg.whenPaused();
+
+			// Edit a local twice through its references, then an array element and a property.
 			const locals = await dbg.inspect('variables');
 			const n = locals.find(v => v.name === 'n');
 			const edited = await dbg.setVariable(n.reference, '8');
 			await dbg.setVariable(edited.reference, '9');
 			await dbg.evaluate('$a["x"] = 20');
 			await dbg.evaluate('$o->x = 30');
+
+			// Select the caller and edit its local.
 			await dbg.selectFrame(1);
 			const callerLine = dbg.location.line;
 			const frames = await dbg.inspect('frames');
 			const caller = await dbg.inspect('variables');
 			await dbg.setVariable(caller.find(v => v.name === 'outer').reference, '77');
 			const editedCaller = await dbg.evaluate('$outer');
+
+			// After a step, a reference from before it is stale.
 			await dbg.selectFrame(0);
 			await dbg.stepOver();
 			let stale = false;
@@ -278,17 +280,16 @@ test('shared binary download is fetched once despite disabled HTTP cache', async
 	);
 
 	const results = await page.evaluate(async version => {
-		const components = Array.from(
-			{length: 3}
-			, (_, i) => new PhpDebugger(
-				{
-					runtimeBaseUrl: '/runtime/'
-					, version
-					, code:
-				`<?php file_put_contents('/own.txt', '${i}'); echo file_get_contents('/own.txt');`
-				}
-			)
-		);
+		const components = [];
+
+		// Each one writes its own number to the same path and reads it back.
+		for(const i of [0, 1, 2])
+		{
+			const code = `<?php file_put_contents('/own.txt', '${i}');`
+				+ " echo file_get_contents('/own.txt');";
+
+			components.push(new PhpDebugger({runtimeBaseUrl: '/runtime/', version, code}));
+		}
 
 		const results = await Promise.all(components.map(d => d.run({mode: 'test'})));
 
@@ -680,25 +681,20 @@ test('a failed expression names its own problem and leaves the exit code alone',
 	const result = await page.evaluate(async() => {
 		const done = dbg.run();
 		await dbg.whenPaused();
+
+		const expressions = [
+			'1 +', '$n +* 2', '1)', 'nope()', 'intdiv(1, 0)'
+			, '$n + 1;', '$n // the count', '[\n1,\n2 3\n]'
+		];
+
 		const answers = {};
 
-		for(const expression of ['1 +'
-			, '$n +* 2'
-			, '1)'
-			, 'nope()'
-			, 'intdiv(1, 0)'
-			, '$n + 1;'
-			, '$n // the count'
-			, '[\n1,\n2 3\n]'
-		]){
-			try
-			{
-				answers[expression] = (await dbg.evaluate(expression)).displayValue;
-			}
-			catch(error)
-			{
-				answers[expression] = error.message;
-			}
+		for(const expression of expressions)
+		{
+			answers[expression] = await dbg.evaluate(expression).then(
+				value => value.displayValue
+				, error => error.message
+			);
 		}
 
 		const n = (await dbg.inspect('variables')).find(value => value.name === 'n');
@@ -725,8 +721,10 @@ test('a failed expression names its own problem and leaves the exit code alone',
 			'1 +': 'syntax error, unexpected end of expression'
 			, '$n +* 2': 'syntax error, unexpected token "*"'
 			, '1)': "Unmatched ')'"
+
 			, 'nope()': 'Error: Call to undefined function nope()'
 			, 'intdiv(1, 0)': 'DivisionByZeroError: Division by zero'
+
 			, '$n + 1;': '3'
 			, '$n // the count': '2'
 			, '[\n1,\n2 3\n]': 'syntax error, unexpected integer "3", expecting "]" on line 3'

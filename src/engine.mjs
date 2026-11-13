@@ -29,6 +29,15 @@ finally
 	unset($__phpDebuggerError);
 }`;
 
+/** What the inspector lists for a child it could not read. */
+const unavailable = (name, error) => ({
+	name
+	, type: 'unavailable'
+	, displayValue: error.message
+	, writable: false
+	, expandable: false
+});
+
 /** Lives beside the runtime, in a worker by default. Live Zend values stay here. */
 export class DebugEngine
 {
@@ -280,15 +289,12 @@ export class DebugEngine
 		this.installedBreakpoints = breakpoints;
 		await this.command('clear');
 
-		if(this.config?.mode !== 'test')
+		// A test run ignores breakpoints.
+		const enabled = this.config?.mode === 'test' ? [] : breakpoints.filter(bp => bp.enabled);
+
+		for(const bp of enabled)
 		{
-			for(const bp of breakpoints)
-			{
-				if(bp.enabled)
-				{
-					await this.command(`break ${bp.file}:${bp.line}`);
-				}
-			}
+			await this.command(`break ${bp.file}:${bp.line}`);
 		}
 	}
 
@@ -453,10 +459,9 @@ export class DebugEngine
 
 		try
 		{
-			return (await this.php.dumpBacktrace()).map(frame => ({
-				...frame
-				, selected: frame.frame === selected
-			}));
+			const frames = await this.php.dumpBacktrace();
+
+			return frames.map(frame => ({...frame, selected: frame.frame === selected}));
 		}
 		finally
 		{
@@ -565,19 +570,39 @@ export class DebugEngine
 			, reference
 			, expandable
 			, circular
+
+			// A function stands for a callable PHP value, which can be neither shown nor assigned.
 			, writable: !!expression && writable && typeof value !== 'function'
 			, ...(info && {className: info.className, count: info.count})
 			, value: expandable || circular || typeof value === 'function' ? undefined : value
-			, displayValue: unset
-				? 'unset'
-				: circular
-					? '[Circular]'
-					: info
-						? this.display(info, value)
-						: expandable
-							? (type === 'array' ? 'Array' : 'Object')
-							: typeof value === 'string' ? JSON.stringify(value) : String(value)
+			, displayValue: this.text(value, type, {unset, circular, expandable, info})
 		};
+	}
+
+	/** The text the inspector shows for a value. */
+	text(value, type, {unset, circular, expandable, info})
+	{
+		if(unset)
+		{
+			return 'unset';
+		}
+
+		if(circular)
+		{
+			return '[Circular]';
+		}
+
+		if(info)
+		{
+			return this.display(info, value);
+		}
+
+		if(expandable)
+		{
+			return type === 'array' ? 'Array' : 'Object';
+		}
+
+		return typeof value === 'string' ? JSON.stringify(value) : String(value);
 	}
 
 	async inspect(scope = 'variables', options = {})
@@ -613,17 +638,17 @@ export class DebugEngine
 					: this.php.describeConstants()
 			);
 
-			return symbols.map(
-				symbol => this.describe(
-					symbol.name
-					, symbol.value
-					, this.symbolExpression(scope, symbol.name)
-					, scope !== 'constants'
-					, this.frame
-					, []
-					, symbol
-				)
+			const describe = symbol => this.describe(
+				symbol.name
+				, symbol.value
+				, this.symbolExpression(scope, symbol.name)
+				, scope !== 'constants'
+				, this.frame
+				, []
+				, symbol
 			);
+
+			return symbols.map(describe);
 		}
 
 		let values = scope === 'frames'
@@ -718,15 +743,7 @@ export class DebugEngine
 			}
 			catch(error)
 			{
-				values.push(
-					{
-						name
-						, type: 'unavailable'
-						, displayValue: error.message
-						, writable: false
-						, expandable: false
-					}
-				);
+				values.push(unavailable(name, error));
 			}
 		}
 
@@ -793,17 +810,10 @@ export class DebugEngine
 			// Read as a plain element, a float of 3.0 arrives as the number 3 and its PHP type is
 			// gone. An API 2 runtime describes the element where it is, as it does any other child.
 			const info = this.dbgApi >= 2 ? await this.php.describeChild(outcome, '1') : null;
+			const value = info ? info.value : outcome[1];
 			const code = `${before}${expression}${after}`;
 
-			return this.describe(
-				code
-				, info ? info.value : outcome[1]
-				, code
-				, true
-				, this.frame
-				, []
-				, info
-			);
+			return this.describe(code, value, code, true, this.frame, [], info);
 		}
 		finally
 		{
@@ -839,6 +849,10 @@ export class DebugEngine
 			, variable.frame
 		);
 
+		const info = this.dbgApi >= 2
+			? {type: evaluated.type, className: evaluated.className, count: evaluated.count}
+			: null;
+
 		const value = this.describe(
 			variable.name
 			, this.references.get(evaluated.reference).value
@@ -846,9 +860,7 @@ export class DebugEngine
 			, variable.writable
 			, variable.frame
 			, variable.ancestors.slice(0, -1)
-			, this.dbgApi >= 2
-				? {type: evaluated.type, className: evaluated.className, count: evaluated.count}
-				: null
+			, info
 		);
 
 		this.references.delete(evaluated.reference);
@@ -859,14 +871,9 @@ export class DebugEngine
 
 	invoke(method, args = [])
 	{
-		const allowed = ['execute'
-			, 'breakpoints'
-			, 'resume'
-			, 'pause'
-			, 'stop'
-			, 'inspect'
-			, 'children'
-			, 'selectFrame', 'evaluate', 'setVariable'
+		const allowed = [
+			'execute', 'breakpoints', 'resume', 'pause', 'stop', 'inspect'
+			, 'children', 'selectFrame', 'evaluate', 'setVariable'
 		];
 
 		if(!allowed.includes(method))
