@@ -155,12 +155,12 @@ async function mount(reset = false)
 	editor?.adapter.dispose();
 	editor?.destroy();
 	editor = null;
-	$('#editor-host').replaceChildren();
 	$('#debugger-host').replaceChildren();
 
 	if(editors[kind])
 	{
-		editor = await editors[kind]($('#editor-host'), value);
+		// Made inside the mount point, the editor moves into the debugger, where the textarea is.
+		editor = await editors[kind]($('#debugger-host'), value);
 		editor.recolour();
 	}
 

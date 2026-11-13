@@ -136,6 +136,10 @@ export interface RunOptions {
 }
 
 export interface EditorAdapter {
+	/** The editor's outermost element. Inside the mount point, it moves into the interface. */
+	element?: Element;
+	/** Measure the editor again after it has moved. */
+	layout?(): void;
 	getCode(): string | Promise<string>;
 	setCode?(code: string): void;
 	setReadOnly?(readOnly: boolean): void;

@@ -43,7 +43,6 @@ Click **Run** to pause on line 5. Open `item` and change `price` to `10`, then c
 <button id="reset" type="button" class="btn">Reset example</button>
 <div id="demo-problem" class="demo-problem" role="alert"></div>
 </div>
-<div id="editor-host"></div>
 <div id="debugger-host"></div>
 </div>
 <script type="module" src="demo.mjs"></script>

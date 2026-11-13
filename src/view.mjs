@@ -311,6 +311,10 @@ export class DebuggerView
 			editor.append(this.gutter, this.textarea);
 			this.root.append(editor);
 		}
+		else if(dbg.source?.element && host.contains(dbg.source.element))
+		{
+			this.hostEditor(dbg.source);
+		}
 
 		// The Breakpoints panel, one of the inspector's: the box to add one, then the list. It is
 		// placed with the other panels below.
@@ -2043,6 +2047,24 @@ export class DebuggerView
 		});
 	}
 
+	/**
+	 * An adapter's editor inside the mount point moves into the interface, where the textarea
+	 * would be, as a textarea there does. It keeps its own look and size, and destroy() hands it
+	 * back.
+	 */
+	hostEditor(adapter)
+	{
+		const {element} = adapter;
+
+		this.hosted = {adapter, element, parent: element.parentNode, next: element.nextSibling};
+		this.hostedSlot = node('div', 'php-debugger-hosted-editor');
+		this.hostedSlot.append(element);
+		this.root.append(this.hostedSlot);
+
+		// Ace and CodeMirror measure themselves against their container.
+		adapter.layout?.();
+	}
+
 	destroy()
 	{
 		this.abort.abort();
@@ -2074,6 +2096,14 @@ export class DebuggerView
 		{
 			this.dbg.options.code = this.textarea.value;
 			this.dbg.source = null;
+		}
+
+		if(this.hosted?.parent.isConnected)
+		{
+			const {adapter, element, parent, next} = this.hosted;
+
+			parent.insertBefore(element, next?.parentNode === parent ? next : null);
+			adapter.layout?.();
 		}
 
 		this.root.remove();

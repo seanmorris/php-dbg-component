@@ -112,7 +112,9 @@ export function createCodeMirror6Adapter(view, {file = '/main.php'} = {})
 	);
 
 	return {
-		getCode: () => view.state.doc.toString()
+		element: view.dom
+		, layout: () => view.requestMeasure()
+		, getCode: () => view.state.doc.toString()
 		, setCode: code => view.dispatch(
 			{changes: {from: 0, to: view.state.doc.length, insert: code}}
 		)

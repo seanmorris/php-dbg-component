@@ -50,7 +50,9 @@ export function createAceAdapter(editor, {file = '/main.php'} = {})
 	editor.on('guttermousedown', gutter);
 
 	return {
-		getCode: () => session.getValue()
+		element: editor.container
+		, layout: () => editor.resize(true)
+		, getCode: () => session.getValue()
 		, setCode: code => session.setValue(code)
 		, setReadOnly: readOnly => editor.setReadOnly(readOnly || originalReadOnly)
 

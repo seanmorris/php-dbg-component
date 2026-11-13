@@ -171,8 +171,8 @@ a:hover { text-decoration-thickness: 2px; }
 .try-result { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-top: 1rem; }
 .try-result output { font-family: var(--mono); font-size: .85rem; }
 .try-result output[data-status=failed] { color: var(--stop); }
-#editor-host:not(:empty) { height: 17rem; margin-bottom: .75rem; overflow: hidden; border: 1px solid var(--rule-2); border-radius: 4px; }
-#editor-host > .CodeMirror, #editor-host > .cm-editor, #editor-host > .ace_editor { height: 100%; }
+/* An editor in the debugger is as tall as its textarea. */
+.php-debugger .php-debugger-hosted-editor > :is(.CodeMirror, .cm-editor, .ace_editor) { height: 17rem; }
 
 /* The debugger takes the page's inks, and the paused line gets the amber. */
 
@@ -195,7 +195,7 @@ a:hover { text-decoration-thickness: 2px; }
 .php-debugger .php-debugger-console { background: var(--paper-2); }
 
 /* The markers the adapters put inside Ace and CodeMirror take the same amber and red. */
-#editor-host {
+.php-debugger .php-debugger-hosted-editor > * {
 	--php-debugger-active: color-mix(in srgb, var(--paused) 26%, transparent);
 	--php-debugger-paused: var(--paused);
 	--php-debugger-error: var(--stop);

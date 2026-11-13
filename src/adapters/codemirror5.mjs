@@ -39,7 +39,9 @@ export function createCodeMirror5Adapter(editor, {file = '/main.php'} = {})
 	editor.on('gutterClick', click);
 
 	return {
-		getCode: () => editor.getValue()
+		element: editor.getWrapperElement()
+		, layout: () => editor.refresh()
+		, getCode: () => editor.getValue()
 		, setCode: code => editor.setValue(code)
 		, setReadOnly: next => editor.setOption('readOnly', next || readOnly)
 

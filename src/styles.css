@@ -8,7 +8,9 @@
  *    from anywhere and yours wins.
  * 2. Isolation. Everything inside .php-debugger starts from the browser's own
  *    styles, so page rules for bare elements (button, pre, ul), resets (*) and
- *    wrappers (.prose pre) do not restyle the debugger by accident.
+ *    wrappers (.prose pre) do not restyle the debugger by accident. An Ace or
+ *    CodeMirror editor moved into the debugger is left as it is, and so are
+ *    its own styles: no rule here for bare elements reaches into it.
  * 3. Appearance. Override the root with a .php-debugger rule, and a part by
  *    selecting it inside the root (.php-debugger .php-debugger-button), in a
  *    stylesheet loaded after this one.
@@ -59,7 +61,7 @@
 
 /* 2. Isolation. Two classes outrank a wrapper class with an element. */
 
-.php-debugger.php-debugger * {
+.php-debugger.php-debugger :where(:not(.php-debugger-hosted-editor *)) {
 	all: revert;
 	box-sizing: border-box;
 }
@@ -79,7 +81,9 @@
 	border-radius: var(--php-debugger-radius);
 }
 
-.php-debugger.php-debugger :where(button, select, textarea, input:not([type=checkbox])) {
+.php-debugger.php-debugger :where(
+	button, select, textarea, input:not([type=checkbox])
+):where(:not(.php-debugger-hosted-editor *)) {
 	padding: .3em .5em;
 	font: inherit;
 	color: inherit;
@@ -92,21 +96,21 @@
  * The browser draws a select's list from the select's colours. More is a tab, with no background
  * of its own, so on a dark page its list would be the browser's white under light text.
  */
-.php-debugger.php-debugger :where(option) {
+.php-debugger.php-debugger :where(option):where(:not(.php-debugger-hosted-editor *)) {
 	color: var(--php-debugger-fg);
 	background-color: var(--php-debugger-bg);
 }
 
-.php-debugger.php-debugger :where(button) {
+.php-debugger.php-debugger :where(button):where(:not(.php-debugger-hosted-editor *)) {
 	cursor: pointer;
 }
 
-.php-debugger.php-debugger :where(button:disabled) {
+.php-debugger.php-debugger :where(button:disabled):where(:not(.php-debugger-hosted-editor *)) {
 	opacity: .45;
 	cursor: default;
 }
 
-.php-debugger.php-debugger :where(:focus-visible) {
+.php-debugger.php-debugger :where(:focus-visible):where(:not(.php-debugger-hosted-editor *)) {
 	outline: 2px solid var(--php-debugger-accent);
 	outline-offset: 2px;
 }
@@ -160,6 +164,20 @@
 	overflow: hidden;
 	font-family: var(--php-debugger-font);
 	background: var(--php-debugger-bg);
+	border: 1px solid var(--php-debugger-border);
+}
+
+/*
+ * An Ace or CodeMirror editor moved in from the page sits where the textarea would, in the same
+ * frame, at the size the page gives it. Its markers keep the colours they have outside: their
+ * fallbacks, which show on any editor theme, or the variables set on the editor itself.
+ */
+.php-debugger .php-debugger-hosted-editor {
+	--php-debugger-active: initial;
+	--php-debugger-paused: initial;
+	--php-debugger-error: initial;
+	min-width: 0;
+	overflow: hidden;
 	border: 1px solid var(--php-debugger-border);
 }
 
@@ -850,12 +868,16 @@
  * pitch; the Line box adds a breakpoint with a full-size target.
  */
 @media (pointer: coarse) {
-	.php-debugger.php-debugger :where(button, select, input:not([type=checkbox])) {
+	.php-debugger.php-debugger :where(
+		button, select, input:not([type=checkbox])
+	):where(:not(.php-debugger-hosted-editor *)) {
 		min-width: 44px;
 		min-height: 44px;
 	}
 
-	.php-debugger.php-debugger :where(select, input:not([type=checkbox])),
+	.php-debugger.php-debugger :where(
+		select, input:not([type=checkbox])
+	):where(:not(.php-debugger-hosted-editor *)),
 	.php-debugger .php-debugger-editor {
 		font-size: max(1em, 16px);
 	}
@@ -866,7 +888,9 @@
 		min-height: 44px;
 	}
 
-	.php-debugger.php-debugger :where(input[type=checkbox]) {
+	.php-debugger.php-debugger :where(
+		input[type=checkbox]
+	):where(:not(.php-debugger-hosted-editor *)) {
 		width: 1.4em;
 		height: 1.4em;
 	}
@@ -950,10 +974,10 @@
 }
 
 /*
- * Markers the adapters place inside Ace and CodeMirror. Those editors sit
- * outside .php-debugger with themes of their own, so the fallback colours are
- * ones that show on a light theme and on a dark one. To change them, set the
- * variables on the editor's container.
+ * Markers the adapters place inside Ace and CodeMirror. Those editors have
+ * themes of their own, beside the debugger or moved into it, so the fallback
+ * colours are ones that show on a light theme and on a dark one. To change
+ * them, set the variables on the editor's container.
  */
 
 .php-debugger-active-line {

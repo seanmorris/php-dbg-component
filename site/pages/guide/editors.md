@@ -68,6 +68,21 @@ The CodeMirror 6 adapter needs `@codemirror/state` and `@codemirror/view`, from 
 
 An adapter adds a breakpoint gutter you can click, marks the paused line, and makes the editor read-only while PHP runs. The editor stays yours: you create it, theme it and destroy it. The component itself depends on neither Ace nor CodeMirror.
 
+## Where the editor goes
+
+Make the editor inside the element you pass to `mount()`, and it moves into the debugger, under the toolbar where the textarea would be. `destroy()` puts it back. Made anywhere else on the page, it stays where you put it.
+
+```javascript
+const host = document.querySelector('#debugger');
+const editor = ace.edit(host.appendChild(document.createElement('div')));
+
+editor.container.style.height = '20rem';
+
+new PhpDebugger({source: createAceAdapter(editor)}).mount(host);
+```
+
+Either way the editor keeps its own theme, and the height you give it: Ace needs one, CodeMirror 5 defaults to 300px and CodeMirror 6 grows with its text. The debugger's stylesheet leaves everything inside the editor alone.
+
 ## Colours of the markers
 
 The markers sit inside your editor, with its theme. Their default colours show on light and dark themes alike. To change them, set `--php-debugger-active`, `--php-debugger-paused` and `--php-debugger-error` on the editor's container. See [CSS and themes](../reference/styling.html).

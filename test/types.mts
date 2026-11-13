@@ -33,6 +33,13 @@ const ElementClass = definePhpDebugger(); const element = new ElementClass(); el
 	= '<?php echo 1;';
 
 void [result, element, createAceAdapter, createCodeMirror6Adapter];
+
+// An adapter names its editor's element, which mount() moves into the interface from inside
+// the mount point.
+const aceAdapter = createAceAdapter(null);
+const hostedEditor: HTMLElement = aceAdapter.element;
+aceAdapter.layout();
+void hostedEditor;
 // @ts-expect-error unsupported PHP version
 new PhpDebugger({version: '7.4'});
 // @ts-expect-error execution mode

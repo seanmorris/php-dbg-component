@@ -73,7 +73,7 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 			await page.selectOption('#editor-kind', kind);
 			await expect(page.locator('#editor-kind')).toBeEnabled();
 
-			const host = page.locator('#editor-host');
+			const host = page.locator('#debugger-host .php-debugger-hosted-editor');
 
 			// What each editor calls its frame and a highlighted keyword.
 			const [frame, keyword] = {

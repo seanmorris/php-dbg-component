@@ -98,11 +98,15 @@ test('declarative autorun, CSS overrides, and generic element/variable sources',
 	);
 });
 
+// Each editor beside the debugger, where it stays, and inside the element the debugger is mounted
+// on, where it moves into the interface until the debugger is destroyed.
 for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 {
-	test(
-		`${kind}: existing editor, breakpoints, edits, highlighting and cleanup`
-		, async({page}) => {
+	for(const placed of ['beside', 'inside'])
+	{
+		const title = `${kind} ${placed} the debugger: breakpoints, edits, markers and cleanup`;
+
+		test(title, async({page}) => {
 			await page.goto('/test/harness.html');
 			await page.waitForFunction(() => window.PhpDebugger);
 
@@ -117,17 +121,26 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 				await page.addStyleTag({url: '/node_modules/codemirror/lib/codemirror.css'});
 			}
 
-			const result = await page.evaluate(async kind => {
-				const host = document.createElement('div');
-				host.style.height = '200px';
-				document.body.append(host);
+			const result = await page.evaluate(async([kind, placed]) => {
+				const mountPoint = document.querySelector('#host');
+				// The editor is made in a box of its own after the debugger, or in the mount point.
+				const host = placed === 'inside' ? mountPoint : document.createElement('div');
 				const code = '<?php\n$n = 2;\n$n += 3;\necho $n;';
 				let editor;
 				let adapter;
 
+				if(placed === 'beside')
+				{
+					document.body.append(host);
+				}
+
 				if(kind === 'ace')
 				{
-					editor = ace.edit(host);
+					const container = document.createElement('div');
+
+					container.style.height = '200px';
+					host.append(container);
+					editor = ace.edit(container);
 					editor.setValue(code);
 					adapter = (await import('/src/adapters/ace.mjs')).createAceAdapter(editor);
 				}
@@ -155,6 +168,8 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 					adapter = createCodeMirror6Adapter(editor);
 				}
 
+				const frame = adapter.element;
+
 				const dbg = new PhpDebugger(
 					{
 						source: adapter
@@ -166,7 +181,7 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 					}
 				);
 
-				dbg.mount(document.querySelector('#host'));
+				dbg.mount(mountPoint);
 				const done = dbg.run();
 				await dbg.whenPaused();
 
@@ -175,25 +190,35 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 					resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))
 				);
 
+				// Where the editor is while mounted, and whether it kept its own styles: Ace and
+				// CodeMirror place their parts themselves.
+				const slot = frame.parentElement;
+
+				const where = {
+					slot: slot.matches('.php-debugger > .php-debugger-hosted-editor')
+					, after: slot.previousElementSibling?.className
+					, position: getComputedStyle(frame).position
+				};
+
 				// CodeMirror 6 keeps an invisible marker in its gutter to reserve the width.
 
-				const box = selector => [...host.querySelectorAll(selector)].find(
+				const box = selector => [...frame.querySelectorAll(selector)].find(
 					element => element.getClientRects().length
 						&& getComputedStyle(element).visibility === 'visible'
 				).getBoundingClientRect();
 
-				const line = [...host.querySelectorAll('.ace_line,.CodeMirror-line,.cm-line')].find(
-					element => element.textContent === '$n += 3;'
-				).getBoundingClientRect();
+				const lines = [...frame.querySelectorAll('.ace_line,.CodeMirror-line,.cm-line')];
+				const line = lines.find(element => element.textContent === '$n += 3;');
+				const lineBox = line.getBoundingClientRect();
 
 				const paused = box('.php-debugger-active-line');
 				const dot = box('.php-debugger-breakpoint-marker');
 
 				const marks = {
-					paused: Math.abs(paused.top - line.top)
+					paused: Math.abs(paused.top - lineBox.top)
 					, pausedHeight: paused.height
-					, dot: Math.abs(dot.top + dot.height / 2 - line.top - line.height / 2)
-					, lineHeight: line.height
+					, dot: Math.abs(dot.top + dot.height / 2 - lineBox.top - lineBox.height / 2)
+					, lineHeight: lineBox.height
 				};
 
 				const values = await dbg.inspect('variables');
@@ -201,6 +226,11 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 				await dbg.continue();
 				const result = await done;
 				await dbg.destroy();
+
+				// Destroyed, the debugger hands the editor back where it was.
+				const returned = frame.parentElement === host
+					&& !document.querySelector('.php-debugger-hosted-editor');
+
 				adapter.dispose();
 				const text = adapter.getCode();
 
@@ -213,8 +243,10 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 					result
 					, text
 					, marks
+					, where
+					, returned
 				};
-			}, kind
+			}, [kind, placed]
 			);
 
 			expect(result.result.stdout).toBe('13');
@@ -223,8 +255,19 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 			expect(result.marks.paused).toBeLessThan(2);
 			expect(result.marks.pausedHeight).toBeGreaterThan(result.marks.lineHeight / 2);
 			expect(result.marks.dot).toBeLessThan(result.marks.lineHeight / 2);
-		}
-	);
+
+			// Inside the mount point, the editor is where the textarea would be: under the toolbar.
+			expect(result.where.slot).toBe(placed === 'inside');
+
+			if(placed === 'inside')
+			{
+				expect(result.where.after).toBe('php-debugger-toolbar');
+			}
+
+			expect(result.where.position).toBe('relative');
+			expect(result.returned).toBe(true);
+		});
+	}
 }
 
 test('GUI edits a live value and exposes symbols, globals, constants and frames', async({page}) => {
