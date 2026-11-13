@@ -1,4 +1,33 @@
-import {deferred, phpString, normalizePath, phpClassLabel, phpPropertyName} from './model.mjs';
+import {
+	deferred
+	, phpString
+	, normalizePath
+	, phpClassLabel
+	, phpPropertyName
+	, evaluationError
+} from './model.mjs';
+
+// What evaluate() runs in the paused frame. The inner eval() compiles and runs the expression
+// in that frame too, so a syntax error or an uncaught exception arrives in this catch block.
+// Left to phpdbg, either one is reported as the script's own fatal error, and a run that then
+// ends normally exits with 255.
+const evaluationRunner = `try
+{
+	return [true, eval(file_get_contents('/.php-debugger/eval.php'))];
+}
+catch(\\Throwable $__phpDebuggerError)
+{
+	return [
+		false
+		, get_class($__phpDebuggerError)
+		, $__phpDebuggerError->getMessage()
+		, $__phpDebuggerError instanceof \\ParseError ? $__phpDebuggerError->getLine() : 0
+	];
+}
+finally
+{
+	unset($__phpDebuggerError);
+}`;
 
 /** Lives beside the runtime, in a worker by default. Live Zend values stay here. */
 export class DebugEngine
@@ -97,6 +126,7 @@ export class DebugEngine
 			: 1;
 
 		this.binary.FS.mkdir('/.php-debugger');
+		this.writeFile('/.php-debugger/run.php', evaluationRunner);
 
 		this.php.addEventListener('stdin-request', () => {
 			// The native async call must unwind before reading its state.
@@ -712,6 +742,18 @@ export class DebugEngine
 			throw new TypeError('Enter a PHP expression');
 		}
 
+		return this.evaluateWithin('', expression, '', frame);
+	}
+
+	/**
+	 * Evaluate `before`, the expression and `after` as one PHP expression in a frame. Only the
+	 * middle part is the user's, and errors are worded for it alone.
+	 */
+	async evaluateWithin(before, expression, after, frame)
+	{
+		// "$n + 1;" is what people type; the semicolon is not part of the expression.
+		expression = expression.replace(/;\s*$/, '');
+
 		const previous = this.frame;
 		await this.selectFrame(frame);
 		this.captured = null;
@@ -719,17 +761,17 @@ export class DebugEngine
 
 		try
 		{
-			// A file avoids phpdbg's line-length limit and preserves multiline expressions.
-			this.writeFile('/.php-debugger/eval.php', `return (${expression});`);
-			// Handed over directly, a float of 3.0 arrives as the number 3 and its PHP type is
-			// gone. Inside an array it stays a PHP value, and the runtime can describe that element
-			// as it describes any other child.
-			const boxed = this.dbgApi >= 2;
+			// A file avoids phpdbg's line-length limit and preserves multiline expressions. The
+			// expression has lines to itself, so a comment at its end cannot swallow the closing
+			// parenthesis and a syntax error's line says whether it is in the expression.
+			this.writeFile(
+				'/.php-debugger/eval.php'
+				, `return (${before}\n${expression}\n${after});`
+			);
 
 			await this.command(
-				`ev vrzno_shared('__phpDebugger')->capture(${boxed
-					? '['
-					: ''}eval(file_get_contents('/.php-debugger/eval.php'))${boxed ? ']' : ''})`
+				"ev vrzno_shared('__phpDebugger')->capture("
+				+ "eval(file_get_contents('/.php-debugger/run.php')))"
 			);
 
 			if(!this.captured)
@@ -740,12 +782,23 @@ export class DebugEngine
 				);
 			}
 
-			const info = boxed ? await this.php.describeChild(this.captured.value, '0') : null;
+			// [true, value], or [false, class, message, line of a syntax error].
+			const outcome = this.captured.value;
+
+			if(!outcome[0])
+			{
+				throw new Error(evaluationError(expression, outcome[1], outcome[2], outcome[3]));
+			}
+
+			// Read as a plain element, a float of 3.0 arrives as the number 3 and its PHP type is
+			// gone. An API 2 runtime describes the element where it is, as it does any other child.
+			const info = this.dbgApi >= 2 ? await this.php.describeChild(outcome, '1') : null;
+			const code = `${before}${expression}${after}`;
 
 			return this.describe(
-				expression
-				, info ? info.value : this.captured.value
-				, expression
+				code
+				, info ? info.value : outcome[1]
+				, code
 				, true
 				, this.frame
 				, []
@@ -774,9 +827,16 @@ export class DebugEngine
 			throw new Error('This value is read-only');
 		}
 
-		const evaluated = await this.evaluate(
-			`${variable.expression} = (${expression})`
-			, {frame: variable.frame}
+		if(typeof expression !== 'string' || !expression.trim())
+		{
+			throw new TypeError('Enter a PHP expression');
+		}
+
+		const evaluated = await this.evaluateWithin(
+			`${variable.expression} = (`
+			, expression
+			, ')'
+			, variable.frame
 		);
 
 		const value = this.describe(

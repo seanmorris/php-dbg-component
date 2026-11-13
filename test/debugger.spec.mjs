@@ -672,3 +672,73 @@ test('reports the interpreter download while loading', async({page}) => {
 
 	expect(last.loaded).toBe(last.total);
 });
+
+test('a failed expression names its own problem and leaves the exit code alone', async({page}) => {
+	await setup(page);
+	await create(page, {code: '<?php\n$n = 2;\necho $n;', breakpoints: [3]});
+
+	const result = await page.evaluate(async() => {
+		const done = dbg.run();
+		await dbg.whenPaused();
+		const answers = {};
+
+		for(const expression of ['1 +'
+			, '$n +* 2'
+			, '1)'
+			, 'nope()'
+			, 'intdiv(1, 0)'
+			, '$n + 1;'
+			, '$n // the count'
+			, '[\n1,\n2 3\n]'
+		]){
+			try
+			{
+				answers[expression] = (await dbg.evaluate(expression)).displayValue;
+			}
+			catch(error)
+			{
+				answers[expression] = error.message;
+			}
+		}
+
+		const n = (await dbg.inspect('variables')).find(value => value.name === 'n');
+		let edit;
+
+		try
+		{
+			await dbg.setVariable(n.reference, '5 +');
+		}
+		catch(error)
+		{
+			edit = error.message;
+		}
+
+		const locals = (await dbg.inspect('variables')).map(value => value.name);
+		await dbg.continue();
+		const {exitCode, status, stdout, diagnostics} = await done;
+
+		return {answers, edit, locals, exitCode, status, stdout, diagnostics};
+	});
+
+	expect(result.answers).toEqual(
+		{
+			'1 +': 'syntax error, unexpected end of expression'
+			, '$n +* 2': 'syntax error, unexpected token "*"'
+			, '1)': "Unmatched ')'"
+			, 'nope()': 'Error: Call to undefined function nope()'
+			, 'intdiv(1, 0)': 'DivisionByZeroError: Division by zero'
+			, '$n + 1;': '3'
+			, '$n // the count': '2'
+			, '[\n1,\n2 3\n]': 'syntax error, unexpected integer "3", expecting "]" on line 3'
+		}
+	);
+
+	expect(result.edit).toBe('syntax error, unexpected end of expression');
+	// Nothing the evaluation used is left behind in the frame.
+	expect(result.locals).not.toContain('__phpDebuggerError');
+	// The script itself ran to its end: the failures above are not its failures.
+	expect(result.stdout).toBe('2');
+	expect(result.status).toBe('completed');
+	expect(result.exitCode).toBe(0);
+	expect(result.diagnostics).toEqual([]);
+});

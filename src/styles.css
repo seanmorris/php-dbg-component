@@ -1,53 +1,673 @@
-@layer php-debugger {
-  :where(.php-debugger) {
-    --php-debugger-bg: #fff;
-    --php-debugger-fg: #202734;
-    --php-debugger-muted: #5b6472;
-    --php-debugger-border: #cbd2dc;
-    --php-debugger-accent: #185adb;
-    --php-debugger-error: #b52132;
-    --php-debugger-active: #fff2b0;
-    --php-debugger-radius: .35rem;
-    --php-debugger-font: ui-monospace, SFMono-Regular, Consolas, monospace;
-    display: grid; gap: .65rem; padding: 1rem; min-width: 0; color: var(--php-debugger-fg);
-    background: var(--php-debugger-bg); border: 1px solid var(--php-debugger-border); border-radius: var(--php-debugger-radius); font: inherit;
-  }
-  :where(.php-debugger-toolbar,.php-debugger-tabs,.php-debugger-expression-form) {display:flex;flex-wrap:wrap;gap:.35rem;align-items:center}
-  :where(.php-debugger button,.php-debugger input,.php-debugger select,.php-debugger textarea) {font:inherit;color:inherit;background:var(--php-debugger-bg);border:1px solid var(--php-debugger-border);border-radius:var(--php-debugger-radius);padding:.3rem .5rem}
-  :where(.php-debugger button) {cursor:pointer}
-  :where(.php-debugger button:disabled) {opacity:.45;cursor:default}
-  :where(.php-debugger :focus-visible) {outline:2px solid var(--php-debugger-accent);outline-offset:2px}
-  :where(.php-debugger-status) {color:var(--php-debugger-muted)}
-  :where(.php-debugger-message,.php-debugger-output-stderr) {color:var(--php-debugger-error);white-space:pre-wrap}
-  :where(.php-debugger-editor) {position:relative;display:flex;max-height:24rem;overflow:hidden;border:1px solid var(--php-debugger-border)}
-  :where(.php-debugger-source) {flex:1;margin-left:3.5rem;min-width:0;min-height:12rem;resize:vertical;white-space:pre;font-family:var(--php-debugger-font);line-height:1.5rem;border:0;overflow:auto}
-  :where(.php-debugger-gutter) {position:absolute;inset:0 auto 0 0;display:flex;flex-direction:column;overflow:hidden;padding:.3rem 0;width:3.5rem;font-family:var(--php-debugger-font)}
-  :where(.php-debugger-gutter .php-debugger-line) {position:relative;flex-shrink:0;padding:0 .4rem 0 1rem;border:0;border-radius:0;line-height:1.5rem;text-align:right}
-  :where(.php-debugger-line[data-breakpoint=true]) {color:var(--php-debugger-error);font-weight:bold}
-  :where(.php-debugger-line[data-breakpoint=true])::before {content:'';position:absolute;left:.3rem;top:50%;width:.45rem;height:.45rem;border-radius:50%;background:currentColor;transform:translateY(-50%);pointer-events:none}
-  :where(.php-debugger-line[data-active=true]) {background:var(--php-debugger-active)}
-  :where(.php-debugger-body) {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:.75rem;min-width:0}
-  :where(.php-debugger-console) {margin:0;min-height:10rem;max-height:24rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--php-debugger-font);border:1px solid var(--php-debugger-border);padding:.6rem}
-  :where(.php-debugger-console-panel) {display:grid;gap:.35rem;align-content:start;min-width:0}
-  :where(.php-debugger-log-toggle) {display:flex;gap:.35rem;align-items:center;justify-self:start;color:var(--php-debugger-muted);font-size:.9em;cursor:pointer}
-  :where(.php-debugger-output-debug) {color:var(--php-debugger-muted)}
-  :where(.php-debugger-output-error) {color:var(--php-debugger-error)}
-  :where(.php-debugger-inspector) {min-width:0;max-height:28rem;overflow:auto}
-  :where(.php-debugger-values) {font-family:var(--php-debugger-font);overflow-wrap:anywhere}
-  :where(.php-debugger-value) {padding:.3rem 0}
-  :where(.php-debugger-value-name) {font-weight:600}
-  :where(.php-debugger-value-preview[data-type=unset]) {color:var(--php-debugger-muted);font-style:italic}
-  :where(.php-debugger-children) {padding-left:1rem;border-left:1px solid var(--php-debugger-border)}
-  :where(.php-debugger-value button) {margin-left:.4rem;font-size:.8em}
-  :where(.php-debugger-symbol) {display:block;margin:.3rem 0;text-align:left}
-  :where(.php-debugger-symbol[aria-current=true]) {color:var(--php-debugger-accent);border-color:currentColor}
-  :where(.php-debugger-expression) {flex:1;min-width:10rem;font-family:var(--php-debugger-font)}
-  :where(.php-debugger-breakpoint-list) {list-style:none;margin:0;padding:0}
-  :where(.php-debugger-tab[aria-pressed=true]) {color:var(--php-debugger-accent);border-color:currentColor}
-  :where(.php-debugger[data-test-status=passed] .php-debugger-status) {color:#14773b}
-  :where(.php-debugger[data-test-status=failed] .php-debugger-status) {color:var(--php-debugger-error)}
-  :where(.php-debugger-active-line) {background:var(--php-debugger-active,#fff2b0)}
-  :where(.php-debugger-breakpoint-marker) {color:var(--php-debugger-error,#b52132);background-color:color-mix(in srgb,currentColor 15%,transparent)}
-  :where(.php-debugger-cm5-gutter,.php-debugger-cm6-gutter) {min-width:1.2rem}
-  @media(max-width:640px) {:where(.php-debugger-body){grid-template-columns:minmax(0,1fr)}}
+/*
+ * php-dbg-component
+ *
+ * The debugger is ordinary HTML in your page, so your stylesheet can reach it.
+ * These rules are arranged so that it does so only on purpose.
+ *
+ * 1. Custom properties, at zero specificity. Set any of them on .php-debugger
+ *    from anywhere and yours wins.
+ * 2. Isolation. Everything inside .php-debugger starts from the browser's own
+ *    styles, so page rules for bare elements (button, pre, ul), resets (*) and
+ *    wrappers (.prose pre) do not restyle the debugger by accident.
+ * 3. Appearance. Override the root with a .php-debugger rule, and a part by
+ *    selecting it inside the root (.php-debugger .php-debugger-button), in a
+ *    stylesheet loaded after this one.
+ * 4. Editor geometry, !important. Line numbers and source lines share one
+ *    pitch, and hidden console lines stay hidden; without either the debugger
+ *    points at the wrong line. Change the pitch with
+ *    --php-debugger-line-height, a length.
+ *
+ * Colours have light and dark defaults and follow the page's color-scheme.
+ */
+
+/* 1. Custom properties. */
+
+:where(.php-debugger) {
+	--php-debugger-bg: #fff;
+	--php-debugger-fg: #202734;
+	--php-debugger-muted: #5b6472;
+	--php-debugger-border: #cbd2dc;
+	--php-debugger-accent: #185adb;
+	--php-debugger-error: #b52132;
+	--php-debugger-success: #14773b;
+	--php-debugger-active: #fff2b0;
+	--php-debugger-paused: #b45309;
+	--php-debugger-radius: .35em;
+	--php-debugger-font: ui-monospace, SFMono-Regular, Consolas, monospace;
+	--php-debugger-line-height: 1.5em;
+}
+
+/* The same defaults, with their dark counterparts for a page whose color-scheme is dark. */
+@supports (color: light-dark(#000, #fff)) {
+	:where(.php-debugger) {
+		--php-debugger-bg: light-dark(#fff, #151b23);
+		--php-debugger-fg: light-dark(#202734, #e6edf3);
+		--php-debugger-muted: light-dark(#5b6472, #9aa5b1);
+		--php-debugger-border: light-dark(#cbd2dc, #3a4656);
+		--php-debugger-accent: light-dark(#185adb, #79b0ff);
+		--php-debugger-error: light-dark(#b52132, #ff8e8e);
+		--php-debugger-success: light-dark(#14773b, #6fd68f);
+		--php-debugger-active: light-dark(#fff2b0, #453a10);
+		--php-debugger-paused: light-dark(#b45309, #f5b83d);
+	}
+}
+
+/* An unknown element is inline by default; the custom element holds a block. */
+:where(php-debugger, .php-debugger-element) {
+	display: block;
+}
+
+/* 2. Isolation. Two classes outrank a wrapper class with an element. */
+
+.php-debugger.php-debugger * {
+	all: revert;
+	box-sizing: border-box;
+}
+
+/* 3. Appearance. */
+
+.php-debugger {
+	box-sizing: border-box;
+	isolation: isolate;
+	display: grid;
+	gap: .65em;
+	min-width: 0;
+	padding: 1em;
+	color: var(--php-debugger-fg);
+	background: var(--php-debugger-bg);
+	border: 1px solid var(--php-debugger-border);
+	border-radius: var(--php-debugger-radius);
+}
+
+.php-debugger.php-debugger :where(button, select, textarea, input:not([type=checkbox])) {
+	padding: .3em .5em;
+	font: inherit;
+	color: inherit;
+	background: var(--php-debugger-bg);
+	border: 1px solid var(--php-debugger-border);
+	border-radius: var(--php-debugger-radius);
+}
+
+.php-debugger.php-debugger :where(button) {
+	cursor: pointer;
+}
+
+.php-debugger.php-debugger :where(button:disabled) {
+	opacity: .45;
+	cursor: default;
+}
+
+.php-debugger.php-debugger :where(:focus-visible) {
+	outline: 2px solid var(--php-debugger-accent);
+	outline-offset: 2px;
+}
+
+.php-debugger .php-debugger-toolbar,
+.php-debugger .php-debugger-toolbar-group,
+.php-debugger .php-debugger-tabs,
+.php-debugger .php-debugger-expression-form {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .35em;
+	align-items: center;
+}
+
+/* Run, step and end are three groups, a little apart. */
+.php-debugger .php-debugger-toolbar {
+	gap: .35em 1em;
+}
+
+/* The one button to press next: Run before a run, Continue during a pause. */
+.php-debugger .php-debugger-button[data-primary=true] {
+	font-weight: 600;
+	color: var(--php-debugger-bg);
+	background: var(--php-debugger-accent);
+	border-color: var(--php-debugger-accent);
+}
+
+.php-debugger .php-debugger-version-label {
+	display: flex;
+	gap: .35em;
+	align-items: center;
+	margin-left: auto;
+	color: var(--php-debugger-muted);
+}
+
+.php-debugger .php-debugger-status {
+	color: var(--php-debugger-muted);
+}
+
+.php-debugger .php-debugger-message,
+.php-debugger .php-debugger-output-stderr {
+	color: var(--php-debugger-error);
+	white-space: pre-wrap;
+}
+
+.php-debugger .php-debugger-editor {
+	max-height: 24em;
+	overflow: hidden;
+	font-family: var(--php-debugger-font);
+	background: var(--php-debugger-bg);
+	border: 1px solid var(--php-debugger-border);
+}
+
+/* Transparent, so the paused line's band shows through from the layer beneath. */
+.php-debugger .php-debugger-source {
+	min-height: 12em;
+	resize: vertical;
+	overflow: auto;
+	white-space: pre;
+	font-family: inherit;
+	background: transparent;
+	border-radius: 0;
+}
+
+.php-debugger .php-debugger-gutter {
+	color: var(--php-debugger-muted);
+}
+
+/* The breakpoint dot has its own column, left of the digits. */
+.php-debugger .php-debugger-line[data-breakpoint=true]::before {
+	content: '';
+	position: absolute;
+	left: .85em;
+	top: 50%;
+	width: .5em;
+	height: .5em;
+	border-radius: 50%;
+	background: currentColor;
+	transform: translate(-50%, -50%);
+	pointer-events: none;
+}
+
+/*
+ * The paused line: a band across the whole line with a bar at its left edge.
+ * The band is wider than any editor and is clipped at the editor's edge.
+ */
+.php-debugger .php-debugger-line[data-active=true]::after {
+	content: '';
+	position: absolute;
+	inset: 0 auto 0 0;
+	z-index: -1;
+	width: 100vw;
+	background: var(--php-debugger-active);
+	box-shadow: inset .25em 0 0 var(--php-debugger-paused);
+	pointer-events: none;
+}
+
+/*
+ * Output and inspector sit side by side while each has room for about 22em, and
+ * one above the other otherwise. It is the debugger's own width that decides,
+ * so a narrow column on a wide page stacks too.
+ */
+.php-debugger .php-debugger-body {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .75em;
+	min-width: 0;
+}
+
+.php-debugger .php-debugger-console-panel,
+.php-debugger .php-debugger-inspector {
+	flex: 1 1 22em;
+	min-width: 0;
+}
+
+.php-debugger .php-debugger-console-panel {
+	display: grid;
+	gap: .35em;
+	align-content: start;
+}
+
+.php-debugger .php-debugger-console-bar {
+	display: flex;
+	gap: .75em;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.php-debugger .php-debugger-log-toggle {
+	display: flex;
+	gap: .35em;
+	align-items: center;
+	font-size: .9em;
+	color: var(--php-debugger-muted);
+	cursor: pointer;
+}
+
+.php-debugger .php-debugger-clear {
+	padding: .1em .45em;
+	font-size: .8em;
+}
+
+/* An empty console says what will appear in it. */
+.php-debugger .php-debugger-console[data-empty=true]::before {
+	content: attr(data-placeholder);
+	color: var(--php-debugger-muted);
+}
+
+.php-debugger .php-debugger-console {
+	min-height: 10em;
+	max-height: 24em;
+	margin: 0;
+	padding: .6em;
+	overflow: auto;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font-family: var(--php-debugger-font);
+	border: 1px solid var(--php-debugger-border);
+}
+
+.php-debugger .php-debugger-output-debug {
+	color: var(--php-debugger-muted);
+}
+
+.php-debugger .php-debugger-output-error {
+	color: var(--php-debugger-error);
+}
+
+.php-debugger .php-debugger-output-input {
+	color: var(--php-debugger-muted);
+}
+
+.php-debugger .php-debugger-inspector {
+	max-height: 28em;
+	overflow: auto;
+}
+
+.php-debugger .php-debugger-values {
+	font-family: var(--php-debugger-font);
+	overflow-wrap: anywhere;
+}
+
+/* A value: its name, what it holds and its Edit button on one line, children beneath. */
+.php-debugger .php-debugger-value-line {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .2em .4em;
+	align-items: baseline;
+	padding: .2em 0;
+}
+
+.php-debugger .php-debugger-value-name {
+	font-weight: 600;
+}
+
+.php-debugger .php-debugger-value-type {
+	font-size: .85em;
+	color: var(--php-debugger-muted);
+}
+
+/* The name of a value that opens is the button that opens it. */
+.php-debugger .php-debugger-expand {
+	padding: 0;
+	font: inherit;
+	text-align: left;
+	color: inherit;
+	background: none;
+	border: 0;
+}
+
+/* A drawn triangle, not a character: a character would be read out as part of the name. */
+.php-debugger .php-debugger-expand::before {
+	content: '';
+	display: inline-block;
+	margin: 0 .5em .1em .2em;
+	vertical-align: middle;
+	border: solid transparent;
+	border-width: .3em 0 .3em .4em;
+	border-left-color: var(--php-debugger-muted);
+}
+
+.php-debugger .php-debugger-expand[aria-expanded=true]::before {
+	transform: rotate(90deg);
+}
+
+/* A value with nothing to open lines up with the names of those that do. */
+.php-debugger .php-debugger-value-leaf::before {
+	content: '';
+	display: inline-block;
+	width: 1.1em;
+}
+
+.php-debugger .php-debugger-expand:hover {
+	color: var(--php-debugger-accent);
+}
+
+.php-debugger .php-debugger-value-preview[data-type=unset] {
+	font-style: italic;
+	color: var(--php-debugger-muted);
+}
+
+.php-debugger .php-debugger-children {
+	margin-left: .45em;
+	padding-left: .9em;
+	border-left: 1px solid var(--php-debugger-border);
+}
+
+.php-debugger .php-debugger-edit,
+.php-debugger .php-debugger-more {
+	padding: .1em .45em;
+	font-size: .8em;
+}
+
+.php-debugger .php-debugger-edit-form {
+	display: flex;
+	flex: 1 1 14em;
+	flex-wrap: wrap;
+	gap: .3em;
+	align-items: center;
+	min-width: 0;
+}
+
+.php-debugger .php-debugger-edit-expression {
+	flex: 1;
+	min-width: 6em;
+	font-family: var(--php-debugger-font);
+}
+
+.php-debugger .php-debugger-edit-expression[aria-invalid=true] {
+	border-color: var(--php-debugger-error);
+}
+
+.php-debugger .php-debugger-edit-error {
+	flex-basis: 100%;
+	color: var(--php-debugger-error);
+	white-space: pre-wrap;
+}
+
+.php-debugger .php-debugger-empty {
+	margin: .3em 0;
+	color: var(--php-debugger-muted);
+}
+
+.php-debugger .php-debugger-symbol {
+	display: block;
+	margin: .3em 0;
+	text-align: left;
+}
+
+.php-debugger .php-debugger-symbol[aria-current=true],
+.php-debugger .php-debugger-tab[aria-selected=true] {
+	color: var(--php-debugger-accent);
+	border-color: currentColor;
+}
+
+.php-debugger .php-debugger-expression {
+	flex: 1;
+	min-width: 10em;
+	font-family: var(--php-debugger-font);
+}
+
+.php-debugger .php-debugger-expression[aria-invalid=true] {
+	border-color: var(--php-debugger-error);
+}
+
+.php-debugger .php-debugger-expression-error {
+	flex-basis: 100%;
+	color: var(--php-debugger-error);
+	white-space: pre-wrap;
+}
+
+.php-debugger .php-debugger-expression-error:empty,
+.php-debugger .php-debugger-edit-error:empty,
+.php-debugger .php-debugger-breakpoint-error:empty,
+.php-debugger .php-debugger-message:empty {
+	display: none;
+}
+
+/* The box to add a breakpoint, then the breakpoints there are, each a small chip. */
+.php-debugger .php-debugger-breakpoints,
+.php-debugger .php-debugger-breakpoint-form,
+.php-debugger .php-debugger-breakpoint-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .35em;
+	align-items: center;
+}
+
+.php-debugger .php-debugger-breakpoints {
+	gap: .35em .75em;
+}
+
+.php-debugger .php-debugger-breakpoint-line {
+	width: 6em;
+}
+
+.php-debugger .php-debugger-breakpoint-line[aria-invalid=true] {
+	border-color: var(--php-debugger-error);
+}
+
+.php-debugger .php-debugger-breakpoint-list {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.php-debugger .php-debugger-breakpoint {
+	display: flex;
+	gap: .15em;
+	align-items: center;
+	padding: .05em .1em .05em .4em;
+	border: 1px solid var(--php-debugger-border);
+	border-radius: var(--php-debugger-radius);
+}
+
+.php-debugger .php-debugger-breakpoint-toggle {
+	display: flex;
+	gap: .3em;
+	align-items: center;
+	cursor: pointer;
+}
+
+.php-debugger .php-debugger-breakpoint[data-enabled=false] .php-debugger-breakpoint-toggle {
+	color: var(--php-debugger-muted);
+	text-decoration: line-through;
+}
+
+.php-debugger .php-debugger-breakpoint-remove {
+	padding: 0 .35em;
+	font-size: 1.1em;
+	line-height: 1.2;
+	color: var(--php-debugger-muted);
+	background: none;
+	border-color: transparent;
+}
+
+.php-debugger .php-debugger-breakpoint-remove:hover {
+	color: var(--php-debugger-error);
+}
+
+.php-debugger .php-debugger-breakpoint-error {
+	flex-basis: 100%;
+	color: var(--php-debugger-error);
+}
+
+.php-debugger[data-test-status=passed] .php-debugger-status {
+	color: var(--php-debugger-success);
+}
+
+.php-debugger[data-test-status=failed] .php-debugger-status {
+	color: var(--php-debugger-error);
+}
+
+/*
+ * On a phone the controls stay in reach: the toolbar is one row that scrolls
+ * sideways and sticks to the top while the debugger is on screen, and the tabs
+ * are one row too. Set --php-debugger-sticky-top to clear a fixed page header.
+ */
+@media (max-width: 640px) {
+	.php-debugger {
+		padding: .6em;
+	}
+
+	.php-debugger .php-debugger-toolbar {
+		position: sticky;
+		top: var(--php-debugger-sticky-top, 0px);
+		z-index: 2;
+		flex-wrap: nowrap;
+		margin: -.6em -.6em 0;
+		padding: .5em .6em;
+		overflow-x: auto;
+		background: var(--php-debugger-bg);
+		border-bottom: 1px solid var(--php-debugger-border);
+	}
+
+	.php-debugger .php-debugger-toolbar-group,
+	.php-debugger .php-debugger-tabs {
+		flex-wrap: nowrap;
+	}
+
+	.php-debugger .php-debugger-tabs {
+		overflow-x: auto;
+	}
+
+	.php-debugger .php-debugger-toolbar-group,
+	.php-debugger .php-debugger-toolbar .php-debugger-button,
+	.php-debugger .php-debugger-version-label,
+	.php-debugger .php-debugger-tab {
+		flex: none;
+		white-space: nowrap;
+	}
+}
+
+/*
+ * Under a finger: controls at least 44px, and text boxes at 16px so the
+ * page is not zoomed when one takes focus. Line numbers keep the source's
+ * pitch; the Line box adds a breakpoint with a full-size target.
+ */
+@media (pointer: coarse) {
+	.php-debugger.php-debugger :where(button, select, input:not([type=checkbox])) {
+		min-width: 44px;
+		min-height: 44px;
+	}
+
+	.php-debugger.php-debugger :where(select, input:not([type=checkbox])),
+	.php-debugger .php-debugger-editor {
+		font-size: max(1em, 16px);
+	}
+
+	.php-debugger .php-debugger-log-toggle,
+	.php-debugger .php-debugger-breakpoint-toggle {
+		min-height: 44px;
+	}
+
+	.php-debugger.php-debugger :where(input[type=checkbox]) {
+		width: 1.4em;
+		height: 1.4em;
+	}
+}
+
+/* 4. Editor geometry. */
+
+.php-debugger [hidden] {
+	display: none !important;
+}
+
+/*
+ * The pitch is resolved once, here, and inherited as a length: a font size set
+ * on the source alone cannot pull the two apart. The first column holds the
+ * breakpoint dot, then as many digits as the last line number has.
+ */
+.php-debugger .php-debugger-editor {
+	--php-debugger-gutter-width: calc(1.6em + var(--php-debugger-gutter-digits, 2) * 1ch + .6em);
+	position: relative !important;
+	display: grid !important;
+	grid-template-columns: var(--php-debugger-gutter-width) minmax(0, 1fr) !important;
+	line-height: var(--php-debugger-line-height) !important;
+}
+
+.php-debugger .php-debugger-source {
+	position: relative !important;
+	z-index: 1 !important;
+	grid-column: 2 !important;
+	box-sizing: border-box !important;
+	width: 100% !important;
+	margin: 0 !important;
+	padding: .3rem .5rem !important;
+	line-height: inherit !important;
+	border-width: 0 !important;
+}
+
+/*
+ * A layer under the whole editor, out of flow: the source alone sets the
+ * editor's height, and the paused line's band can reach across it. The font
+ * is the editor's, so the column width above means the same here. The room
+ * at the bottom lets it follow the source past a horizontal scrollbar.
+ */
+.php-debugger .php-debugger-gutter {
+	position: absolute !important;
+	inset: 0 !important;
+	z-index: 0 !important;
+	display: block !important;
+	box-sizing: border-box !important;
+	margin: 0 !important;
+	padding: .3rem 0 3em !important;
+	overflow: hidden !important;
+	font: inherit !important;
+	border-width: 0 !important;
+}
+
+.php-debugger .php-debugger-gutter .php-debugger-line {
+	all: unset !important;
+	position: relative !important;
+	display: block !important;
+	box-sizing: border-box !important;
+	width: var(--php-debugger-gutter-width) !important;
+	padding: 0 .6em 0 1.6em !important;
+	text-align: right !important;
+	white-space: nowrap !important;
+	cursor: pointer !important;
+}
+
+.php-debugger .php-debugger-gutter .php-debugger-line[data-active=true] {
+	font-weight: bold !important;
+	color: var(--php-debugger-fg) !important;
+}
+
+.php-debugger .php-debugger-gutter .php-debugger-line[data-breakpoint=true] {
+	font-weight: bold !important;
+	color: var(--php-debugger-error) !important;
+}
+
+.php-debugger .php-debugger-gutter .php-debugger-line:focus-visible {
+	outline: 2px solid var(--php-debugger-accent) !important;
+	outline-offset: -2px !important;
+}
+
+/*
+ * Markers the adapters place inside Ace and CodeMirror. Those editors sit
+ * outside .php-debugger with themes of their own, so the fallback colours are
+ * ones that show on a light theme and on a dark one. To change them, set the
+ * variables on the editor's container.
+ */
+
+.php-debugger-active-line {
+	background: var(--php-debugger-active, color-mix(in srgb, #f5a524 30%, transparent));
+	box-shadow: inset 3px 0 0 var(--php-debugger-paused, #d97706);
+}
+
+/* Ace positions its own marker classes; a custom one has to say so itself. */
+.ace_marker-layer .php-debugger-active-line {
+	position: absolute;
+}
+
+/* The dot CodeMirror shows in the breakpoint gutter. */
+.php-debugger-breakpoint-marker {
+	color: var(--php-debugger-error, #e5484d);
+}
+
+/* Ace puts the class on the line number's cell: a dot beside the number, which keeps its colour. */
+.ace_gutter-cell.php-debugger-breakpoint-marker {
+	color: inherit;
+	background-image: radial-gradient(
+		circle at .75em 50%,
+		var(--php-debugger-error, #e5484d) 0 .3em,
+		transparent calc(.3em + 1px)
+	);
+}
+
+.php-debugger-cm5-gutter,
+.php-debugger-cm6-gutter {
+	min-width: 1.2rem;
 }

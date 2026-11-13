@@ -84,6 +84,8 @@ export function definePhpDebugger(name = 'php-debugger', registry = customElemen
 				);
 			}
 
+			// Marks the element for the stylesheet under whatever name it was registered.
+			this.classList.add('php-debugger-element');
 			this.debugger.mount(this);
 
 			if(this.hasAttribute('autorun'))

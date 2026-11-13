@@ -82,7 +82,7 @@ const result = await done;
 | `inspect(scope, {frame})` | `variables`, `globals`, `constants`, `functions`, `classes`, `files`, or `frames`. Frames are `{frame, filename, lineNo, selected}` and are always listed from the innermost frame. A variable the frame has not assigned yet has type `unset`. With a runtime that provides debugger API 2, frames also carry `functionName` and `className`, and values carry PHP types (`int`, `float`, `bool`, `string`, `array`, `object`, `null`), `className` and `count`; older runtimes report JavaScript-derived types (`number`, `boolean`, …). |
 | `selectFrame(index)` | Change the inspected/evaluated frame. Zero is the innermost frame. |
 | `children(reference, {offset, limit})` | Expand a value, default 100 entries; maximum page size 1000. A property of an object carries `visibility`. With a runtime that provides debugger API 2, private and protected properties are listed as well, read-only; older runtimes list public properties only. |
-| `evaluate(expression, {frame})` | Evaluate a PHP expression, including assignments and multiline expressions. |
+| `evaluate(expression, {frame})` | Evaluate a PHP expression, including assignments and multiline expressions. A syntax error or an uncaught exception rejects with a message about the expression (`syntax error, unexpected end of expression`, `Error: Call to undefined function nope()`) and leaves the run and its exit code as they were. |
 | `setVariable(reference, expression)` | Assign a PHP expression to a variable or child value. |
 | `setBreakpoints([...])` | Replace breakpoints while idle or paused. Integers or `{file,line,enabled}`. |
 | `setVersion('8.5')` | Stop execution and select a version. Downloads begin on the next run. |
@@ -124,26 +124,39 @@ echo $n;
 </script>
 ```
 
+A `<textarea>` inside the element becomes the editor: it moves into the interface, gets line numbers you can click for breakpoints, and shows the paused line. It is handed back as it was when the debugger is destroyed. (The same holds for a textarea inside any element passed to `mount()`; one elsewhere on the page, passed as `source`, stays where it is.) The element is a block; the stylesheet covers the default `php-debugger` name and any name you register.
+
 Registration is explicit. Supported attributes: `version`, `execution`, `runtime-base-url`, `source` (CSS selector), `breakpoints` (JSON), `extensions` (comma-separated), `mode`, and `autorun`. Only `version` is observed after connection; use controller methods for other changes. Set `.options`, `.source`, `.code`, or `.expect` before insertion for richer inputs. A nested `<script type="application/json" data-expect>` supplies JSON expectations. **Autorun is opt-in**; use `autorun mode="test"` for page-driven tests. Removing the element destroys its controller; moving it in the same document preserves it.
 
 The element exposes `.debugger` and forwards execution/inspection methods. `inspectChildren()` corresponds to the controller's `children()` because DOM elements already have a `children` property.
 
 ## Events and styling
 
-Controller events are `CustomEvent`s with `.detail`: `statechange`, `progress` (`loaded`, `total` bytes of the interpreter download; `total` is `null` when the server does not say), `output` (`channel`, `text`), `pause`, `locationchange`, `framechange`, `variablechange`, `breakpointchange`, `versionchange`, `sourcechange`, `diagnostic`, `testresult`, and `complete`. Custom element events bubble with a `phpdbg-` prefix. `stdout` and `stderr` are program output; `debug` is debugger console output, and its `kind` is `notice` (phpdbg's own messages), `error`, or `evaluation`. The built-in view shows program output, errors and evaluation output, and keeps notices hidden until "Debugger log" is ticked.
+Controller events are `CustomEvent`s with `.detail`: `statechange`, `progress` (`loaded`, `total` bytes of the interpreter download; `total` is `null` when the server does not say), `output` (`channel`, `text`), `pause`, `locationchange`, `framechange`, `variablechange`, `breakpointchange`, `versionchange`, `sourcechange`, `diagnostic`, `testresult`, and `complete`. Custom element events bubble with a `phpdbg-` prefix. `stdout` and `stderr` are program output; `debug` is debugger console output, and its `kind` is `notice` (phpdbg's own messages), `error`, or `evaluation`. The built-in view shows program output, errors and evaluation output, and keeps notices hidden until "Debugger log" is ticked. It echoes each evaluated expression before its result, and reports an expression's error beside the expression box. Its status line is a sentence: `Paused at line 5 of /main.php, on a breakpoint.`, `Finished with exit code 0.` For state in code or CSS, use `dbg.state` or the root's `data-state`, not that text. While focus is inside the debugger, F8 runs or continues, F10 steps over, F11 steps into and Shift+F11 steps out. The line numbers are one tab stop (arrow keys move along them, Enter sets or clears a breakpoint), and so is the row of inspector tabs.
+
+Output and inspector sit side by side while the debugger is wide enough for both and stack otherwise, whatever the width of the page. On a phone the toolbar is one row that scrolls sideways and stays at the top of the screen while the debugger is in view; set `--php-debugger-sticky-top` to the height of a fixed page header. With a coarse pointer, controls are at least 44px and text boxes at least 16px.
 
 ```css
 .my-page .php-debugger {
+  color-scheme: dark;
   --php-debugger-bg: #131b27;
   --php-debugger-fg: #e7edf5;
   --php-debugger-accent: #8ce4cb;
   --php-debugger-border: #35465c;
   --php-debugger-radius: 12px;
 }
-.my-page .php-debugger-button { font-family: inherit; }
+.my-page .php-debugger .php-debugger-button { font-family: inherit; }
 ```
 
-There is no shadow root. All classes start with `php-debugger-`; the root is `.php-debugger`. The optional stylesheet uses low-specificity selectors inside a CSS layer, so page CSS can override it. Root `data-state` and `data-test-status` attributes support state styling. Remaining variables are `--php-debugger-muted`, `--php-debugger-error`, `--php-debugger-active`, and `--php-debugger-font`. Rendered PHP strings use text nodes.
+There is no shadow root. All classes start with `php-debugger-`; the root is `.php-debugger`. Rendered PHP strings use text nodes.
+
+- **Variables** can be set from any rule, in a stylesheet loaded before or after the component's. Besides those above: `--php-debugger-muted`, `--php-debugger-error` (errors and breakpoints), `--php-debugger-success`, `--php-debugger-active` and `--php-debugger-paused` (the band across the line where execution is paused, and the bar at its left edge), `--php-debugger-font`, and `--php-debugger-line-height` (a length; the pitch the line numbers and the source share).
+- **Light and dark.** The default colours follow the page's `color-scheme`. A page with a dark design that has not declared one sets `color-scheme: dark` on `:root` or on `.php-debugger`, as above, and the variables it leaves alone take their dark defaults.
+- **Markers in Ace and CodeMirror** sit outside `.php-debugger`, in an editor with a theme of its own, so their default colours are ones that show on light and dark themes. Set `--php-debugger-active`, `--php-debugger-paused` and `--php-debugger-error` on the editor's container to change them.
+- **Page rules for bare elements stay out.** A reset (`* { padding: 0 }`), a classless framework's `button` rule or a typography wrapper's `.prose pre` does not restyle the debugger, so it looks the same on any page. Text takes the font and size of the element you mount it in.
+- **To restyle a part**, select it inside the root, as above, in a stylesheet loaded after the component's or with one more class in front. A `.php-debugger` rule loaded after the component's restyles the root.
+- **Editor geometry is fixed.** The line numbers' and the source's line height, padding and borders are `!important`, as is `display: none` on hidden console lines: with either changed the debugger points at the wrong line.
+- Root `data-state` and `data-test-status` attributes support state styling.
 
 ## Runtime assets, versions, and extensions
 
