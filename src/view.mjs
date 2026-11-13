@@ -19,6 +19,12 @@ function node(tag, className, text)
 	return n;
 }
 
+/** What an inspector panel is called on its tab: "variables" is "Variables". */
+function panelTitle(scope)
+{
+	return scope[0].toUpperCase() + scope.slice(1);
+}
+
 export class DebuggerView
 {
 
@@ -375,36 +381,79 @@ export class DebuggerView
 
 		const right = node('div', 'php-debugger-inspector');
 		body.append(right);
-		this.tabs = node('div', 'php-debugger-tabs');
+
+		// The tabs: what the pause has in scope first, then the whole program's tables. When the
+		// row is too narrow, the last of those fold into More.
+		this.tabBar = node('div', 'php-debugger-tabs');
+		this.tabs = node('div', 'php-debugger-tablist');
 		this.tabs.setAttribute('role', 'tablist');
 		this.tabs.setAttribute('aria-label', 'Inspect');
-		right.append(this.tabs);
+		this.tabList = [];
+		this.counts = {};
 
-		for(const scope of ['variables'
-			, 'globals'
-			, 'constants'
-			, 'functions'
-			, 'classes'
-			, 'files'
-			, 'frames'
-			, 'watches'
+		for(const [group, scopes] of [
+			['pause', ['variables', 'frames', 'watches']]
+			, ['program', ['globals', 'constants', 'functions', 'classes', 'files']]
 		]){
-			const tab = node('button', 'php-debugger-tab', scope[0].toUpperCase() + scope.slice(1));
+			if(group === 'program')
+			{
+				const divider = node('span', 'php-debugger-tab-divider');
 
-			tab.type = 'button';
-			tab.id = `${this.id}-tab-${scope}`;
-			tab.setAttribute('role', 'tab');
-			tab.dataset.panel = scope;
-			tab.addEventListener('click', () => this.showPanel(scope), {signal: this.abort.signal});
-			this.tabs.append(tab);
+				divider.setAttribute('aria-hidden', 'true');
+				this.tabs.append(divider);
+			}
+
+			for(const scope of scopes)
+			{
+				this.tabList.push(this.tab(scope, group));
+			}
 		}
 
-		// One tab stop for the row; the arrow keys move along it and show each panel.
+		this.more = node('select', 'php-debugger-tab-more');
+		this.more.id = `${this.id}-tab-more`;
+		this.more.setAttribute('aria-label', 'More panels');
+		this.more.hidden = true;
+
+		this.more.addEventListener(
+			'change'
+			, () => this.more.value && this.showPanel(this.more.value)
+			, {signal: this.abort.signal}
+		);
+
+		// A select is as wide as its longest option. This copy, never seen, measures the one name
+		// More shows, so More can be as wide as that.
+		this.moreSizer = node('select', 'php-debugger-tab-more php-debugger-tab-sizer');
+		this.moreSizer.append(node('option'));
+		this.moreSizer.setAttribute('aria-hidden', 'true');
+		this.moreSizer.tabIndex = -1;
+
+		this.tabBar.append(this.tabs, this.more, this.moreSizer);
+		right.append(this.tabBar);
+
+		// The row is fitted again when its width changes, a frame later, so that folding a tab
+		// never resizes the row inside the observer's own callback.
+		if(globalThis.ResizeObserver)
+		{
+			this.tabResize = new ResizeObserver(([entry]) => {
+				if(entry.contentRect.width !== this.tabWidth)
+				{
+					this.tabWidth = entry.contentRect.width;
+					requestAnimationFrame(() => this.fitTabs());
+				}
+			});
+
+			this.tabResize.observe(this.tabBar);
+		}
+
+		// The labels may be measured before the page's font has loaded.
+		document.fonts?.ready.then(() => this.tabBar.isConnected && this.fitTabs());
+
+		// One tab stop for the row; the arrow keys move along the tabs on show and show each panel.
 		this.tabs.addEventListener(
 			'keydown'
 			, event => {
-				const tabs = [...this.tabs.children];
-				const at = tabs.findIndex(tab => tab.dataset.panel === this.panel);
+				const tabs = this.tabList.filter(tab => !tab.hidden);
+				const at = tabs.indexOf(event.target);
 
 				const to = {
 					ArrowRight: (at + 1) % tabs.length
@@ -470,6 +519,7 @@ export class DebuggerView
 				if(expression)
 				{
 					this.watches.push(expression);
+					this.showCounts(this.counts);
 					this.showPanel('watches');
 				}
 			}
@@ -540,7 +590,7 @@ export class DebuggerView
 			]))
 		);
 
-		this.markTabs();
+		this.fitTabs();
 		this.gutterUpdate();
 		this.update();
 	}
@@ -548,24 +598,150 @@ export class DebuggerView
 	showPanel(panel)
 	{
 		this.panel = panel;
-		this.markTabs();
+
+		// More may now show a longer name than before.
+		this.fitTabs();
 		void this.refresh();
 	}
 
-	/** Say which tab's panel is showing; only that tab is a tab stop. */
+	/** One inspector tab: its title, then how many things it holds once that is known. */
+	tab(scope, group)
+	{
+		const tab = node('button', 'php-debugger-tab');
+
+		tab.type = 'button';
+		tab.id = `${this.id}-tab-${scope}`;
+		tab.setAttribute('role', 'tab');
+		tab.dataset.panel = scope;
+		tab.dataset.group = group;
+		tab.append(panelTitle(scope), ' ', node('span', 'php-debugger-tab-count'));
+		tab.addEventListener('click', () => this.showPanel(scope), {signal: this.abort.signal});
+		this.tabs.append(tab);
+
+		return tab;
+	}
+
+	/**
+	 * Say which tab's panel is showing. Only that tab is a tab stop; when it has folded into More,
+	 * the first tab on show is.
+	 */
 	markTabs()
 	{
-		for(const tab of this.tabs.children)
+		const shown = this.tabList.find(tab => tab.dataset.panel === this.panel);
+		const stop = shown.hidden ? this.tabList.find(tab => !tab.hidden) : shown;
+
+		for(const tab of this.tabList)
 		{
-			const selected = tab.dataset.panel === this.panel;
+			tab.setAttribute('aria-selected', String(tab === shown));
+			tab.tabIndex = tab === stop ? 0 : -1;
+		}
 
-			tab.setAttribute('aria-selected', String(selected));
-			tab.tabIndex = selected ? 0 : -1;
+		this.content.setAttribute('aria-label', panelTitle(this.panel));
+		this.fillMore();
+	}
 
-			if(selected)
+	/**
+	 * Fold tabs into More, last first, until the row fits, and unfold them when it has room: the
+	 * program's tables, then Watches and Frames at the narrowest. Variables always stays.
+	 */
+	fitTabs()
+	{
+		const foldable = this.tabList.filter(tab => tab.dataset.panel !== 'variables');
+
+		/** Whether the row is wider than its place. */
+		const overflows = () => this.tabBar.scrollWidth > this.tabBar.clientWidth;
+
+		for(const tab of foldable)
+		{
+			tab.hidden = false;
+		}
+
+		this.more.hidden = true;
+
+		if(overflows())
+		{
+			this.more.hidden = false;
+			this.sizeMore('More');
+
+			for(const tab of foldable.reverse())
 			{
-				this.content.setAttribute('aria-labelledby', tab.id);
+				if(!overflows())
+				{
+					break;
+				}
+
+				tab.hidden = true;
+
+				// From here on More shows the panel's name.
+				if(tab.dataset.panel === this.panel)
+				{
+					this.sizeMore(panelTitle(this.panel));
+				}
 			}
+		}
+
+		this.markTabs();
+	}
+
+	/** Make More as wide as the name it shows. */
+	sizeMore(label)
+	{
+		this.moreSizer.firstChild.textContent = label;
+		this.more.style.width = this.moreSizer.offsetWidth ? `${this.moreSizer.offsetWidth}px` : '';
+	}
+
+	/** List the folded tabs in More. While one of their panels is showing, More shows its name. */
+	fillMore()
+	{
+		const folded = this.tabList.filter(tab => tab.hidden);
+		const placeholder = node('option', '', 'More');
+
+		placeholder.value = '';
+		placeholder.hidden = true;
+
+		const options = folded.map(tab => {
+			const option = node('option', '', panelTitle(tab.dataset.panel));
+
+			option.value = tab.dataset.panel;
+
+			return option;
+		});
+
+		this.more.replaceChildren(placeholder, ...options);
+		this.more.value = options.some(option => option.value === this.panel) ? this.panel : '';
+		this.more.dataset.selected = String(this.more.value !== '');
+		this.sizeMore(this.more.selectedOptions[0].textContent);
+	}
+
+	/** Put the counts on their tabs; the watches are counted here. No count is shown for none. */
+	showCounts(counts)
+	{
+		this.counts = counts;
+
+		for(const tab of this.tabList)
+		{
+			const scope = tab.dataset.panel;
+			const count = scope === 'watches' ? this.watches.length : counts[scope];
+
+			tab.querySelector('.php-debugger-tab-count').textContent = count ? String(count) : '';
+		}
+
+		this.fitTabs();
+	}
+
+	/** Count the pause's variables and frames, reusing the panel that was just loaded. */
+	async recount(generation, loaded)
+	{
+		const counts = {...loaded};
+
+		for(const scope of ['variables', 'frames'])
+		{
+			counts[scope] ??= await this.dbg.inspect(scope).then(list => list.length, () => null);
+		}
+
+		if(generation === this.refreshNumber && this.dbg.state === 'paused')
+		{
+			this.showCounts(counts);
 		}
 	}
 
@@ -771,6 +947,12 @@ export class DebuggerView
 		if(state !== 'paused')
 		{
 			this.pauseReason = null;
+		}
+
+		// A step keeps the counts until the next pause replaces them; the end of a run drops them.
+		if(!['paused', 'running'].includes(state) && Object.keys(this.counts).length)
+		{
+			this.showCounts({});
 		}
 
 		this.status.textContent = this.statusText();
@@ -1193,6 +1375,9 @@ export class DebuggerView
 			return;
 		}
 
+		// What this panel held, for the count on its tab.
+		const loaded = {};
+
 		await this.act(async() => {
 			let values = this.panel === 'watches'
 				? await Promise.all(this.watches.map(expression => this.watchValue(expression)))
@@ -1202,6 +1387,8 @@ export class DebuggerView
 			{
 				return;
 			}
+
+			loaded[this.panel] = values.length;
 
 			if(this.panel === 'variables')
 			{
@@ -1284,9 +1471,22 @@ export class DebuggerView
 					this.content.append(item);
 				}
 
+				// An empty panel says so rather than showing nothing.
+				if(!rows.size)
+				{
+					const empty = `No ${this.panel} here yet.`;
+
+					this.content.append(node('p', 'php-debugger-empty', empty));
+				}
+
 				this.returnFocus(held);
 			}
 		});
+
+		if(generation === this.refreshNumber && this.dbg.state === 'paused')
+		{
+			await this.recount(generation, loaded);
+		}
 	}
 
 	/**
@@ -1495,6 +1695,7 @@ export class DebuggerView
 	destroy()
 	{
 		this.abort.abort();
+		this.tabResize?.disconnect();
 		this.adapterUnsubscribe?.();
 		this.dbg.source?.showLocation?.(null);
 		this.dbg.source?.setBreakpoints?.([]);

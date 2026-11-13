@@ -57,7 +57,7 @@ When execution pauses, the line is marked across the whole editor and scrolled i
 
 ## Values
 
-The tabs on the right show what is in scope while paused: **Variables**, **Globals**, **Constants**, **Functions**, **Classes**, **Files**, **Frames** and **Watches**.
+The tabs on the right show what is in scope while paused. **Variables**, **Frames** and **Watches** come first, each with a count of what it holds. After them come the whole program's **Globals**, **Constants**, **Functions**, **Classes** and **Files**. When the row is too narrow for every tab, the last ones move into **More**.
 
 - An array or object opens when you click its name, and closes again. What you opened stays open as you step.
 - **Edit** opens a box for a PHP expression. Enter applies it, Escape cancels. A value PHP refuses is explained under the box.
