@@ -240,23 +240,24 @@ test(
 		await page.getByRole('button', {name: 'Run PHP assertion', exact: true}).click();
 		await expect(page.locator('#test-result')).toHaveAttribute('data-status', 'passed');
 
-		// The logpoint example passes, and shows what each logpoint printed on a line of its own.
+		// The logpoint example passes, beside its button, and what each logpoint printed is a line
+		// of its own under it.
 		const logpoints = page.locator('#logpoints-result');
+		const run = page.getByRole('button', {name: 'Run with a logpoint', exact: true});
+		const logged = page.getByRole('list', {name: 'Logged', exact: true});
 
-		await page.getByRole('button', {name: 'Run with a logpoint', exact: true}).click();
+		await run.click();
 		await expect(logpoints).toHaveAttribute('data-status', 'passed');
+		await expect(logpoints).toHaveText(/^passed · 40 · \d+ ms$/);
 
-		const button = await page.getByRole('button', {name: 'Run with a logpoint'}).boundingBox();
-		const lines = await logpoints.evaluate(element => element.innerText.split('\n'));
-
-		// Under the button, not beside it.
-		expect((await logpoints.boundingBox()).y).toBeGreaterThanOrEqual(button.y + button.height);
-
-		expect(lines[0]).toMatch(/^passed · 40 · \d+ ms$/);
-
-		expect(lines.slice(1)).toEqual(
+		await expect(logged.getByRole('listitem')).toHaveText(
 			['line 5: notebook costs 8', 'line 5: backpack costs 30', 'line 7: total: 40']
 		);
+
+		const button = await run.boundingBox();
+
+		expect((await logpoints.boundingBox()).x).toBeGreaterThan(button.x + button.width);
+		expect((await logged.boundingBox()).y).toBeGreaterThanOrEqual(button.y + button.height);
 
 		await contents.getByRole(
 			'link'

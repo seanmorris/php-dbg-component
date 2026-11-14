@@ -207,6 +207,10 @@ async function change(reset = false)
 /** Run PHP without an interface and report the outcome beside the button that asked. */
 async function runExample(button, output, options)
 {
+	// What the last run logged goes when the next starts.
+	const box = output.closest('.try-result');
+
+	box.querySelector('.try-logs')?.remove();
 	button.disabled = true;
 	output.textContent = 'Running…';
 
@@ -225,11 +229,24 @@ async function runExample(button, output, options)
 		const result = await test.run({mode: 'test', timeoutMs: 5000});
 		const said = result.stdout.trim() || result.diagnostics.map(d => d.message).join(' ');
 		const time = Math.round(result.durationMs);
-		// What logpoints printed, a line each, after where each came from.
-		const logs = result.logs.map(entry => `\nline ${entry.line}: ${entry.message}`).join('');
-
 		output.dataset.status = result.test.status;
-		output.textContent = `${result.test.status} · ${said} · ${time} ms${logs}`;
+		output.textContent = `${result.test.status} · ${said} · ${time} ms`;
+
+		// What logpoints printed, under the button: a line each, after where each came from.
+		if(result.logs.length)
+		{
+			const list = Object.assign(document.createElement('ol'), {className: 'try-logs'});
+
+			/** One logged message, after the line it came from. */
+			const item = entry => Object.assign(
+				document.createElement('li')
+				, {textContent: `line ${entry.line}: ${entry.message}`}
+			);
+
+			list.setAttribute('aria-label', 'Logged');
+			list.append(...result.logs.map(item));
+			box.append(list);
+		}
 	}
 	catch(error)
 	{

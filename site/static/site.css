@@ -179,9 +179,12 @@ a:hover { text-decoration-thickness: 2px; }
 .demo-bar > p, .try-result > p { display: contents; }
 .demo-problem { flex-basis: 100%; color: var(--stop); }
 .demo-problem:empty { display: none; }
-/* The outcome under its button; what a run logged follows it, a line each. */
-.try-result { display: grid; justify-items: start; gap: .5rem; margin-top: 1rem; }
-.try-result output { font-family: var(--mono); font-size: .85rem; white-space: pre-line; }
+/* The outcome beside its button; what a run logged goes under both, a line each. */
+.try-result { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin-top: 1rem; }
+.try-result output, .try-logs { font-family: var(--mono); font-size: .85rem; }
+/* A plain list of lines, not the article's spaced one. */
+.try-result .try-logs { flex-basis: 100%; margin: 0; padding: 0; list-style: none; line-height: 1.6; }
+.try-result .try-logs li { margin: 0; }
 .try-result output[data-status=failed] { color: var(--stop); }
 /* An editor in the debugger is as tall as its textarea. */
 .php-debugger .php-debugger-hosted-editor > :is(.CodeMirror, .cm-editor, .ace_editor) { height: 17rem; }
