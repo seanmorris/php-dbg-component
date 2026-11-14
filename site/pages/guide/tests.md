@@ -20,7 +20,7 @@ jsonld:
 
 # Run PHP tests
 
-A controller runs PHP without mounting anything. In test mode it skips breakpoints and resolves to the output, the exit code and whether your expectations held:
+A controller runs PHP without mounting anything. In test mode it skips breakpoints, other than logpoints, and resolves to the output, the exit code and whether your expectations held:
 
 ```javascript
 import {PhpDebugger} from 'php-dbg-component';
@@ -54,6 +54,28 @@ That code, run here:
 
 `result.test.status` is `passed`, `failed`, or `unchecked` when there was nothing to check. `result.test.failures` lists what did not match.
 
+## Logpoints
+
+A logpoint is a breakpoint with a `log`: a PHP expression whose value is printed each time execution reaches the line, without pausing. A test run keeps its logpoints, so it can check values in the middle of the program without changing the code. A string is logged as it is; anything else as `var_export()` writes it. Add a `condition` to log only when it is true.
+
+```javascript
+const test = new PhpDebugger({
+  runtimeBaseUrl: './runtime/',
+  code: '<?php\n$sum = 0;\nforeach ([1, 2, 3] as $n) {\n    $sum += $n;\n}\necho $sum;',
+  breakpoints: [{line: 4, log: '$sum', condition: '$n > 1'}]
+});
+
+const result = await test.run({
+  mode: 'test',
+  expect: {stdout: '6', logs: ['1', '3']}
+});
+
+console.log(result.logs);
+// [{file: '/main.php', line: 4, message: '1'}, {file: '/main.php', line: 4, message: '3'}]
+```
+
+`expect.logs` takes one string or regular expression for each message, in order. A log whose expression fails, or whose condition does, logs the reason with `error: true`.
+
 ## The result
 
 `run()` resolves to:
@@ -64,6 +86,7 @@ That code, run here:
   status,       // "completed", "cancelled", "timed-out" or "error"
   exitCode,
   stdout, stderr,
+  logs,         // what logpoints printed: {file, line, message}
   diagnostics,  // PHP errors and uncaught exceptions
   durationMs,
   test          // {status, failures}

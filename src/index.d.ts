@@ -7,7 +7,19 @@ export type DebuggerState = 'idle' | 'loading' | 'ready' | 'running' | 'paused' 
 export type InspectionScope =
 	'variables' | 'globals' | 'constants' | 'functions' | 'classes' | 'files' | 'frames';
 
-export interface Breakpoint { line: number; file?: string; enabled?: boolean; id?: string }
+export interface Breakpoint {
+	line: number;
+	file?: string;
+	enabled?: boolean;
+	id?: string;
+	/** PHP that must be true, in the frame that reached the line, for the breakpoint to act. */
+	condition?: string;
+	/** PHP whose value is logged instead of pausing: a string as it is, anything else exported. */
+	log?: string;
+}
+
+/** What a logpoint printed. `error` marks the reason its expression or condition failed. */
+export interface LogEntry { file: string; line: number; message: string; error?: true }
 export interface Location { file: string; line: number; frame?: number; pauseId?: number }
 
 export interface Pause {
@@ -112,6 +124,8 @@ export interface RunResult {
 
 	stdout: string;
 	stderr: string;
+	/** What logpoints printed, in order. They act in test runs, which skip other breakpoints. */
+	logs: LogEntry[];
 	diagnostics: Diagnostic[];
 	durationMs: number;
 	test: TestResult;
@@ -122,6 +136,8 @@ export interface Expectations {
 	stderr?: string | RegExp;
 	exitCode?: number;
 	error?: string | RegExp;
+	/** One string or pattern for each logged message, in order. */
+	logs?: Array<string | RegExp>;
 }
 
 export interface RunOptions {
@@ -231,6 +247,7 @@ export interface DebuggerEvents {
 	complete: RunResult;
 	testresult: TestResult;
 	diagnostic: Diagnostic;
+	log: LogEntry;
 
 	locationchange: Location | null;
 	framechange: {frame: number};

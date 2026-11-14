@@ -31,6 +31,10 @@ finally
 	unset($__phpDebuggerError);
 }`;
 
+// What a logpoint's expression is wrapped in: a string is logged as it is, anything else as
+// var_export() writes it.
+const logged = '(static fn($value) => is_string($value) ? $value : var_export($value, true))(';
+
 /** What the inspector lists for a child it could not read. */
 const unavailable = (name, error) => ({
 	name
@@ -299,11 +303,14 @@ export class DebugEngine
 
 	async breakpoints(breakpoints)
 	{
-		this.installedBreakpoints = breakpoints;
 		await this.command('clear');
 
-		// A test run ignores breakpoints.
-		const enabled = this.config?.mode === 'test' ? [] : breakpoints.filter(bp => bp.enabled);
+		// A test run never pauses, so of its breakpoints only those that log are kept.
+		const enabled = breakpoints.filter(
+			bp => bp.enabled && (this.config?.mode !== 'test' || bp.log)
+		);
+
+		this.installedBreakpoints = enabled;
 
 		for(const bp of enabled)
 		{
@@ -330,6 +337,24 @@ export class DebugEngine
 
 		while(await this.php.isRunning())
 		{
+			const file = await this.php.currentFile();
+			const line = await this.php.currentLine();
+
+			// Run and Continue stop at breakpoints; one with a condition or a log decides here
+			// whether execution pauses.
+			const reached = !this.pauseRequested && !this.exception
+				&& ['run', 'continue'].includes(command)
+				? this.installedBreakpoints?.find(bp => bp.file === file && bp.line === line)
+				: null;
+
+			const decides = reached && (reached.condition || reached.log);
+
+			if(decides && !await this.reachBreakpoint(reached))
+			{
+				await this.command('continue');
+				continue;
+			}
+
 			if(this.config.mode === 'test' && !this.pauseRequested)
 			{
 				await this.command('continue');
@@ -337,12 +362,7 @@ export class DebugEngine
 			}
 
 			this.paused = true;
-			const location = {
-				file: await this.php.currentFile()
-				, line: await this.php.currentLine()
-				, frame: 0
-				, pauseId: this.epoch
-			};
+			const location = {file, line, frame: 0, pauseId: this.epoch};
 
 			const reason = this.pauseRequested
 				? 'pause'
@@ -357,6 +377,85 @@ export class DebugEngine
 		}
 
 		return this.finish();
+	}
+
+	/**
+	 * Execution has reached a breakpoint with a condition or a log, in the frame it stopped in.
+	 * A condition must be true for anything to happen. Then a log prints its value and execution
+	 * goes on; a breakpoint without one pauses. Answers whether to pause.
+	 *
+	 * A condition PHP cannot evaluate pauses, with the reason in the console, so the mistake is
+	 * seen; in a test run, which never pauses, the reason is logged instead.
+	 */
+	async reachBreakpoint(bp)
+	{
+		// Evaluating needs a paused frame; whatever it leaves behind goes before anything else.
+		this.paused = true;
+
+		const where = {file: bp.file, line: bp.line};
+
+		try
+		{
+			if(bp.condition)
+			{
+				let met;
+
+				try
+				{
+					met = (await this.evaluateWithin('(bool) (', bp.condition, ')', 0)).value;
+				}
+				catch(error)
+				{
+					const message = `The condition at ${bp.file}:${bp.line} failed: `
+						+ error.message;
+
+					if(this.config.mode === 'test')
+					{
+						this.emit({type: 'log', ...where, message, error: true});
+
+						return false;
+					}
+
+					const text = `${message}\n`;
+
+					this.emit({type: 'output', channel: 'debug', kind: 'error', text});
+
+					return true;
+				}
+
+				if(met !== true)
+				{
+					return false;
+				}
+			}
+
+			if(!bp.log)
+			{
+				return true;
+			}
+
+			let message;
+			let error = false;
+
+			try
+			{
+				message = (await this.evaluateWithin(logged, bp.log, ')', 0)).value;
+			}
+			catch(failure)
+			{
+				message = failure.message;
+				error = true;
+			}
+
+			this.emit({type: 'log', ...where, message, ...error && {error}});
+
+			return false;
+		}
+		finally
+		{
+			this.paused = false;
+			this.invalidate();
+		}
 	}
 
 	async finish(compilationExitCode)

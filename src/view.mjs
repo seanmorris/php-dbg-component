@@ -555,6 +555,14 @@ export class DebuggerView
 		on('statechange', () => this.update());
 		on('testresult', () => this.update());
 		on('output', event => this.appendOutput(event));
+
+		// What a logpoint printed, after where it is.
+		on('log', entry => this.appendOutput({
+			channel: 'log'
+			, kind: entry.error ? 'error' : undefined
+			, text: `${this.breakpointPlace(entry)}: ${entry.message}\n`
+		}));
+
 		on('progress', progress => this.showProgress(progress));
 
 		on(
@@ -600,19 +608,34 @@ export class DebuggerView
 		);
 
 		this.adapterUnsubscribe = dbg.source?.onBreakpointChange?.(
-			lines => this.act(() => dbg.setBreakpoints([
-				...dbg.breakpoints.filter(
-					bp => bp.file !== dbg.options.entrypoint || (!bp.enabled
-			&& !lines.some(line => (typeof line === 'number' ? line : line.line) === bp.line)
-					)
-				)
-				, ...lines
-			]))
+			lines => this.act(() => dbg.setBreakpoints(this.fromEditor(lines)))
 		);
 
 		this.fitTabs();
 		this.gutterUpdate();
 		this.update();
+	}
+
+	/**
+	 * The breakpoints once an editor's gutter has changed the entrypoint's to `lines`. A line that
+	 * already had a breakpoint keeps its condition and its log; a disabled one the gutter does not
+	 * show stays as it is.
+	 */
+	fromEditor(lines)
+	{
+		const dbg = this.dbg;
+		const entrypoint = dbg.options.entrypoint;
+		const numbers = lines.map(line => typeof line === 'number' ? line : line.line);
+
+		/** The entrypoint's breakpoint on a line, if it has one. */
+		const here = line => dbg.breakpoints.find(bp => bp.file === entrypoint && bp.line === line);
+
+		return [
+			...dbg.breakpoints.filter(
+				bp => bp.file !== entrypoint || (!bp.enabled && !numbers.includes(bp.line))
+			)
+			, ...numbers.map(line => ({...here(line), line, enabled: true}))
+		];
 	}
 
 	showPanel(panel)
@@ -1473,81 +1496,8 @@ export class DebuggerView
 	gutterUpdate()
 	{
 		const dbg = this.dbg;
-		// Rebuilt whole; focus goes back to the neighbour of a removed breakpoint, or to the box.
-		const active = this.root.getRootNode().activeElement;
-		const focused = this.breakpointList.contains(active)
-			? [...this.breakpointList.querySelectorAll('input, button')].indexOf(active)
-			: -1;
 
-		this.breakpointList.replaceChildren();
-
-		// In reading order: the file on screen first, then by line.
-		const listed = [...dbg.breakpoints].sort(
-			(a, b) => (a.file !== dbg.options.entrypoint) - (b.file !== dbg.options.entrypoint)
-				|| a.file.localeCompare(b.file)
-				|| a.line - b.line
-		);
-
-		for(const bp of listed)
-		{
-			// The file is named only when it is not the one on screen.
-			const where = bp.file === dbg.options.entrypoint
-				? `Line ${bp.line}`
-				: `${bp.file}:${bp.line}`;
-
-			const item = node('li', 'php-debugger-breakpoint');
-			const label = node('label', 'php-debugger-breakpoint-toggle');
-			const toggle = node('input');
-			const remove = node('button', 'php-debugger-breakpoint-remove', '\u00d7');
-
-			item.dataset.enabled = String(bp.enabled);
-			toggle.type = 'checkbox';
-			toggle.checked = bp.enabled;
-			toggle.title = 'Untick to keep this breakpoint but not stop at it';
-			label.append(toggle, where);
-
-			toggle.addEventListener(
-				'change'
-				, () => this.act(
-					() => dbg.setBreakpoints(
-						dbg.breakpoints.map(
-							b => b.id === bp.id ? {...b, enabled: toggle.checked} : b
-						)
-					)
-				)
-			);
-
-			remove.type = 'button';
-			remove.title = 'Remove';
-			remove.setAttribute('aria-label', `Remove breakpoint, ${where.toLowerCase()}`);
-
-			remove.addEventListener(
-				'click'
-				, () => this.act(
-					() => dbg.setBreakpoints(dbg.breakpoints.filter(b => b.id !== bp.id))
-				)
-			);
-
-			item.append(label, remove);
-			this.breakpointList.append(item);
-		}
-
-		if(!dbg.breakpoints.length)
-		{
-			this.breakpointList.append(
-				node('li', 'php-debugger-empty', 'No breakpoints. Click a line number to set one.')
-			);
-		}
-
-		// The Breakpoints tab counts them.
-		this.showCounts(this.counts);
-
-		if(focused >= 0)
-		{
-			const controls = [...this.breakpointList.querySelectorAll('input, button')];
-
-			(controls[Math.min(focused, controls.length - 1)] || this.breakpointLine).focus();
-		}
+		this.listBreakpoints();
 
 		dbg.source?.setBreakpoints?.(
 			dbg.breakpoints.filter(bp => bp.file === dbg.options.entrypoint)
@@ -1577,15 +1527,24 @@ export class DebuggerView
 		{
 			const b = node('button', 'php-debugger-line', String(line));
 
-			const enabled = dbg.breakpoints.some(
+			const bp = dbg.breakpoints.find(
 				bp => bp.file === dbg.options.entrypoint && bp.line === line && bp.enabled
 			);
 
 			b.type = 'button';
 			b.tabIndex = line === this.gutterLine ? 0 : -1;
 			b.setAttribute('aria-label', `Breakpoint on line ${line}`);
-			b.setAttribute('aria-pressed', String(enabled));
-			b.dataset.breakpoint = String(enabled);
+			b.setAttribute('aria-pressed', String(!!bp));
+			b.dataset.breakpoint = String(!!bp);
+
+			// A logpoint's mark is a diamond, and a conditional one's is hollow; the title says
+			// what either does.
+			if(bp?.log || bp?.condition)
+			{
+				b.dataset.log = String(!!bp.log);
+				b.dataset.condition = String(!!bp.condition);
+				b.title = this.breakpointDoes(bp).flat().join('');
+			}
 
 			b.addEventListener('click', () => this.act(() => this.toggleBreakpoint(line)));
 
@@ -1596,6 +1555,219 @@ export class DebuggerView
 		{
 			this.gutter.children[this.gutterLine - 1].focus();
 		}
+	}
+
+	/**
+	 * The Breakpoints panel's list, rebuilt whole. Focus goes back to the control asked for, or to
+	 * the neighbour of a removed breakpoint, or to the box.
+	 */
+	listBreakpoints()
+	{
+		const dbg = this.dbg;
+		const active = this.root.getRootNode().activeElement;
+		const focused = this.breakpointList.contains(active)
+			? [...this.breakpointList.querySelectorAll('input, button')].indexOf(active)
+			: -1;
+
+		this.breakpointList.replaceChildren();
+
+		// In reading order: the file on screen first, then by line.
+		const listed = [...dbg.breakpoints].sort(
+			(a, b) => (a.file !== dbg.options.entrypoint) - (b.file !== dbg.options.entrypoint)
+				|| a.file.localeCompare(b.file)
+				|| a.line - b.line
+		);
+
+		for(const bp of listed)
+		{
+			this.breakpointList.append(this.breakpointRow(bp));
+		}
+
+		if(!dbg.breakpoints.length)
+		{
+			this.breakpointList.append(
+				node('li', 'php-debugger-empty', 'No breakpoints. Click a line number to set one.')
+			);
+		}
+
+		// The Breakpoints tab counts them.
+		this.showCounts(this.counts);
+
+		const asked = this.breakpointFocus;
+
+		this.breakpointFocus = null;
+
+		if(asked)
+		{
+			const rows = [...this.breakpointList.children];
+
+			rows.find(item => item.dataset.id === asked.id)?.querySelector(asked.part).focus();
+		}
+		else if(focused >= 0)
+		{
+			const controls = [...this.breakpointList.querySelectorAll('input, button')];
+
+			(controls[Math.min(focused, controls.length - 1)] || this.breakpointLine).focus();
+		}
+	}
+
+	/** What a breakpoint does besides pausing, as words and the PHP they name. */
+	breakpointDoes(bp)
+	{
+		return [
+			...bp.log ? [['logs ', bp.log]] : []
+			, ...bp.condition ? [[bp.log ? ' when ' : 'when ', bp.condition]] : []
+		];
+	}
+
+	/** Where a breakpoint is: the file is named only when it is not the one on screen. */
+	breakpointPlace(bp)
+	{
+		const {file, line} = bp;
+
+		return file === this.dbg.options.entrypoint ? `Line ${line}` : `${file}:${line}`;
+	}
+
+	/**
+	 * One breakpoint in the Breakpoints panel: whether it is on, where it is, what it checks and
+	 * logs, then Edit and Remove. Edit opens the form for its condition and its log.
+	 */
+	breakpointRow(bp)
+	{
+		const dbg = this.dbg;
+		const where = this.breakpointPlace(bp);
+		const editing = this.editingBreakpoint === bp.id;
+
+		const item = node('li', 'php-debugger-breakpoint');
+		const label = node('label', 'php-debugger-breakpoint-toggle');
+		const toggle = node('input');
+		const detail = node('span', 'php-debugger-breakpoint-detail');
+		const edit = node('button', 'php-debugger-breakpoint-edit', 'Edit');
+		const remove = node('button', 'php-debugger-breakpoint-remove', '×');
+
+		item.dataset.id = bp.id;
+		item.dataset.enabled = String(bp.enabled);
+		toggle.type = 'checkbox';
+		toggle.checked = bp.enabled;
+		toggle.title = 'Untick to keep this breakpoint but not stop at it';
+		label.append(toggle, where);
+
+		for(const [words, php] of this.breakpointDoes(bp))
+		{
+			detail.append(words, node('code', '', php));
+		}
+
+		/** The breakpoints with this one switched on or off as its box says. */
+		const switched = () => dbg.breakpoints.map(
+			b => b.id === bp.id ? {...b, enabled: toggle.checked} : b
+		);
+
+		toggle.addEventListener('change', () => this.act(() => dbg.setBreakpoints(switched())));
+
+		edit.type = 'button';
+		edit.setAttribute('aria-label', `Edit breakpoint, ${where.toLowerCase()}`);
+		edit.setAttribute('aria-expanded', String(editing));
+
+		edit.addEventListener('click', () => {
+			this.editingBreakpoint = editing ? null : bp.id;
+
+			const part = editing ? 'edit' : 'expression';
+
+			this.breakpointFocus = {id: bp.id, part: `.php-debugger-breakpoint-${part}`};
+
+			this.listBreakpoints();
+		});
+
+		remove.type = 'button';
+		remove.title = 'Remove';
+		remove.setAttribute('aria-label', `Remove breakpoint, ${where.toLowerCase()}`);
+
+		/** The breakpoints without this one. */
+		const others = () => dbg.breakpoints.filter(b => b.id !== bp.id);
+
+		remove.addEventListener('click', () => this.act(() => dbg.setBreakpoints(others())));
+
+		item.append(label, detail, edit, remove);
+
+		if(editing)
+		{
+			item.append(this.breakpointSettings(bp));
+		}
+
+		return item;
+	}
+
+	/**
+	 * The form under a breakpoint for its condition and its log: PHP that must be true for it to
+	 * act, and PHP whose value it logs instead of pausing. Enter applies, Escape cancels.
+	 */
+	breakpointSettings(bp)
+	{
+		const form = node('form', 'php-debugger-breakpoint-settings');
+		const condition = this.breakpointField(form, 'Only when', bp.condition, '$i > 2');
+		const log = this.breakpointField(form, 'Log, without pausing', bp.log, '"total: $total"');
+		const apply = node('button', 'php-debugger-button', 'Apply');
+		const cancel = node('button', 'php-debugger-button', 'Cancel');
+
+		/** Close the form, and go back to the row's Edit button. */
+		const close = () => {
+			this.editingBreakpoint = null;
+			this.breakpointFocus = {id: bp.id, part: '.php-debugger-breakpoint-edit'};
+		};
+
+		apply.type = 'submit';
+		cancel.type = 'button';
+
+		// The form stays open when the change is refused, as it is while PHP runs.
+		form.addEventListener('submit', event => {
+			event.preventDefault();
+
+			const changed = this.dbg.breakpoints.map(
+				b => b.id === bp.id ? {...b, condition: condition.value, log: log.value} : b
+			);
+
+			void this.act(async() => {
+				await this.dbg.setBreakpoints(changed);
+				close();
+				this.listBreakpoints();
+			});
+		});
+
+		cancel.addEventListener('click', () => {
+			close();
+			this.listBreakpoints();
+		});
+
+		form.addEventListener('keydown', event => {
+			if(event.key === 'Escape')
+			{
+				event.preventDefault();
+				cancel.click();
+			}
+		});
+
+		const actions = node('span', 'php-debugger-breakpoint-actions');
+
+		actions.append(apply, cancel);
+		form.append(actions);
+
+		return form;
+	}
+
+	/** One labelled box of the breakpoint form, holding PHP. */
+	breakpointField(form, name, value, example)
+	{
+		const label = node('label', 'php-debugger-breakpoint-setting');
+		const input = node('input', 'php-debugger-breakpoint-expression');
+
+		input.value = value ?? '';
+		input.placeholder = example;
+		input.spellcheck = false;
+		input.autocomplete = 'off';
+		label.append(node('span', '', name), input);
+		form.append(label);
+
+		return input;
 	}
 
 	/** Make one line number the gutter's tab stop. */

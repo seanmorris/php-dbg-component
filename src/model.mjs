@@ -28,10 +28,32 @@ export function normalizeBreakpoints(input = [], entrypoint = '/main.php')
 
 		const file = normalizePath(bp.file || entrypoint);
 		const id = `${file}:${bp.line}`;
-		found.set(id, {id, file, line: bp.line, enabled: bp.enabled !== false});
+		const breakpoint = {id, file, line: bp.line, enabled: bp.enabled !== false};
+
+		// A condition or a log the breakpoint does not have is left out, not empty.
+		const condition = breakpointExpression(bp.condition);
+		const log = breakpointExpression(bp.log);
+
+		found.set(id, {...breakpoint, ...condition && {condition}, ...log && {log}});
 	}
 
 	return [...found.values()];
+}
+
+/** A breakpoint's condition or log expression: PHP as a string, or nothing when it is blank. */
+function breakpointExpression(value)
+{
+	if(value === undefined || value === null)
+	{
+		return '';
+	}
+
+	if(typeof value !== 'string')
+	{
+		throw new TypeError('A breakpoint condition or log is a PHP expression, as a string');
+	}
+
+	return value.trim();
 }
 
 export function deferred()

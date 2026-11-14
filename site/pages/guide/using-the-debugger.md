@@ -53,6 +53,8 @@ Click a line number to set a breakpoint, and again to clear it. Or open the **Br
 
 From the keyboard, the line numbers are one tab stop: the arrow keys move along them, and Enter sets or clears the breakpoint on the line in focus.
 
+**Edit** on a breakpoint's row takes two PHP expressions, each optional. **Only when** is a condition: the breakpoint acts only when it is true, so `$i === 3` stops a loop on its fourth time round. **Log, without pausing** makes it a logpoint: execution goes on, and the value is printed in the output, after the line it came from. With both, it logs only when the condition holds. Enter applies, Escape cancels. A logpoint's mark beside the line number is a diamond, and a breakpoint with a condition is drawn hollow.
+
 When execution pauses, the line is marked across the whole editor and scrolled into view.
 
 ## Values

@@ -210,6 +210,17 @@
 	pointer-events: none;
 }
 
+/* A logpoint is a diamond; a breakpoint with a condition, either kind, is hollow. */
+.php-debugger .php-debugger-line[data-breakpoint=true][data-log=true]::before {
+	border-radius: 0;
+	transform: translate(-50%, -50%) rotate(45deg) scale(.9);
+}
+
+.php-debugger .php-debugger-line[data-breakpoint=true][data-condition=true]::before {
+	background: transparent;
+	box-shadow: inset 0 0 0 .13em currentColor;
+}
+
 /*
  * The paused line: a band across the whole line with a bar at its left edge.
  * The band is wider than any editor and is clipped at the editor's edge.
@@ -479,6 +490,11 @@
 
 .php-debugger .php-debugger-output-input {
 	color: var(--php-debugger-muted);
+}
+
+/* What a logpoint printed: the user's own instrument, in the accent, not program output. */
+.php-debugger .php-debugger-output-log {
+	color: var(--php-debugger-accent);
 }
 
 /*
@@ -768,13 +784,56 @@
 	list-style: none;
 }
 
+/* Its place, what it checks and logs, then Edit and Remove; the form for those opens below. */
 .php-debugger .php-debugger-breakpoint {
-	display: flex;
-	gap: .5em;
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto auto;
+	gap: .3em .5em;
 	align-items: center;
-	justify-content: space-between;
 	padding: .25em .4em;
 	border-bottom: 1px solid var(--php-debugger-border);
+}
+
+.php-debugger .php-debugger-breakpoint-detail {
+	font-size: .9em;
+	color: var(--php-debugger-muted);
+	overflow-wrap: anywhere;
+}
+
+.php-debugger .php-debugger-breakpoint-detail code {
+	font-family: var(--php-debugger-font);
+	color: var(--php-debugger-fg);
+}
+
+.php-debugger .php-debugger-breakpoint-edit {
+	padding: .1em .45em;
+	font-size: .8em;
+}
+
+.php-debugger .php-debugger-breakpoint-settings {
+	display: grid;
+	grid-column: 1 / -1;
+	gap: .35em;
+	margin: .2em 0 .3em;
+}
+
+.php-debugger .php-debugger-breakpoint-setting {
+	display: grid;
+	grid-template-columns: minmax(7em, auto) minmax(0, 1fr);
+	gap: .5em;
+	align-items: center;
+	font-size: .9em;
+}
+
+.php-debugger .php-debugger-breakpoint-expression {
+	min-width: 0;
+	font-family: var(--php-debugger-font);
+}
+
+.php-debugger .php-debugger-breakpoint-actions {
+	display: flex;
+	gap: .35em;
+	justify-content: flex-end;
 }
 
 .php-debugger .php-debugger-breakpoint:hover {

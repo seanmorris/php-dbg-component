@@ -13,6 +13,13 @@ const dbg = new PhpDebugger(
 );
 
 const result: RunResult = await dbg.run({mode: 'test', signal: new AbortController().signal});
+
+// A breakpoint may check a condition or log a value; a test run lists what was logged.
+await dbg.setBreakpoints([{line: 4, condition: '$i > 2'}, {line: 5, log: '$sum'}]);
+const logged: string[] = result.logs.map(entry => entry.message);
+void [logged, dbg.run({mode: 'test', expect: {logs: ['1', /3/]}})];
+// @ts-expect-error a log is PHP, as a string
+void dbg.setBreakpoints([{line: 4, log: 3}]);
 await dbg.setBreakpoints([3, {file: '/main.php',line: 5,enabled: false}]);
 const values = await dbg.inspect('variables');
 

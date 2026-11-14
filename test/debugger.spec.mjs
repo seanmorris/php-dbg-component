@@ -211,6 +211,105 @@ test('worker pauses a running loop, edits it and resumes to completion', async({
 });
 
 test(
+	'a condition decides whether a breakpoint pauses; a logpoint logs and runs on, in tests too'
+	, async({page}) => {
+		await setup(page);
+		await create(page);
+
+		const report = await page.evaluate(async() => {
+			const code = '<?php\n$sum = 0;\nfor($i = 0; $i < 5; $i++) {\n    $sum += $i;\n}\n'
+				+ 'echo $sum, "\\n";';
+
+			const report = {};
+
+			// A condition: the breakpoint pauses only once $i is 3.
+			dbg.setCode(code);
+			await dbg.setBreakpoints([{line: 4, condition: '$i === 3'}]);
+
+			let done = dbg.run();
+
+			await dbg.whenPaused();
+			report.pausedAt = (await dbg.evaluate('$i')).displayValue;
+			await dbg.continue();
+			report.conditionRun = (await done).stdout;
+
+			// Logpoints: a string as it is, anything else exported, and no pause.
+			await dbg.setBreakpoints(
+				[{line: 4, log: '"i=$i sum=$sum"'}, {line: 6, log: '[$sum, $i > 2, null]'}]
+			);
+
+			const events = [];
+
+			dbg.addEventListener('log', event => events.push(event.detail.message));
+
+			let result = await dbg.run();
+
+			report.logRun = {status: result.status, stdout: result.stdout, logs: result.logs};
+			report.events = [...events];
+
+			// A test run skips the plain breakpoint, keeps the logpoint and checks what it logged.
+			await dbg.setBreakpoints([2, {line: 4, log: '$sum', condition: '$i % 2 === 0'}]);
+			const expected = {stdout: '10\n', logs: ['0', '1', /^6$/]};
+
+			result = await dbg.run({mode: 'test', expect: expected});
+			report.testRun = {status: result.test.status, logs: result.logs.map(l => l.message)};
+			result = await dbg.run({mode: 'test', expect: {logs: ['0', '2', '4']}});
+			report.testFailures = result.test.failures;
+
+			// A condition PHP cannot evaluate pauses, and the console says why. In a test run it
+			// logs the reason instead.
+			await dbg.setBreakpoints([{line: 4, condition: '$i ===', log: '$i'}]);
+			result = await dbg.run({mode: 'test'});
+			report.badConditionInTest = result.logs[0];
+			await dbg.setBreakpoints([{line: 4, condition: '$i ==='}]);
+
+			const errors = [];
+
+			dbg.addEventListener('output', event => {
+				if(event.detail.kind === 'error')
+				{
+					errors.push(event.detail.text);
+				}
+			});
+
+			done = dbg.run();
+			await dbg.whenPaused();
+			report.badCondition = {state: dbg.state, errors};
+			await dbg.stop();
+
+			return report;
+		});
+
+		expect(report.pausedAt).toBe('3');
+		expect(report.conditionRun).toBe('10\n');
+		expect(report.logRun.status).toBe('completed');
+		expect(report.logRun.stdout).toBe('10\n');
+
+		expect(report.logRun.logs.map(entry => `${entry.line} ${entry.message}`)).toEqual([
+			'4 i=0 sum=0'
+			, '4 i=1 sum=0'
+			, '4 i=2 sum=1'
+			, '4 i=3 sum=3'
+			, '4 i=4 sum=6'
+			, '6 array (\n  0 => 10,\n  1 => true,\n  2 => NULL,\n)'
+		]);
+
+		expect(report.events).toEqual(report.logRun.logs.map(entry => entry.message));
+		expect(report.testRun).toEqual({status: 'passed', logs: ['0', '1', '6']});
+
+		const failed = /^The condition at \/main\.php:4 failed: /;
+
+		const mismatch = {field: 'logs', expected: '0\n2\n4', actual: '0\n1\n6'};
+
+		expect(report.testFailures).toEqual([mismatch]);
+		expect(report.badConditionInTest).toMatchObject({line: 4, error: true});
+		expect(report.badConditionInTest.message).toMatch(failed);
+		expect(report.badCondition.state).toBe('paused');
+		expect(report.badCondition.errors.join('')).toMatch(failed);
+	}
+);
+
+test(
 	'inspection pagination, cycles, readonly edit failure and multiline expressions'
 	, async({page}) => {
 		await setup(page);

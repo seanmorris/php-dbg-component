@@ -85,6 +85,56 @@ test('source paths and breakpoints have unambiguous command boundaries', async (
 	assert.throws(() => normalizePath('/../php.ini'));
 });
 
+test('a breakpoint keeps a condition and a log as PHP strings, and drops blank ones', async () => {
+	const {normalizeBreakpoints} = await import('../src/model.mjs');
+
+	const [conditional, logpoint, plain] = normalizeBreakpoints(
+		[
+			{line: 2, condition: ' $i > 2 '}
+			, {line: 3, log: '$sum', condition: ''}
+			, {line: 4, log: ' '}
+		]
+		, '/main.php'
+	);
+
+	assert.deepEqual(
+		[conditional, logpoint, plain]
+		, [
+			{id: '/main.php:2', file: '/main.php', line: 2, enabled: true, condition: '$i > 2'}
+			, {id: '/main.php:3', file: '/main.php', line: 3, enabled: true, log: '$sum'}
+			, {id: '/main.php:4', file: '/main.php', line: 4, enabled: true}
+		]
+	);
+
+	assert.throws(() => normalizeBreakpoints([{line: 2, condition: true}]), TypeError);
+	assert.throws(() => normalizeBreakpoints([{line: 2, log: 3}]), TypeError);
+});
+
+test('expected logs match the messages one for one, in order', async () => {
+	const {checkExpectations} = await import('../src/expectations.mjs');
+
+	const result = {
+		status: 'completed'
+		, stdout: ''
+		, stderr: ''
+		, exitCode: 0
+		, diagnostics: []
+
+		, logs: [
+			{file: '/main.php', line: 4, message: '0'}
+			, {file: '/main.php', line: 4, message: '1'}
+		]
+	};
+
+	assert.equal((await checkExpectations(result, {logs: ['0', /^1$/]})).status, 'passed');
+
+	const missing = await checkExpectations(result, {logs: ['0']});
+
+	assert.equal(missing.status, 'failed');
+	assert.deepEqual(missing.failures, [{field: 'logs', expected: '0', actual: '0\n1'}]);
+	assert.equal((await checkExpectations(result, {logs: ['1', '0']})).status, 'failed');
+});
+
 test('controller import and construction are DOM-free and do not load a runtime', async () => {
 	const {PhpDebugger} = await import('../src/index.mjs');
 	const dbg = new PhpDebugger({code: '<?php echo 1;'});

@@ -1100,6 +1100,71 @@ test('status says where execution is; keys drive it; a version change owns up', 
 	await page.evaluate(() => dbg.destroy());
 });
 
+test('a breakpoint takes a condition or a log from its row; a logpoint runs on', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	await page.evaluate(() => {
+		window.dbg = new PhpDebugger(
+			{
+				version: window.phpVersionUnderTest
+				, runtimeBaseUrl: '/runtime/'
+				, code: '<?php\n$sum = 0;\nfor($i = 0; $i < 5; $i++) {\n    $sum += $i;\n}\n'
+					+ 'echo $sum;'
+				, breakpoints: [4]
+			}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+	});
+
+	const edit = page.getByRole('button', {name: 'Edit breakpoint, line 4', exact: true});
+	const condition = page.getByRole('textbox', {name: 'Only when', exact: true});
+	const log = page.getByRole('textbox', {name: 'Log, without pausing', exact: true});
+	const row = page.locator('.php-debugger-breakpoint').filter({hasText: 'Line 4'});
+	const mark = page.locator('.php-debugger-line').nth(3);
+
+	await openPanel(page, 'Breakpoints');
+	await edit.click();
+	await expect(edit).toHaveAttribute('aria-expanded', 'true');
+	await expect(condition).toBeFocused();
+
+	// Enter applies; the row says what the breakpoint checks, and focus goes back to Edit.
+	await page.keyboard.type('$i === 3');
+	await page.keyboard.press('Enter');
+	await expect(row.locator('.php-debugger-breakpoint-detail')).toHaveText('when $i === 3');
+	await expect(edit).toBeFocused();
+	await expect(mark).toHaveAttribute('data-condition', 'true');
+	await expect(mark).toHaveAttribute('title', 'when $i === 3');
+
+	// Escape leaves it as it was.
+	await edit.click();
+	await page.keyboard.type(' && false');
+	await page.keyboard.press('Escape');
+	await expect(condition).toHaveCount(0);
+	await expect(edit).toBeFocused();
+	expect(await page.evaluate(() => dbg.breakpoints[0].condition)).toBe('$i === 3');
+
+	// Without its condition and with a log, it is a logpoint: a diamond, and no pause.
+	await edit.click();
+	await condition.fill('');
+	await log.fill('"sum=$sum"');
+	await log.press('Enter');
+	await expect(row.locator('.php-debugger-breakpoint-detail')).toHaveText('logs "sum=$sum"');
+	await expect(mark).toHaveAttribute('data-log', 'true');
+	await expect(mark).toHaveAttribute('data-condition', 'false');
+
+	await page.getByRole('button', {name: 'Run', exact: true}).click();
+	await expect(page.getByRole('status')).toHaveText('Finished with exit code 0.');
+
+	await expect(page.locator('.php-debugger-output-log')).toHaveText(
+		[0, 0, 1, 3, 6].map(sum => `Line 4: sum=${sum}\n`)
+	);
+
+	expect(await page.evaluate(() => dbg.result.stdout)).toBe('10');
+	await page.evaluate(() => dbg.destroy());
+});
+
 test('breakpoints list by line and add with Enter; a run clears the console', async({page}) => {
 	await page.goto('/test/harness.html');
 	await page.waitForFunction(() => window.PhpDebugger);
@@ -1132,7 +1197,7 @@ test('breakpoints list by line and add with Enter; a run clears the console', as
 	await expect(tabNamed(page, 'Breakpoints')).toHaveAccessibleName('Breakpoints 1');
 
 	// A breakpoint is named by its line; unticking keeps it without stopping there.
-	await expect(list.getByRole('listitem')).toHaveText(['Line 3×']);
+	await expect(list.getByRole('listitem')).toHaveText(['Line 3Edit×']);
 	await list.getByRole('checkbox', {name: 'Line 3', exact: true}).uncheck();
 	await expect(gutter.nth(2)).toHaveAttribute('data-breakpoint', 'false');
 	await expect(list.getByRole('listitem')).toHaveAttribute('data-enabled', 'false');
@@ -1142,7 +1207,7 @@ test('breakpoints list by line and add with Enter; a run clears the console', as
 	// Enter adds, and the box is ready for the next one.
 	await line.fill('2');
 	await line.press('Enter');
-	await expect(list.getByRole('listitem')).toHaveText(['Line 2×', 'Line 3×']);
+	await expect(list.getByRole('listitem')).toHaveText(['Line 2Edit×', 'Line 3Edit×']);
 	await expect(line).toHaveValue('');
 	await expect(line).toBeFocused();
 	await expect(tabNamed(page, 'Breakpoints')).toHaveAccessibleName('Breakpoints 2');
@@ -1167,7 +1232,7 @@ test('breakpoints list by line and add with Enter; a run clears the console', as
 	);
 
 	await remove(2).click();
-	await expect(list.getByRole('listitem')).toHaveText(['Line 3×']);
+	await expect(list.getByRole('listitem')).toHaveText(['Line 3Edit×']);
 	await expect(remove(3)).toBeFocused();
 	await page.keyboard.press('Enter');
 	await expect(list).toContainText('No breakpoints.');

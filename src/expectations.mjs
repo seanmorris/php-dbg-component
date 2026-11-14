@@ -31,6 +31,22 @@ export async function checkExpectations(result, expectations, assertion)
 		}
 	}
 
+	// What the logpoints printed, in order: each entry is a string or a pattern for one message.
+	if('logs' in expect)
+	{
+		const actual = result.logs.map(entry => entry.message);
+
+		const same = actual.length === expect.logs.length
+			&& expect.logs.every((expected, index) => matches(actual[index], expected));
+
+		if(!same)
+		{
+			const expected = expect.logs.map(String).join('\n');
+
+			failures.push({field: 'logs', expected, actual: actual.join('\n')});
+		}
+	}
+
 	if(!('exitCode' in expect) && !('error' in expect) && result.exitCode !== 0)
 	{
 		failures.push({field: 'exitCode', expected: 0, actual: result.exitCode});
