@@ -1,4 +1,11 @@
-import {versions, phpClassLabel, typeLabel, operandParts, isPhpName} from './model.mjs';
+import {
+	versions
+	, phpClassLabel
+	, typeLabel
+	, operandParts
+	, isPhpName
+	, phpLiteral
+} from './model.mjs';
 
 let views = 0;
 
@@ -2370,9 +2377,10 @@ export class DebuggerView
 
 		input.setAttribute('aria-label', `New PHP expression for ${value.name}`);
 		input.spellcheck = false;
+		// The box starts with the value as PHP would write it, so that applying it unchanged
+		// changes nothing.
 		input.value = value.type === 'string'
-			? "'" + String(value.value).replaceAll('\\', '\\\\').replaceAll("'", "\\'")
-				+ "'"
+			? phpLiteral(value.value)
 			: value.type === 'unset' || value.expandable || value.circular
 				? ''
 				: value.displayValue;

@@ -220,6 +220,20 @@ test('the custom element forwards every event and method the controller declares
 	}
 });
 
+test('a string is written as a PHP literal on one line', async () => {
+	const {phpLiteral} = await import('../src/model.mjs');
+
+	// As it reads, in single quotes, when nothing in it needs an escape.
+	assert.equal(phpLiteral('plain $text "quoted"'), '\'plain $text "quoted"\'');
+	assert.equal(phpLiteral('it\'s a \\ path'), '\'it\\\'s a \\\\ path\'');
+
+	// In double quotes, with PHP's escapes, when it holds a line break or another control
+	// character; there a dollar sign and a double quote are escaped as well.
+	assert.equal(phpLiteral('line one\nline two'), '"line one\\nline two"');
+	assert.equal(phpLiteral('a\r\nb\t$c "d" \\ e'), '"a\\r\\nb\\t\\$c \\"d\\" \\\\ e"');
+	assert.equal(phpLiteral('nul\0 esc\x1b bell\x07'), '"nul\\x00 esc\\e bell\\x07"');
+});
+
 test('controller import and construction are DOM-free and do not load a runtime', async () => {
 	const {PhpDebugger} = await import('../src/index.mjs');
 	const dbg = new PhpDebugger({code: '<?php echo 1;'});
@@ -964,6 +978,9 @@ test(
 			, get: (target, key) => key === 'open' || key === keys[3] ? stored[key] : undefined
 		});
 
+		const evaluations = [];
+		let answered = null;
+
 		const list = async api => {
 			const engine = new DebugEngine(() => {});
 
@@ -975,14 +992,37 @@ test(
 				? 'string'
 				: key === keys[0] ? 'float' : 'int';
 
+			// As the runtime does: a child is described where it is, by its key, but its value is
+			// looked for on the parent as JavaScript sees it, where a mangled key finds nothing.
+			// What an evaluation hands back is such a parent too, [true, value].
 			engine.php = {
-				describeChild: async (parent, key) => ({
-					type: type(key)
+				switchFrame: async () => 0
+				, describeChild: async (parent, key) => ({
+					type: type(parent === job ? key : parent.key)
 					, className: null
 					, count: null
 					, reference: false
-					, value: stored[key]
+					, value: parent[key]
 				})
+			};
+
+			// Stands in for PHP: the property an evaluation asks for is read as PHP would read it,
+			// from inside the class named, or the object's own.
+
+			engine.writeFile = (path, content) => {
+				const [, name] = content.match(/\$object->\{'(\w+)'\}/) ?? [];
+				const [, owner] = content.match(/null, '((?:[^'\\]|\\.)*)'\)\(/) ?? [];
+
+				// A private key begins with its class, a protected one with a star.
+				const start = owner ? `\0${owner.replaceAll('\\\\', '\\')}\0` : '\0*\0';
+				const key = keys.find(k => k.startsWith(start) && k.endsWith(`\0${name}`));
+
+				evaluations.push(content);
+				answered = {0: true, 1: stored[key], key};
+			};
+
+			engine.command = async () => {
+				engine.captured = {value: answered};
 			};
 
 			const parent = engine.describe(
@@ -1006,6 +1046,17 @@ test(
 			, ['open', 'public', '7', true]
 			, ['odd\0named\0key', 'public', '9', true]
 			, ['hidden', 'private', '2', false]
+		]);
+
+		// The three the runtime gave no value for were read by PHP: a private one inside the
+		// class that declares it, the protected one inside the object's own.
+		assert.deepEqual(evaluations, [
+			'return (\\Closure::bind(static fn($object) => $object->{\'secret\'}, null, '
+				+ '\'App\\\\Job\')(\n${\'job\'}\n));'
+			, 'return ((static fn($object) => \\Closure::bind(static fn($object) => '
+				+ '$object->{\'guarded\'}, null, $object)($object))(\n${\'job\'}\n));'
+			, 'return (\\Closure::bind(static fn($object) => $object->{\'hidden\'}, null, '
+				+ '\'class@anonymous\0/main.php:3$0\')(\n${\'job\'}\n));'
 		]);
 
 		// An older runtime cannot read a property by its mangled name, so only public ones are

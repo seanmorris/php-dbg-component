@@ -49,6 +49,14 @@ const handed = (method, php) => `vrzno_shared('__phpDebugger')->${method}(${php}
 // var_export() writes it.
 const logged = '(static fn($value) => is_string($value) ? $value : var_export($value, true))(';
 
+/**
+ * A value that is not text as PHP writes it: INF, -INF and NAN are its words for what JavaScript
+ * calls Infinity and NaN, and they are what an edit can hand back.
+ */
+const phpNumber = value => typeof value !== 'number' || Number.isFinite(value)
+	? String(value)
+	: Number.isNaN(value) ? 'NAN' : value < 0 ? '-INF' : 'INF';
+
 /** What the inspector lists for a child it could not read. */
 const unavailable = (name, error) => ({
 	name
@@ -817,7 +825,13 @@ export class DebugEngine
 			return value.toFixed(1);
 		}
 
-		return type === 'null' ? 'null' : String(value);
+		// What a resource is cannot be shown, only that it is one.
+		if(type === 'resource')
+		{
+			return 'resource';
+		}
+
+		return type === 'null' ? 'null' : phpNumber(value);
 	}
 
 	symbolExpression(scope, name)
@@ -839,7 +853,10 @@ export class DebugEngine
 		const identity = this.identity(value);
 
 		const circular = identity !== null && ancestors.includes(identity);
-		const expandable = value !== null && typeof value === 'object' && !circular;
+
+		// A resource has nothing inside to list, and no PHP that would write it again.
+		const opaque = type === 'resource';
+		const expandable = value !== null && typeof value === 'object' && !circular && !opaque;
 		const reference = `${this.sessionId}:${this.epoch}:${++this.nextReference}`;
 
 		this.references.set(
@@ -855,9 +872,11 @@ export class DebugEngine
 			, circular
 
 			// A function stands for a callable PHP value, which can be neither shown nor assigned.
-			, writable: !!expression && writable && typeof value !== 'function'
+			, writable: !!expression && writable && typeof value !== 'function' && !opaque
 			, ...(info && {className: info.className, count: info.count})
-			, value: expandable || circular || typeof value === 'function' ? undefined : value
+			, value: expandable || circular || opaque || typeof value === 'function'
+				? undefined
+				: value
 			, displayValue: this.text(value, type, {unset, circular, expandable, info})
 		};
 	}
@@ -885,7 +904,7 @@ export class DebugEngine
 			return type === 'array' ? 'Array' : 'Object';
 		}
 
-		return typeof value === 'string' ? JSON.stringify(value) : String(value);
+		return typeof value === 'string' ? JSON.stringify(value) : phpNumber(value);
 	}
 
 	async inspect(scope = 'variables', options = {})
@@ -1006,16 +1025,25 @@ export class DebugEngine
 			{
 				// Asking by key keeps the child's own PHP type; a float of 3.0 is just the number 3
 				// once converted.
-				const info = this.dbgApi >= 2
+				const described = this.dbgApi >= 2
 					? await this.php.describeChild(parent.value, key)
 					: null;
+
+				// A runtime describes a private or protected property, but may look for its value
+				// on the object as JavaScript sees it, where it is not.
+				const withheld = described?.value === undefined
+					&& !['undefined', 'null'].includes(described?.type ?? 'null')
+					&& (visibility ?? 'public') !== 'public';
+
+				const read = withheld ? await this.concealed(parent, key) : null;
+				const info = read?.info ?? described;
 
 				// An expression evaluated from outside the class cannot assign a private or
 				// protected property.
 				const value = this.describe(
 					name
 					, info ? info.value : parent.value[key]
-					, expression
+					, read?.expression ?? expression
 					, parent.writable && (visibility ?? 'public') === 'public'
 					, parent.frame
 					, parent.ancestors
@@ -1031,6 +1059,44 @@ export class DebugEngine
 		}
 
 		return {values, total: names.length, offset};
+	}
+
+	/**
+	 * A private or protected property, read by PHP from inside the class that may see it: the
+	 * class that declares a private one, the object's own for a protected one. Answers the
+	 * runtime's description of it, value included, and the expression that read it, by which what
+	 * it holds can be read in turn.
+	 */
+	async concealed(parent, key)
+	{
+		if(!parent.expression)
+		{
+			throw new Error('This property cannot be read from here');
+		}
+
+		const {name} = phpPropertyName(key);
+		const owner = key.slice(1, key.lastIndexOf('\0'));
+		const reads = `static fn($object) => $object->{${phpString(name)}}`;
+
+		const before = owner === '*'
+			? `(static fn($object) => \\Closure::bind(${reads}, null, $object)($object))(`
+			: `\\Closure::bind(${reads}, null, ${phpString(owner)})(`;
+
+		const previous = this.frame;
+
+		await this.selectFrame(parent.frame);
+
+		try
+		{
+			const {captured} = await this.evaluated(before, parent.expression, ')');
+			const info = await this.php.describeChild(captured, '1');
+
+			return {info, expression: `${before}${parent.expression})`};
+		}
+		finally
+		{
+			await this.selectFrame(previous);
+		}
 	}
 
 	/**
@@ -1124,26 +1190,13 @@ export class DebugEngine
 
 		try
 		{
-			expression = this.stage('eval', before, expression, after);
-
-			const {captured, errors} = await this.ev(answer('run'));
-
-			if(!captured)
-			{
-				throw new Error(errors || 'PHP expression evaluation failed');
-			}
-
-			// [true, value], or [false, class, message, line of a syntax error].
-			if(!captured[0])
-			{
-				throw new Error(evaluationError(expression, captured[1], captured[2], captured[3]));
-			}
+			const {captured, written} = await this.evaluated(before, expression, after);
 
 			// Read as a plain element, a float of 3.0 arrives as the number 3 and its PHP type is
 			// gone. An API 2 runtime describes the element where it is, as it does any other child.
 			const info = this.dbgApi >= 2 ? await this.php.describeChild(captured, '1') : null;
 			const value = info ? info.value : captured[1];
-			const code = `${before}${expression}${after}`;
+			const code = `${before}${written}${after}`;
 
 			return this.describe(code, value, code, true, this.frame, [], info);
 		}
@@ -1151,6 +1204,30 @@ export class DebugEngine
 		{
 			await this.selectFrame(previous);
 		}
+	}
+
+	/**
+	 * Evaluate `before`, the expression and `after` in the selected frame. Answers the runner's
+	 * [true, value] and the expression as it was written; an error is thrown, worded for the
+	 * expression alone.
+	 */
+	async evaluated(before, expression, after)
+	{
+		const written = this.stage('eval', before, expression, after);
+		const {captured, errors} = await this.ev(answer('run'));
+
+		if(!captured)
+		{
+			throw new Error(errors || 'PHP expression evaluation failed');
+		}
+
+		// [true, value], or [false, class, message, line of a syntax error].
+		if(!captured[0])
+		{
+			throw new Error(evaluationError(written, captured[1], captured[2], captured[3]));
+		}
+
+		return {captured, written};
 	}
 
 	/**

@@ -78,6 +78,42 @@ export function phpString(value)
 	return "'" + String(value).replaceAll('\\', '\\\\').replaceAll("'", "\\'") + "'";
 }
 
+// How PHP writes, in double quotes, the characters that cannot stand in a literal as they are.
+const phpEscapes = {
+	'\n': '\\n'
+	, '\r': '\\r'
+	, '\t': '\\t'
+	, '\v': '\\v'
+	, '\f': '\\f'
+	, '\x1b': '\\e'
+
+	, '\\': '\\\\'
+	, '"': '\\"'
+	, $: '\\$'
+};
+
+/**
+ * A string as a PHP literal on one line, for a box that holds one line. A string with a line
+ * break, a tab or another control character in it is written in double quotes with PHP's
+ * escapes, and is the same string when PHP reads it back; any other is written in single
+ * quotes, as it reads.
+ */
+export function phpLiteral(value)
+{
+	const text = String(value);
+
+	if(!/[\x00-\x1f\x7f]/.test(text))
+	{
+		return phpString(text);
+	}
+
+	/** A character as PHP escapes it: by name where it has one, by its code where it has not. */
+	const escaped = char => phpEscapes[char]
+		?? '\\x' + char.charCodeAt(0).toString(16).padStart(2, '0');
+
+	return '"' + text.replace(/[\x00-\x1f\x7f\\"$]/g, escaped) + '"';
+}
+
 /**
  * Splits an object's property key, as PHP stores it, into the name and its
  * visibility. A private property is stored as a NUL byte, the declaring class,

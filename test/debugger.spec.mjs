@@ -1062,6 +1062,96 @@ test(
 	}
 );
 
+test(
+	'values are shown as PHP writes them, private and protected properties included'
+	, async({page}) => {
+		await setup(page);
+
+		await create(
+			page
+			, {
+				code: [
+					'<?php'
+					, 'class Base { private $hidden = "base"; protected $history = [10, 20]; }'
+					, 'class Account extends Base {'
+					, '    private int $balance = 120;'
+					, '    public $open = true;'
+					, '    private int $later;'
+					, '}'
+
+					, '$account = new Account;'
+					, '$limit = INF; $nan = NAN; $low = -INF;'
+					, '$file = fopen("php://memory", "r");'
+					, 'echo is_infinite($limit) ? "still infinite" : "changed";'
+				].join('\n')
+				, breakpoints: [11]
+			}
+		);
+
+		const report = await page.evaluate(async() => {
+			const done = dbg.run();
+
+			await dbg.whenPaused();
+
+			const variables = await dbg.inspect('variables');
+
+			/** A variable by its name. */
+			const named = name => variables.find(value => value.name === name);
+
+			/** A value in brief. */
+			const brief = value => [value.name, value.visibility ?? '', value.displayValue].join(
+				' '
+			);
+
+			const children = (await dbg.children(named('account').reference)).values;
+			const history = children.find(value => value.name === 'history');
+
+			const report = {
+				numbers: ['limit', 'nan', 'low'].map(name => named(name).displayValue)
+				, file: named('file')
+				, children: children.map(brief)
+				, history: history?.expandable
+					? (await dbg.children(history.reference)).values.map(brief)
+					: null
+			};
+
+			// What the box for an edit starts with is what PHP takes back.
+			await dbg.setVariable(named('limit').reference, named('limit').displayValue);
+			await dbg.continue();
+			report.stdout = (await done).stdout;
+
+			return report;
+		});
+
+		expect(report.numbers).toEqual(['INF', 'NAN', '-INF']);
+		expect(report.stdout).toBe('still infinite');
+
+		// A runtime with debugger API 2 knows a resource for one, and lists every property.
+		if(report.file.type === 'resource')
+		{
+			expect(report.file).toMatchObject(
+				{displayValue: 'resource', expandable: false, writable: false}
+			);
+		}
+
+		const listsAll = report.children.some(child => child.includes('private'));
+
+		expect(report.children).toEqual(
+			listsAll
+				? [
+					'hidden private "base"'
+					, 'history protected array(2)'
+					, 'balance private 120'
+					, 'open public true'
+					, 'later private unset'
+				]
+				: ['open public true']
+		);
+
+		expect(report.history).toEqual(listsAll ? ['0  10', '1  20'] : null);
+	}
+);
+
 test('a name in other than ASCII reaches phpdbg whole', async({page}) => {
 	await setup(page);
 

@@ -830,6 +830,56 @@ test('editing an array starts from an empty expression, a number from its value'
 	expect(await page.evaluate(() => dbg.result.stdout)).toBe('a,b');
 });
 
+test(
+	'a value is edited as PHP writes it, and applying it unchanged changes nothing'
+	, async({page}) => {
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		await page.evaluate(() => {
+			window.dbg = new PhpDebugger(
+				{
+					version: window.phpVersionUnderTest
+					, runtimeBaseUrl: '/runtime/'
+					, code: '<?php\n$text = "line one\\nline two, \\$5";\n$limit = INF;\n'
+					+ 'echo strlen($text), is_infinite($limit) ? " infinite" : " finite";'
+					, breakpoints: [4]
+				}
+			);
+
+			dbg.mount(document.querySelector('#host'));
+		});
+
+		const text = page.getByRole('textbox', {name: 'New PHP expression for text', exact: true});
+
+		const limit = page.getByRole(
+			'textbox'
+			, {name: 'New PHP expression for limit', exact: true}
+		);
+
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Paused');
+
+		// A line break cannot stand in a box of one line: it is written as PHP's escape for it, in
+		// double quotes, where a dollar sign is escaped too.
+		await page.getByRole('button', {name: 'Edit text', exact: true}).click();
+		await expect(text).toHaveValue('"line one\\nline two, \\$5"');
+		await text.press('Enter');
+		await expect(text).toHaveCount(0);
+
+		// PHP's word for infinity, not JavaScript's.
+		await page.getByRole('button', {name: 'Edit limit', exact: true}).click();
+		await expect(limit).toHaveValue('INF');
+		await limit.press('Enter');
+		await expect(limit).toHaveCount(0);
+
+		await page.getByRole('button', {name: 'Continue', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Finished');
+		expect(await page.evaluate(() => dbg.result.stdout)).toBe('21 infinite');
+		await page.evaluate(() => dbg.destroy());
+	}
+);
+
 test('bare-element page rules cannot move line numbers or reveal hidden lines', async({page}) => {
 	await page.goto('/test/harness.html');
 	await page.waitForFunction(() => window.PhpDebugger);
