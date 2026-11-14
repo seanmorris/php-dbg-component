@@ -238,6 +238,13 @@ a:hover { text-decoration-thickness: 2px; }
 .prose table { display: block; width: 100%; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: .9rem; }
 .prose th, .prose td { padding: .55rem .7rem; border: 1px solid var(--rule); text-align: left; vertical-align: top; }
 .prose th { background: var(--paper-2); font-weight: 600; }
+/*
+ * Pandoc fixes a wide table's column widths from the dashes in its source; the browser sizes them
+ * from what they hold instead. Code in the first column stays on one line; on a phone it may
+ * wrap at a space or a hyphen, never inside a word.
+ */
+.prose col { width: auto !important; }
+.prose td:first-child code { overflow-wrap: normal; white-space: nowrap; }
 
 /* Code: ink, grey comments, blue keywords. */
 
@@ -261,6 +268,7 @@ code.sourceCode span:is(.al, .er) { color: var(--stop); }
 }
 
 @media (max-width: 760px) {
+	.prose td:first-child code { white-space: normal; }
 	.wrap { padding-inline: 1rem; }
 	.frame { display: block; padding-block: 1.25rem 2.5rem; }
 	.contents { position: static; max-height: none; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--rule); }

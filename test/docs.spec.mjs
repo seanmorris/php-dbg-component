@@ -191,6 +191,15 @@ test(
 		const contents = page.getByRole('navigation', {name: 'Contents'});
 		const toggle = page.getByRole('button', {name: 'Contents', exact: true});
 
+		/** The names in tables' first columns broken over lines, other than at one of `allowed`. */
+		const brokenNames = allowed => page.locator('.prose td:first-child code').evaluateAll(
+			(codes, allowed) => codes.filter(
+				code => code.getClientRects().length > 1
+					&& !allowed.some(character => code.textContent.includes(character))
+			).map(code => code.textContent)
+			, allowed
+		);
+
 		// On a wide screen the contents are a narrow column, always shown, with nothing to fold.
 		await expect(contents).toBeVisible();
 		await expect(toggle).toBeHidden();
@@ -215,6 +224,13 @@ test(
 
 		await page.getByRole('button', {name: 'Check curl extension', exact: true}).click();
 		await expect(page.locator('#curl-result')).toHaveAttribute('data-status', 'passed');
+
+		// Wider than a phone, a name in a table's first column stays on one line.
+		for(const path of ['/reference/api.html', '/reference/styling.html'])
+		{
+			await page.goto(docs + path);
+			expect(await brokenNames([])).toEqual([]);
+		}
 
 		// On a phone the contents fold behind a button, and open from it.
 		await page.setViewportSize({width: 390, height: 800});
@@ -241,6 +257,10 @@ test(
 			expect(
 				await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)
 			).toBeLessThanOrEqual(0);
+
+			// On a phone a name in a table's first column may wrap at a space or a hyphen, never
+			// inside a word.
+			expect(await brokenNames([' ', '-'])).toEqual([]);
 		}
 	}
 );
