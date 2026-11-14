@@ -1,5 +1,5 @@
 ---
-title: &title "Work on this repository"
+title: &title "Contributing"
 description: &description "Clone, run the example server, run the tests and build this site."
 menus:
   docs:
@@ -19,7 +19,7 @@ jsonld:
     "@id": https://seanmorris.github.io/php-dbg-component/#website
 ---
 
-# Work on this repository
+# Contributing
 
 ```bash
 git clone https://github.com/seanmorris/php-dbg-component.git
