@@ -203,18 +203,25 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6', 'code-block'])
 				}
 			);
 
+			// Room under the debugger too, so the page is not held at its end, where a change
+			// in the debugger's height would move it by itself.
+			const tail = spacer.cloneNode();
+
+			document.body.append(tail);
 			dbg.mount(mountPoint);
 			mountPoint.scrollIntoView();
 			await new Promise(resolve => setTimeout(resolve, 100));
 
-			const before = Math.round(window.scrollY);
+			const before = window.scrollY;
 			const done = dbg.run();
 
 			await dbg.whenPaused();
 			await new Promise(resolve => setTimeout(resolve, 300));
 
+			// Going to the editor would move the page by thousands of pixels; a browser may
+			// round where it stands by one.
 			const result = {
-				moved: Math.round(window.scrollY) - before
+				stayed: Math.abs(window.scrollY - before) <= 2
 				, shown: shown()
 				, scrolled: before > 2000
 			};
@@ -227,7 +234,7 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6', 'code-block'])
 		}, kind
 		);
 
-		expect(result).toEqual({moved: 0, shown: true, scrolled: true});
+		expect(result).toEqual({stayed: true, shown: true, scrolled: true});
 	});
 }
 
