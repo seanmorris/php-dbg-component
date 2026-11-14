@@ -33,7 +33,7 @@ hero: |
 
   <div class="demo">
   <div class="demo-bar">
-  <label class="field">Source editor <select id="editor-kind" class="field-select"><option value="textarea">Textarea</option><option value="ace">Ace</option><option value="codemirror5">CodeMirror 5</option><option value="codemirror6">CodeMirror 6</option></select></label>
+  <label class="field">Source editor <select id="editor-kind" class="field-select"><option value="textarea">Textarea</option><option value="ace">Ace</option><option value="codemirror5">CodeMirror 5</option><option value="codemirror6" selected>CodeMirror 6</option></select></label>
   <button id="reset" type="button" class="btn">Reset example</button>
   <div id="demo-problem" class="demo-problem" role="alert"></div>
   </div>

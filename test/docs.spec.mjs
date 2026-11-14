@@ -39,6 +39,10 @@ test('the home page demo does what it asks of the reader', async({page}) => {
 	expect(steps.y).toBeGreaterThan(demo.y + demo.height);
 	await expect(page.getByRole('navigation', {name: 'Contents'})).toBeVisible();
 
+	// The example opens in CodeMirror 6, inside the debugger.
+	await expect(page.locator('#editor-kind')).toHaveValue('codemirror6');
+	await expect(page.locator('.php-debugger-hosted-editor > .cm-editor')).toBeVisible();
+
 	/** What the panel shows for one value, by its name. */
 	const value = name => values.locator('.php-debugger-value-line').filter(
 		{hasText: new RegExp(`^${name}: `)}
