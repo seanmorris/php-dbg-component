@@ -804,6 +804,100 @@ test('Evaluate answers beside its box and keeps the exchange in the console', as
 	await page.evaluate(() => dbg.destroy());
 });
 
+test(
+	'an element taken off the page and put back has its textarea or its editor again'
+	, async({page}) => {
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		await page.evaluate(() => {
+			document.querySelector('#host').innerHTML = `<php-debugger runtime-base-url="/runtime/"
+			version="${window.phpVersionUnderTest}" id="with-textarea">
+  <textarea readonly><?php
+echo "kept";
+</textarea>
+</php-debugger>`;
+		});
+
+		const source = page.getByRole('textbox', {name: 'PHP source', exact: true});
+
+		// The page's own read-only stays, mounted and after a run.
+		await expect(source).toHaveJSProperty('readOnly', true);
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Finished');
+		await expect(source).toHaveJSProperty('readOnly', true);
+
+		// Off the page, the debugger is destroyed; put back, a new one finds the textarea.
+		const textarea = await page.evaluate(async() => {
+			const element = document.querySelector('#with-textarea');
+			const parent = element.parentNode;
+
+			element.remove();
+			await new Promise(resolve => setTimeout(resolve, 50));
+
+			const off = element.querySelector(':scope > textarea')?.value;
+
+			parent.append(element);
+			await new Promise(resolve => setTimeout(resolve, 50));
+
+			return {off, on: element.querySelector('.php-debugger-editor > textarea')?.value};
+		});
+
+		expect(textarea).toEqual({off: '<?php\necho "kept";\n', on: '<?php\necho "kept";\n'});
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Finished');
+
+		expect(
+			await page.evaluate(() => document.querySelector('#with-textarea').result.stdout)
+		).toBe('kept');
+
+		// The same for an editor of the page's that an adapter speaks for, made inside the element.
+		const editor = await page.evaluate(async() => {
+			const host = document.querySelector('#host');
+			const element = document.createElement('php-debugger');
+			const box = document.createElement('div');
+
+			box.className = 'my-editor';
+			box.textContent = '<?php echo "mine";';
+			element.setAttribute('runtime-base-url', '/runtime/');
+			element.setAttribute('version', window.phpVersionUnderTest);
+			element.append(box);
+
+			element.source = {
+				element: box
+				, getCode: () => box.textContent
+				, setCode: code => {box.textContent = code;}
+				, onBreakpointChange: () => () => {}
+
+				, setBreakpoints() {}
+
+				, showLocation() {}
+			};
+
+			host.replaceChildren(element);
+
+			const hosted = !!element.querySelector('.php-debugger-hosted-editor > .my-editor');
+
+			element.remove();
+			await new Promise(resolve => setTimeout(resolve, 50));
+
+			const off = box.parentNode === element;
+
+			host.append(element);
+			await new Promise(resolve => setTimeout(resolve, 50));
+
+			return {
+				hosted
+				, off
+				, on: !!element.querySelector('.php-debugger-hosted-editor > .my-editor')
+				, stdout: (await element.run()).stdout
+			};
+		});
+
+		expect(editor).toEqual({hosted: true, off: true, on: true, stdout: 'mine'});
+	}
+);
+
 test('a textarea inside the custom element is the editor, and is handed back', async({page}) => {
 	await page.goto('/test/harness.html');
 	await page.waitForFunction(() => window.PhpDebugger);

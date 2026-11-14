@@ -709,9 +709,11 @@ export class PhpDebugger extends EventTarget
 			return;
 		}
 
-		await this.stop();
+		// The view goes first, before anything is awaited: what it borrowed from the page, a
+		// textarea or an editor, is back at once, for whatever mounts there next.
 		this.view?.destroy();
 		this.view = null;
+		await this.stop();
 		this.transition('destroyed');
 	}
 }

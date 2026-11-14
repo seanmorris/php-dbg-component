@@ -1324,7 +1324,8 @@ export class DebuggerView
 
 		if(this.textarea)
 		{
-			this.textarea.readOnly = !!this.dbg.active;
+			// A textarea the page made read-only stays so; any other is while PHP runs.
+			this.textarea.readOnly = !!this.dbg.active || !!this.adopted?.readOnly;
 		}
 
 		this.dbg.source?.setReadOnly?.(!!this.dbg.active);
@@ -2471,10 +2472,9 @@ export class DebuggerView
 			restore('spellcheck', spellcheck);
 			restore('aria-label', label);
 
-			if(parent.isConnected)
-			{
-				parent.insertBefore(this.textarea, next?.parentNode === parent ? next : null);
-			}
+			// Back where it was, on the page or off it: a mount point taken off the page and put
+			// back later must find its textarea in it.
+			parent.insertBefore(this.textarea, next?.parentNode === parent ? next : null);
 		}
 		else if(this.dbg.source === this.textarea)
 		{
@@ -2482,12 +2482,17 @@ export class DebuggerView
 			this.dbg.source = null;
 		}
 
-		if(this.hosted?.parent.isConnected)
+		if(this.hosted)
 		{
 			const {adapter, element, parent, next} = this.hosted;
 
 			parent.insertBefore(element, next?.parentNode === parent ? next : null);
-			adapter.layout?.();
+
+			// An editor measures itself against the page; off it there is nothing to measure.
+			if(parent.isConnected)
+			{
+				adapter.layout?.();
+			}
 		}
 
 		this.root.remove();
