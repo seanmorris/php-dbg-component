@@ -41,7 +41,7 @@ This is the interface `mount()` builds, from top to bottom. The [example on the 
 
 </div>
 
-Step over, Step out, Until and Leave run the calls they pass without stopping at a breakpoint inside one; to stop there, use Continue, or Step into the call.
+Step over, Step out and Until stop at a breakpoint inside a call they pass, as Continue does, and Pause stops them there too. Leave does neither: it runs to the end of its function whatever is on the way.
 
 The button to press next is filled: **Run** before a run, **Continue** during a pause. The keys work while focus is anywhere inside the debugger, the source included. The **PHP** list picks the version for the next run; choosing another one during a run ends that run, and the status line says so.
 

@@ -159,10 +159,14 @@ test('expectations of the wrong shape fail the test and are not thrown', async (
 		);
 	}
 
-	const text = await checkExpectations(result, 'total: 40');
+	// A pattern and a list are objects too, with none of the fields; they are refused as text is.
+	for(const shape of ['total: 40', /total/, ['total: 40'], 40])
+	{
+		const {status, failures} = await checkExpectations(result, shape);
 
-	assert.equal(text.status, 'failed');
-	assert.deepEqual(text.failures, [{field: 'expect', message: 'Expectations must be an object'}]);
+		assert.equal(status, 'failed');
+		assert.deepEqual(failures, [{field: 'expect', message: 'Expectations must be an object'}]);
+	}
 
 	// An assertion fails the test by whatever it throws, nothing at all included.
 	const thrown = [
@@ -654,8 +658,11 @@ const stoppedEngine = async (binary, during = () => {}) => {
 	engine.paused = true;
 	engine.binary = binary;
 	engine.config = {mode: 'debug', entrypoint: '/main.php', code: '<?php\n$n = 1;\n'};
-	engine.sources = new Map([['/main.php', engine.config.code]]);
 	engine.installedBreakpoints = [{file: '/main.php', line: 2, enabled: true, log: '$n'}];
+
+	// Nothing is known of the logpoint's line, and this stand-in has no listing to give: the
+	// line is then taken for one that can only be arrived at.
+	engine.arrivals = new Map();
 
 	engine.writeFile = () => {};
 
@@ -996,7 +1003,6 @@ test(
 		});
 
 		const evaluations = [];
-		let answered = null;
 
 		const list = async api => {
 			const engine = new DebugEngine(() => {});
@@ -1011,11 +1017,11 @@ test(
 
 			// As the runtime does: a child is described where it is, by its key, but its value is
 			// looked for on the parent as JavaScript sees it, where a mangled key finds nothing.
-			// What an evaluation hands back is such a parent too, [true, value].
+			// The values PHP hands back in a list are described by their place in it.
 			engine.php = {
 				switchFrame: async () => 0
 				, describeChild: async (parent, key) => ({
-					type: type(parent === job ? key : parent.key)
+					type: type(parent === job ? key : keys[key])
 					, className: null
 					, count: null
 					, reference: false
@@ -1023,23 +1029,15 @@ test(
 				})
 			};
 
-			// Stands in for PHP: the property an evaluation asks for is read as PHP would read it,
-			// from inside the class named, or the object's own.
+			// Stands in for PHP: asked for the object the engine holds, cast to an array, it
+			// answers the keys the properties are stored by and their values.
 
 			engine.writeFile = (path, content) => {
-				const [, name] = content.match(/\$object->\{'(\w+)'\}/) ?? [];
-				const [, owner] = content.match(/null, '((?:[^'\\]|\\.)*)'\)\(/) ?? [];
-
-				// A private key begins with its class, a protected one with a star.
-				const start = owner ? `\0${owner.replaceAll('\\\\', '\\')}\0` : '\0*\0';
-				const key = keys.find(k => k.startsWith(start) && k.endsWith(`\0${name}`));
-
-				evaluations.push(content);
-				answered = {0: true, 1: stored[key], key};
+				evaluations.push([content, engine.subject === job]);
 			};
 
 			engine.command = async () => {
-				engine.captured = {value: answered};
+				engine.captured = {value: {0: true, 1: [keys, keys.map(key => stored[key])]}};
 			};
 
 			const parent = engine.describe(
@@ -1065,16 +1063,13 @@ test(
 			, ['hidden', 'private', '2', false]
 		]);
 
-		// The three the runtime gave no value for were read by PHP: a private one inside the
-		// class that declares it, the protected one inside the object's own.
-		assert.deepEqual(evaluations, [
-			'return (\\Closure::bind(static fn($object) => $object->{\'secret\'}, null, '
-				+ '\'App\\\\Job\')(\n${\'job\'}\n));'
-			, 'return ((static fn($object) => \\Closure::bind(static fn($object) => '
-				+ '$object->{\'guarded\'}, null, $object)($object))(\n${\'job\'}\n));'
-			, 'return (\\Closure::bind(static fn($object) => $object->{\'hidden\'}, null, '
-				+ '\'class@anonymous\0/main.php:3$0\')(\n${\'job\'}\n));'
-		]);
+		// The three the runtime gave no value for were read in one evaluation, of the object
+		// the engine holds and not of the expression it came from.
+		assert.deepEqual(evaluations, [[
+			'return ((static fn($held) => [array_keys($held), array_values($held)])((array) \n'
+				+ 'vrzno_shared(\'__phpDebugger\')->subject()\n));'
+			, true
+		]]);
 
 		// An older runtime cannot read a property by its mangled name, so only public ones are
 		// shown.

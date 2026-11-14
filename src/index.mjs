@@ -447,8 +447,10 @@ export class PhpDebugger extends EventTarget
 	 * A logpoint printed a value. The run keeps it for its result, and its text counts toward the
 	 * output limit.
 	 */
-	handleLog({file, line, message, error})
+	handleLog({file, line, message: said, error})
 	{
+		// A message is text, whatever the engine made of the expression.
+		const message = String(said ?? '');
 		const entry = {file, line, message, ...error && {error: true}};
 
 		if(this.active)

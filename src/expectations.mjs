@@ -17,8 +17,11 @@ export async function checkExpectations(result, expectations, assertion)
 
 	const failures = [];
 
-	// Expectations that are not an object check nothing, and the test says so.
-	const usable = expectations == null || typeof expectations === 'object';
+	// Expectations that are not an object of fields check nothing, and the test says so. A
+	// pattern or a list is an object too, with none of the fields.
+	const usable = expectations == null
+		|| Object.prototype.toString.call(expectations) === '[object Object]';
+
 	const expect = usable && expectations || {};
 
 	if(!usable)

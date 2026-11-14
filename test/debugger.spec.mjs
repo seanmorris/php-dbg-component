@@ -1151,9 +1151,11 @@ test(
 					, '$account = new Account;'
 					, '$limit = INF; $nan = NAN; $low = -INF;'
 					, '$file = fopen("php://memory", "r");'
+					, '$made = 0; function make() { global $made; $made++; return new Account; }'
+					, '$error = new RuntimeException("went wrong", 7);'
 					, 'echo is_infinite($limit) ? "still infinite" : "changed";'
 				].join('\n')
-				, breakpoints: [11]
+				, breakpoints: [13]
 			}
 		);
 
@@ -1183,6 +1185,27 @@ test(
 					? (await dbg.children(history.reference)).values.map(brief)
 					: null
 			};
+
+			// A built-in class hides its properties too, and PHP lets nothing bind to its scope.
+			const failures = [];
+
+			dbg.addEventListener('output', event => {
+				if(/Warning|rror/.test(event.detail.text))
+				{
+					failures.push(event.detail.text);
+				}
+			});
+
+			report.error = (await dbg.children(named('error').reference)).values.filter(
+				value => ['message', 'code'].includes(value.name)
+			).map(brief);
+
+			// Opening a value an evaluation made does not run the evaluation again.
+			const made = await dbg.evaluate('make()');
+
+			report.made = (await dbg.children(made.reference)).values.map(brief);
+			report.times = (await dbg.evaluate('$made')).value;
+			report.failures = failures;
 
 			// What the box for an edit starts with is what PHP takes back.
 			await dbg.setVariable(named('limit').reference, named('limit').displayValue);
@@ -1218,8 +1241,341 @@ test(
 		);
 
 		expect(report.history).toEqual(listsAll ? ['0  10', '1  20'] : null);
+		expect(report.made).toEqual(report.children);
+		expect(report.times).toBe(1);
+		expect(report.failures).toEqual([]);
+
+		expect(report.error).toEqual(
+			listsAll ? ['message protected "went wrong"', 'code protected 7'] : []
+		);
 	}
 );
+
+test(
+	'a step runs what it passes at full speed, through generators, and can be paused'
+	, async({page}) => {
+		await setup(page);
+
+		await create(
+			page
+			, {
+				code: [
+					'<?php'
+					, 'function add($t, $i) {'
+					, '    return $t + $i;'
+					, '}'
+
+					, 'function forever() {'
+					, '    $n = 0;'
+					, '    while(true) { $n++; }'
+					, '}'
+
+					, 'function gen() {'
+					, '    yield 1;'
+					, '    yield 2;'
+					, '}'
+
+					, '$t = 0;'
+					, 'for($i = 0; $i < 1000; $i++) { $t = add($t, $i); }'
+					, '$g = gen();'
+					, 'foreach(gen() as $v) { $t += $v; }'
+
+					, 'for($i = 0; $i < 3000; $i++) {'
+					, '    $t += 1;'
+					, '    $t -= 1;'
+					, '}'
+					, 'forever();'
+				].join('\n')
+				, breakpoints: [14]
+			}
+		);
+
+		const report = await page.evaluate(async() => {
+			const pauses = [];
+			const visited = [];
+
+			dbg.addEventListener('pause', event => pauses.push(event.detail.reason));
+
+			/** Where a resume ended and why, and whether it took under five seconds. */
+			const landed = async resumed => {
+				const started = performance.now();
+				const {line} = await resumed;
+				const quick = performance.now() - started < 5000 ? 'quick' : 'SLOW';
+
+				visited.push(`${line} ${pauses.at(-1)} ${quick}`);
+			};
+
+			const done = dbg.run();
+
+			await dbg.whenPaused();
+
+			// A thousand calls on one line; a call that makes a generator; a loop over one.
+			await landed(dbg.stepOver());
+			await landed(dbg.stepOver());
+			await landed(dbg.stepOver());
+
+			// Into the loop's body, and Until from its last line: three thousand times round.
+			await landed(dbg.stepOver());
+			await landed(dbg.stepOver());
+			await landed(dbg.until());
+
+			const total = (await dbg.evaluate('$t')).value;
+
+			// A call that never returns, stepped over: Pause still stops it, inside the call.
+			const stepping = dbg.stepOver();
+
+			await new Promise(resolve => setTimeout(resolve, 400));
+			await dbg.pause();
+			await landed(stepping);
+			await dbg.stop();
+			await done;
+
+			return {visited, total};
+		});
+
+		expect(report.visited).toEqual([
+			'15 step quick'
+			, '16 step quick'
+			, '17 step quick'
+			, '18 step quick'
+			, '19 step quick'
+			, '21 step quick'
+			, '7 pause quick'
+		]);
+
+		expect(report.total).toBe(499503);
+	}
+);
+
+test(
+	'a step stops at a breakpoint inside what it passes; Step out is exact, generators included'
+	, async({page}) => {
+		await setup(page);
+
+		await create(
+			page
+			, {
+				code: [
+					'<?php'
+					, 'function fact($n) {'
+					, '    if($n < 2) {'
+					, '        return 1;'
+					, '    }'
+					, '    return $n * fact($n - 1);'
+					, '}'
+
+					, 'function sum($n) {'
+					, '    if($n < 1) {'
+					, '        return 0;'
+					, '    }'
+					, '    $rest = sum($n - 1);'
+					, '    return $n + $rest;'
+					, '}'
+
+					, 'function gen() {'
+					, '    yield 1;'
+					, '    yield 2;'
+					, '}'
+
+					, '$f = fact(4);'
+					, '$s = sum(3);'
+					, '$g = gen();'
+					, 'foreach($g as $v) {'
+					, '    $f += $v;'
+					, '}'
+					, 'echo $f + $s;'
+				].join('\n')
+			}
+		);
+
+		const report = await page.evaluate(async() => {
+			const pauses = [];
+			const visited = [];
+
+			dbg.addEventListener('pause', event => pauses.push(event.detail.reason));
+
+			/** Where a resume ended and why, and what $n is there. */
+			const landed = async resumed => {
+				const {line} = await resumed;
+				const n = (await dbg.evaluate('$n ?? "-"')).value;
+
+				visited.push(`${line} ${pauses.at(-1)} n=${n}`);
+			};
+
+			// Stepping over the call on line 19 meets the breakpoint inside it, as Continue would.
+			await dbg.setBreakpoints([19, 4]);
+
+			const done = dbg.run();
+
+			await dbg.whenPaused();
+			await landed(dbg.stepOver());
+			await dbg.setBreakpoints([]);
+
+			// fact() returns from line 6 onto line 6 of the fact() that called it, which no line
+			// breakpoint sees. Step out is in that caller all the same, one frame at a time.
+			await landed(dbg.stepOut());
+			await landed(dbg.stepOut());
+			await landed(dbg.stepOut());
+			await landed(dbg.stepOut());
+
+			// On to sum(): into it, and over its call to itself, which runs whole.
+			await landed(dbg.stepOver());
+			await landed(dbg.stepInto());
+			await landed(dbg.stepOver());
+			await landed(dbg.stepOver());
+
+			const rest = (await dbg.evaluate('$rest')).value;
+
+			await landed(dbg.stepOut());
+
+			// Over the call that makes a generator, into its body from the loop, and out again.
+			await landed(dbg.stepOver());
+			await landed(dbg.stepOver());
+			await landed(dbg.stepInto());
+			await landed(dbg.stepOut());
+			await dbg.continue();
+
+			return {visited, rest, stdout: (await done).stdout};
+		});
+
+		expect(report.visited).toEqual([
+			'4 breakpoint n=1'
+			, '6 step n=2'
+			, '6 step n=3'
+			, '6 step n=4'
+			, '19 step n=-'
+
+			, '20 step n=-'
+			, '9 step n=3'
+			, '12 step n=3'
+			, '13 step n=3'
+			, '20 step n=-'
+
+			, '21 step n=-'
+			, '22 step n=-'
+			, '16 step n=-'
+			, '22 step n=-'
+		]);
+
+		expect(report.rest).toBe(3);
+		expect(report.stdout).toBe('33');
+	}
+);
+
+test(
+	'a logpoint logs once for its line, however its statement is written or left'
+	, async({page}) => {
+		await setup(page);
+
+		await create(
+			page
+			, {
+				code: [
+					'<?php'
+					, 'function foo($a, $b) {'
+					, '    return $a + $b;'
+					, '}'
+
+					, '$x = foo('
+					, '    1,'
+					, '    2'
+					, ');'
+					, 'echo $x;'
+				].join('\n')
+			}
+		);
+
+		const report = await page.evaluate(async() => {
+
+			/** The lines a run's logpoints logged at, in order. */
+			const logged = result => result.logs.map(
+				entry => `${entry.line}${entry.error ? '!' : ''}`
+			);
+
+			// A call written over several lines comes back to its last argument's line, and to its
+			// first for the assignment.
+			await dbg.setBreakpoints([5, 6, 7].map(line => ({line, log: `"line ${line}"`})));
+
+			const spread = logged(await dbg.run({mode: 'test'}));
+
+			// An expression of nothing but a semicolon is not no expression: it is said to be
+			// empty, and the run ends.
+			await dbg.setBreakpoints(
+				[{line: 5, log: ';'}, {line: 9, condition: ';', log: '"nine"'}]
+			);
+
+			const empty = await dbg.run({mode: 'test'});
+
+			return {spread, empty: logged(empty), messages: empty.logs.map(entry => entry.message)};
+		});
+
+		expect(report.spread).toEqual(['5', '6', '7']);
+		expect(report.empty).toEqual(['5!', '9!']);
+
+		expect(report.messages).toEqual([
+			'The expression is empty'
+			, 'The condition at /main.php:9 failed: The expression is empty'
+		]);
+	}
+);
+
+test('Leave at the end of a function stays there, and says where that is', async({page}) => {
+	await setup(page);
+
+	await create(
+		page
+		, {
+			code: [
+				'<?php'
+				, 'function most($m) {'
+				, '    $m += 1;'
+				, '    return $m;'
+				, '}'
+				, 'echo most(1);'
+			].join('\n')
+		}
+	);
+
+	const report = await page.evaluate(async() => {
+		const logs = [];
+
+		dbg.addEventListener('log', event => logs.push(event.detail.message));
+		await dbg.setBreakpoints([3, {line: 4, log: '"returning $m"'}]);
+
+		const done = dbg.run();
+
+		await dbg.whenPaused();
+
+		// To where the function returns; the logpoint on that line prints as it is stepped onto.
+		const first = await dbg.leave();
+		const value = (await dbg.evaluate('$m + 1')).value;
+
+		// Already there, Leave runs nothing: the place is the same, not the evaluation's, and
+		// the logpoint has nothing new to say.
+		const second = await dbg.leave();
+
+		await dbg.setBreakpoints([]);
+		await dbg.continue();
+
+		const place = ({file, line}) => `${file}:${line}`;
+
+		return {
+			first: place(first)
+			, second: place(second)
+			, value
+			, logs
+			, stdout: (await done).stdout
+		};
+	});
+
+	expect(report).toEqual({
+		first: '/main.php:4'
+		, second: '/main.php:4'
+		, value: 3
+		, logs: ['returning 2']
+		, stdout: '2'
+	});
+});
 
 test('a name in other than ASCII reaches phpdbg whole', async({page}) => {
 	await setup(page);
