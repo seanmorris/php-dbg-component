@@ -1456,6 +1456,78 @@ test('a breakpoint takes a condition or a log from its row; a logpoint runs on',
 	await page.evaluate(() => dbg.destroy());
 });
 
+test('what is typed in a breakpoint\'s form outlives the list being built again', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	await page.evaluate(() => {
+		window.dbg = new PhpDebugger(
+			{
+				version: window.phpVersionUnderTest
+				, runtimeBaseUrl: '/runtime/'
+				, code: '<?php\n$sum = 0;\nfor($i = 0; $i < 5; $i++) {\n    $sum += $i;\n}\n'
+					+ 'echo $sum;'
+				, breakpoints: [4, 6]
+			}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+	});
+
+	const edit = page.getByRole('button', {name: 'Edit breakpoint, line 4', exact: true});
+	const conditionOn = page.getByRole('checkbox', {name: 'Condition', exact: true});
+	const condition = page.getByRole('textbox', {name: 'Condition', exact: true});
+	const source = page.getByRole('textbox', {name: 'PHP source', exact: true});
+	const row = page.locator('.php-debugger-breakpoint').filter({hasText: 'Line 4'});
+	const other = page.locator('.php-debugger-breakpoint').filter({hasText: 'Line 6'});
+
+	await openPanel(page, 'Breakpoints');
+	await edit.click();
+	await conditionOn.check();
+	await page.keyboard.type('$i === 3');
+
+	// Another breakpoint switched off, one added from the gutter, a character typed in the
+	// source: each builds the list again, and none of it is the form's business.
+	await other.getByRole('checkbox').uncheck();
+	await expect(other).toHaveAttribute('data-enabled', 'false');
+	await page.locator('.php-debugger-line').nth(1).click();
+	await expect(page.locator('.php-debugger-breakpoint')).toHaveCount(3);
+	await source.press('End');
+	await source.pressSequentially(' ');
+
+	await expect(conditionOn).toBeChecked();
+	await expect(condition).toHaveValue('$i === 3');
+	await expect(edit).toHaveAttribute('aria-expanded', 'true');
+
+	// A change made from a script while the box has focus leaves the caret in it.
+	await condition.focus();
+	await page.evaluate(() => dbg.setBreakpoints(dbg.breakpoints.filter(bp => bp.line !== 2)));
+	await expect(page.locator('.php-debugger-breakpoint')).toHaveCount(2);
+	await expect(condition).toBeFocused();
+	await page.keyboard.type(' && true');
+	await condition.press('Enter');
+
+	await expect(row.locator('.php-debugger-breakpoint-detail')).toHaveText(
+		'when $i === 3 && true'
+	);
+
+	// Closed by its own button with something typed, it opens again on what was saved.
+	await edit.click();
+	await condition.fill('$i === 4');
+	await edit.click();
+	await expect(condition).toHaveCount(0);
+	await edit.click();
+	await expect(condition).toHaveValue('$i === 3 && true');
+
+	// A breakpoint removed with its form open does not open one when it is set again.
+	await row.getByRole('button', {name: 'Remove breakpoint, line 4', exact: true}).click();
+	await expect(page.locator('.php-debugger-breakpoint')).toHaveCount(1);
+	await page.locator('.php-debugger-line').nth(3).click();
+	await expect(page.locator('.php-debugger-breakpoint')).toHaveCount(2);
+	await expect(page.locator('.php-debugger-breakpoint-settings')).toHaveCount(0);
+	await page.evaluate(() => dbg.destroy());
+});
+
 test('breakpoints list by line and add with Enter; a run clears the console', async({page}) => {
 	await page.goto('/test/harness.html');
 	await page.waitForFunction(() => window.PhpDebugger);

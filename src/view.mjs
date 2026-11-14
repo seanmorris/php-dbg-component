@@ -1665,6 +1665,21 @@ export class DebuggerView
 			? [...this.breakpointList.querySelectorAll('input, button')].indexOf(active)
 			: -1;
 
+		// A form open on a breakpoint that is gone goes with it, and the form kept from the last
+		// list is this one's only while it is still the one open.
+		if(!dbg.breakpoints.some(bp => bp.id === this.editingBreakpoint))
+		{
+			this.editingBreakpoint = null;
+		}
+
+		if(this.breakpointForm?.id !== this.editingBreakpoint)
+		{
+			this.breakpointForm = null;
+		}
+
+		// Whether what is being typed in is the form: it is put back as it is, with its focus.
+		const typing = !!this.breakpointForm?.form.contains(active);
+
 		this.breakpointList.replaceChildren();
 
 		// In reading order: the file on screen first, then by line.
@@ -1698,6 +1713,10 @@ export class DebuggerView
 			const rows = [...this.breakpointList.children];
 
 			rows.find(item => item.dataset.id === asked.id)?.querySelector(asked.part).focus();
+		}
+		else if(typing)
+		{
+			active.focus();
 		}
 		else if(focused >= 0)
 		{
@@ -1789,9 +1808,12 @@ export class DebuggerView
 
 		item.append(label, detail, edit, remove);
 
+		// The form is built when it opens and kept while it stays open, so what has been ticked
+		// and typed in it but not applied outlives the list being built again around it.
 		if(editing)
 		{
-			item.append(this.breakpointSettings(bp));
+			this.breakpointForm ??= {id: bp.id, form: this.breakpointSettings(bp)};
+			item.append(this.breakpointForm.form);
 		}
 
 		return item;
