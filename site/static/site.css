@@ -179,8 +179,9 @@ a:hover { text-decoration-thickness: 2px; }
 .demo-bar > p, .try-result > p { display: contents; }
 .demo-problem { flex-basis: 100%; color: var(--stop); }
 .demo-problem:empty { display: none; }
-.try-result { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-top: 1rem; }
-.try-result output { font-family: var(--mono); font-size: .85rem; }
+/* The outcome under its button; what a run logged follows it, a line each. */
+.try-result { display: grid; justify-items: start; gap: .5rem; margin-top: 1rem; }
+.try-result output { font-family: var(--mono); font-size: .85rem; white-space: pre-line; }
 .try-result output[data-status=failed] { color: var(--stop); }
 /* An editor in the debugger is as tall as its textarea. */
 .php-debugger .php-debugger-hosted-editor > :is(.CodeMirror, .cm-editor, .ace_editor) { height: 17rem; }

@@ -240,10 +240,23 @@ test(
 		await page.getByRole('button', {name: 'Run PHP assertion', exact: true}).click();
 		await expect(page.locator('#test-result')).toHaveAttribute('data-status', 'passed');
 
-		// The logpoint example passes, and says what it logged.
+		// The logpoint example passes, and shows what each logpoint printed on a line of its own.
+		const logpoints = page.locator('#logpoints-result');
+
 		await page.getByRole('button', {name: 'Run with a logpoint', exact: true}).click();
-		await expect(page.locator('#logpoints-result')).toHaveAttribute('data-status', 'passed');
-		await expect(page.locator('#logpoints-result')).toContainText('passed · 6 · logged 1, 3 ·');
+		await expect(logpoints).toHaveAttribute('data-status', 'passed');
+
+		const button = await page.getByRole('button', {name: 'Run with a logpoint'}).boundingBox();
+		const lines = await logpoints.evaluate(element => element.innerText.split('\n'));
+
+		// Under the button, not beside it.
+		expect((await logpoints.boundingBox()).y).toBeGreaterThanOrEqual(button.y + button.height);
+
+		expect(lines[0]).toMatch(/^passed · 40 · \d+ ms$/);
+
+		expect(lines.slice(1)).toEqual(
+			['line 5: notebook costs 8', 'line 5: backpack costs 30', 'line 7: total: 40']
+		);
 
 		await contents.getByRole(
 			'link'

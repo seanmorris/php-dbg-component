@@ -225,12 +225,11 @@ async function runExample(button, output, options)
 		const result = await test.run({mode: 'test', timeoutMs: 5000});
 		const said = result.stdout.trim() || result.diagnostics.map(d => d.message).join(' ');
 		const time = Math.round(result.durationMs);
-		// What logpoints printed, in order, when the example has any.
-		const logs = result.logs.map(entry => entry.message).join(', ');
-		const logged = logs && ` · logged ${logs}`;
+		// What logpoints printed, a line each, after where each came from.
+		const logs = result.logs.map(entry => `\nline ${entry.line}: ${entry.message}`).join('');
 
 		output.dataset.status = result.test.status;
-		output.textContent = `${result.test.status} · ${said}${logged} · ${time} ms`;
+		output.textContent = `${result.test.status} · ${said} · ${time} ms${logs}`;
 	}
 	catch(error)
 	{
@@ -252,16 +251,32 @@ $('#run-test')?.addEventListener(
 	)
 );
 
-// The logpoint example: $sum is logged on line 4 whenever $n is over 1, and nothing pauses.
+// The logpoint example, as the tests page shows it: each price over 5 is logged as the loop
+// reaches it, then the total as the function returns, and nothing pauses.
+const logpointCode = `<?php
+function total(array $prices): int {
+    $total = 0;
+    foreach ($prices as $name => $price) {
+        $total += $price;  // line 5
+    }
+    return $total;         // line 7
+}
+echo total(['pen' => 2, 'notebook' => 8, 'backpack' => 30]);`;
+
 $('#run-logpoints')?.addEventListener(
 	'click'
 	, event => void runExample(
 		event.currentTarget
 		, $('#logpoints-result')
 		, {
-			code: '<?php\n$sum = 0;\nforeach ([1, 2, 3] as $n) {\n    $sum += $n;\n}\necho $sum;'
-			, breakpoints: [{line: 4, log: '$sum', condition: '$n > 1'}]
-			, expect: {stdout: '6', logs: ['1', '3']}
+			code: logpointCode
+
+			, breakpoints: [
+				{line: 5, log: '"$name costs $price"', condition: '$price > 5'}
+				, {line: 7, log: '"total: $total"'}
+			]
+
+			, expect: {stdout: '40', logs: ['notebook costs 8', 'backpack costs 30', 'total: 40']}
 		}
 	)
 );

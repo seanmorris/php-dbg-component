@@ -58,20 +58,40 @@ That code, run here:
 
 A logpoint is a breakpoint with a `log`: a PHP expression whose value is printed each time execution reaches the line, without pausing. A test run keeps its logpoints, so it can check values in the middle of the program without changing the code. A string is logged as it is; anything else as `var_export()` writes it. Add a `condition` to log only when it is true.
 
+Here one logpoint reports each price over 5 as the loop reaches it, and another reports the total as the function returns. Nothing pauses, and the test checks both the output and what was logged:
+
 ```javascript
+const code = `<?php
+function total(array $prices): int {
+    $total = 0;
+    foreach ($prices as $name => $price) {
+        $total += $price;  // line 5
+    }
+    return $total;         // line 7
+}
+echo total(['pen' => 2, 'notebook' => 8, 'backpack' => 30]);`;
+
 const test = new PhpDebugger({
   runtimeBaseUrl: './runtime/',
-  code: '<?php\n$sum = 0;\nforeach ([1, 2, 3] as $n) {\n    $sum += $n;\n}\necho $sum;',
-  breakpoints: [{line: 4, log: '$sum', condition: '$n > 1'}]
+  code,
+  breakpoints: [
+    // Each time round the loop, for prices over 5.
+    {line: 5, log: '"$name costs $price"', condition: '$price > 5'},
+    // Once, as the function returns.
+    {line: 7, log: '"total: $total"'}
+  ]
 });
 
 const result = await test.run({
   mode: 'test',
-  expect: {stdout: '6', logs: ['1', '3']}
+  expect: {
+    stdout: '40',
+    logs: ['notebook costs 8', 'backpack costs 30', 'total: 40']
+  }
 });
 
-console.log(result.logs);
-// [{file: '/main.php', line: 4, message: '1'}, {file: '/main.php', line: 4, message: '3'}]
+console.log(result.logs.map(entry => `line ${entry.line}: ${entry.message}`));
+// ["line 5: notebook costs 8", "line 5: backpack costs 30", "line 7: total: 40"]
 ```
 
 That code, run here:
