@@ -98,6 +98,139 @@ test('declarative autorun, CSS overrides, and generic element/variable sources',
 	);
 });
 
+// The editor at the top of a tall page and the debugger at the bottom, in view: a pause on a line
+// far down a short editor scrolls the editor to it, and nothing else.
+for(const kind of ['ace', 'codemirror5', 'codemirror6', 'code-block'])
+{
+	test(`a pause scrolls ${kind} to its line and leaves the page where it is`, async({page}) => {
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		if(kind === 'ace')
+		{
+			await page.addScriptTag({url: '/node_modules/ace-builds/src-noconflict/ace.js'});
+		}
+
+		if(kind === 'codemirror5')
+		{
+			await page.addScriptTag({url: '/node_modules/codemirror/lib/codemirror.js'});
+			await page.addStyleTag({url: '/node_modules/codemirror/lib/codemirror.css'});
+		}
+
+		const result = await page.evaluate(async kind => {
+			const mountPoint = document.querySelector('#host');
+			const host = document.createElement('div');
+			const spacer = document.createElement('div');
+			const lines = Array.from({length: 58}, (_, i) => `$n${i} = ${i};`);
+			const code = ['<?php', ...lines, 'echo "done";'].join('\n');
+			let adapter;
+
+			/** Whether the paused line is inside the editor's own box. */
+			let shown = () => {
+				const box = adapter.element.getBoundingClientRect();
+
+				const line = host.querySelector(
+					'.php-debugger-active-line'
+				).getBoundingClientRect();
+
+				return line.top >= box.top - 1 && line.bottom <= box.bottom + 1;
+			};
+
+			spacer.style.height = '3000px';
+			document.body.prepend(host, spacer);
+
+			if(kind === 'ace')
+			{
+				const container = document.createElement('div');
+
+				container.style.height = '120px';
+				host.append(container);
+
+				const editor = ace.edit(container);
+
+				editor.setValue(code, -1);
+				adapter = (await import('/src/adapters/ace.mjs')).createAceAdapter(editor);
+			}
+			else if(kind === 'codemirror5')
+			{
+				const editor = CodeMirror(host, {value: code, lineNumbers: true});
+
+				editor.setSize(null, 120);
+
+				adapter = (await import('/src/adapters/codemirror5.mjs'))
+					.createCodeMirror5Adapter(editor);
+			}
+			else if(kind === 'codemirror6')
+			{
+				const {EditorState, EditorView, lineNumbers, createCodeMirror6Adapter}
+					= await import('/editors.mjs');
+
+				const state = EditorState.create({doc: code, extensions: [lineNumbers()]});
+				const editor = new EditorView({state, parent: host});
+
+				editor.dom.style.height = '120px';
+				adapter = createCodeMirror6Adapter(editor);
+
+				// Out of sight, CodeMirror 6 draws no lines; where line 50 is says the same.
+
+				shown = () => {
+					const {top, bottom} = editor.lineBlockAt(editor.state.doc.line(50).from);
+					const {scrollTop, clientHeight} = editor.scrollDOM;
+
+					return top >= scrollTop - 1 && bottom <= scrollTop + clientHeight + 1;
+				};
+			}
+			else
+			{
+				const pre = document.createElement('pre');
+				const block = document.createElement('code');
+
+				pre.style.cssText = 'max-height: 120px; overflow: auto; margin: 0';
+				block.textContent = code;
+				pre.append(block);
+				host.append(pre);
+
+				adapter = (await import('/src/adapters/code-block.mjs'))
+					.createCodeBlockAdapter(pre);
+			}
+
+			const dbg = new PhpDebugger(
+				{
+					source: adapter
+					, version: window.phpVersionUnderTest
+					, runtimeBaseUrl: '/runtime/'
+					, breakpoints: [50]
+				}
+			);
+
+			dbg.mount(mountPoint);
+			mountPoint.scrollIntoView();
+			await new Promise(resolve => setTimeout(resolve, 100));
+
+			const before = Math.round(window.scrollY);
+			const done = dbg.run();
+
+			await dbg.whenPaused();
+			await new Promise(resolve => setTimeout(resolve, 300));
+
+			const result = {
+				moved: Math.round(window.scrollY) - before
+				, shown: shown()
+				, scrolled: before > 2000
+			};
+
+			await dbg.continue();
+			await done;
+			await dbg.destroy();
+
+			return result;
+		}, kind
+		);
+
+		expect(result).toEqual({moved: 0, shown: true, scrolled: true});
+	});
+}
+
 // Each editor beside the debugger, where it stays, and inside the element the debugger is mounted
 // on, where it moves into the interface until the debugger is destroyed.
 for(const kind of ['ace', 'codemirror5', 'codemirror6'])

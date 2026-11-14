@@ -38,6 +38,26 @@ export function createCodeMirror5Adapter(editor, {file = '/main.php'} = {})
 
 	editor.on('gutterClick', click);
 
+	/**
+	 * Bring a line into view in the editor's own box, with room around it. CodeMirror's
+	 * scrollIntoView would move the page as well.
+	 */
+	const reveal = line => {
+		const room = 60;
+		const top = editor.heightAtLine(line, 'local');
+		const bottom = top + editor.defaultTextHeight();
+		const {top: scrolled, clientHeight} = editor.getScrollInfo();
+
+		if(top - room < scrolled)
+		{
+			editor.scrollTo(null, Math.max(0, top - room));
+		}
+		else if(bottom + room > scrolled + clientHeight)
+		{
+			editor.scrollTo(null, bottom + room - clientHeight);
+		}
+	};
+
 	return {
 		element: editor.getWrapperElement()
 		, layout: () => editor.refresh()
@@ -85,7 +105,7 @@ export function createCodeMirror5Adapter(editor, {file = '/main.php'} = {})
 					, 'php-debugger-active-line'
 				);
 
-				editor.scrollIntoView({line: location.line - 1, ch: 0}, 60);
+				reveal(location.line - 1);
 			}
 		}
 

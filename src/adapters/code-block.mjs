@@ -168,7 +168,7 @@ export function createCodeBlockAdapter(block, {file = '/main.php', highlight = n
 			if(line && !disposed)
 			{
 				line.classList.add('php-debugger-active-line');
-				line.scrollIntoView({block: 'nearest'});
+				reveal(line, block);
 			}
 		}
 
@@ -186,6 +186,36 @@ export function createCodeBlockAdapter(block, {file = '/main.php', highlight = n
 			listeners.clear();
 		}
 	};
+}
+
+/**
+ * Bring a line into view by scrolling the nearest box around it that scrolls, and only one that
+ * belongs to the block: the block as it was given, the element it stands in, or the place the
+ * debugger gave it. The page stays where it is.
+ */
+function reveal(line, block)
+{
+	const slot = line.closest('.php-debugger-hosted-editor');
+	const frame = line.closest('div.sourceCode') ?? line.closest('pre');
+	const outer = slot ?? [block, frame].find(box => box?.contains(block) && box.contains(frame));
+
+	for(let box = line.parentElement; box; box = box === outer ? null : box.parentElement)
+	{
+		const scrolls = /auto|scroll/.test(getComputedStyle(box).overflowY);
+
+		if(!scrolls || box.scrollHeight <= box.clientHeight)
+		{
+			continue;
+		}
+
+		const edge = box.getBoundingClientRect().top + box.clientTop;
+		const top = line.getBoundingClientRect().top - edge;
+		const below = top + line.offsetHeight - box.clientHeight;
+
+		box.scrollTop += top < 0 ? top : Math.max(0, below);
+
+		return;
+	}
 }
 
 /** Put an attribute back as it was, absent included. */

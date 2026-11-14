@@ -152,11 +152,27 @@ export function createCodeMirror6Adapter(view, {file = '/main.php'} = {})
 				? view.state.doc.line(location.line).from
 				: null;
 
-			view.dispatch(
+			view.dispatch({effects: position.of(from)});
+
+			if(from === null)
+			{
+				return;
+			}
+
+			// A line out of view is put in the middle of the editor's own box. CodeMirror's
+			// scrollIntoView would move every box around the editor as well, the page included.
+			view.requestMeasure(
 				{
-					effects: [position.of(from)
-						, ...(from === null ? [] : [EditorView.scrollIntoView(from, {y: 'center'})])
-					]
+					read: () => view.lineBlockAt(from)
+					, write: block => {
+						const box = view.scrollDOM;
+						const top = view.documentTop + block.top - box.getBoundingClientRect().top;
+
+						if(top < 0 || top + block.height > box.clientHeight)
+						{
+							box.scrollTop += top - (box.clientHeight - block.height) / 2;
+						}
+					}
 				}
 			);
 		}
