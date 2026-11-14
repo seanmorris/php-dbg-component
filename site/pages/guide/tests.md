@@ -74,6 +74,10 @@ console.log(result.logs);
 // [{file: '/main.php', line: 4, message: '1'}, {file: '/main.php', line: 4, message: '3'}]
 ```
 
+That code, run here:
+
+<div class="try-result"><button id="run-logpoints" type="button" class="btn">Run with a logpoint</button><output id="logpoints-result" aria-live="polite">Not run</output></div>
+
 `expect.logs` takes one string or regular expression for each message, in order. A log whose expression fails, or whose condition does, logs the reason with `error: true`.
 
 ## The result

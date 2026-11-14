@@ -225,9 +225,12 @@ async function runExample(button, output, options)
 		const result = await test.run({mode: 'test', timeoutMs: 5000});
 		const said = result.stdout.trim() || result.diagnostics.map(d => d.message).join(' ');
 		const time = Math.round(result.durationMs);
+		// What logpoints printed, in order, when the example has any.
+		const logs = result.logs.map(entry => entry.message).join(', ');
+		const logged = logs && ` · logged ${logs}`;
 
 		output.dataset.status = result.test.status;
-		output.textContent = `${result.test.status} · ${said} · ${time} ms`;
+		output.textContent = `${result.test.status} · ${said}${logged} · ${time} ms`;
 	}
 	catch(error)
 	{
@@ -246,6 +249,20 @@ $('#run-test')?.addEventListener(
 		event.currentTarget
 		, $('#test-result')
 		, {code: '<?php echo 6 * 7, "\\n";', expect: {stdout: '42\n', exitCode: 0}}
+	)
+);
+
+// The logpoint example: $sum is logged on line 4 whenever $n is over 1, and nothing pauses.
+$('#run-logpoints')?.addEventListener(
+	'click'
+	, event => void runExample(
+		event.currentTarget
+		, $('#logpoints-result')
+		, {
+			code: '<?php\n$sum = 0;\nforeach ([1, 2, 3] as $n) {\n    $sum += $n;\n}\necho $sum;'
+			, breakpoints: [{line: 4, log: '$sum', condition: '$n > 1'}]
+			, expect: {stdout: '6', logs: ['1', '3']}
+		}
 	)
 );
 

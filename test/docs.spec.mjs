@@ -240,6 +240,11 @@ test(
 		await page.getByRole('button', {name: 'Run PHP assertion', exact: true}).click();
 		await expect(page.locator('#test-result')).toHaveAttribute('data-status', 'passed');
 
+		// The logpoint example passes, and says what it logged.
+		await page.getByRole('button', {name: 'Run with a logpoint', exact: true}).click();
+		await expect(page.locator('#logpoints-result')).toHaveAttribute('data-status', 'passed');
+		await expect(page.locator('#logpoints-result')).toContainText('passed · 6 · logged 1, 3 ·');
+
 		await contents.getByRole(
 			'link'
 			, {name: 'PHP versions and extensions', exact: true}
