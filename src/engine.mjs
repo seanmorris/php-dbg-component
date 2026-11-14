@@ -283,6 +283,13 @@ export class DebugEngine
 			this.heard?.push(text);
 		}
 
+		// A step on its way stops at breakpoints nobody set, perhaps thousands of times. What
+		// phpdbg says of each is not for the console.
+		if(type === 0 && !evaluating && this.seek)
+		{
+			return;
+		}
+
 		if(type === 3 && text)
 		{
 			const diagnostic = {message: text, phase: evaluating ? 'evaluation' : 'execution'};
@@ -465,8 +472,9 @@ export class DebugEngine
 
 	/**
 	 * Step over the line of a frame; `from` is where that is. A step is all it takes unless the
-	 * line makes a call, where phpdbg stops at the call's first line. From there PHP runs on to
-	 * another line of the frame the step began in.
+	 * line makes a call, where phpdbg stops at the call's first line. From there resume() runs
+	 * PHP on to another line of the frame the step began in, unless that first line has a
+	 * breakpoint of its own to meet.
 	 */
 	async over(from)
 	{
@@ -481,7 +489,8 @@ export class DebugEngine
 
 	/**
 	 * Until: a step, unless that lands back on the line or on an earlier one, as at the end of a
-	 * loop, or inside a call. From there PHP runs on to a later line of the frame.
+	 * loop, or inside a call. From there resume() runs PHP on to a later line of the frame, as
+	 * it does for Step over.
 	 */
 	async until(from)
 	{
@@ -517,8 +526,11 @@ export class DebugEngine
 
 		if(unseen || !await this.seekFrom(from, 'out'))
 		{
-			await this.returnExactly();
+			return this.returnExactly();
 		}
+
+		// PHP has not moved yet, and the breakpoint it may be standing on has been met.
+		await this.go('continue');
 	}
 
 	/**
@@ -538,14 +550,14 @@ export class DebugEngine
 	}
 
 	/**
-	 * Run on to where a step ends, and answer whether that could be arranged. Temporary
-	 * breakpoints go on the lines it may end on: the other lines of the function the step began
-	 * in, the later ones for Until, and the lines of that function's caller, where execution
-	 * comes out when the function returns first; for Step out, the caller's alone. resume()
-	 * stops PHP at the first of them the step's own frame reaches, and takes them away again.
+	 * Arrange where a step ends, and answer whether that could be done. Temporary breakpoints
+	 * go on the lines it may end on: the other lines of the function the step began in, the
+	 * later ones for Until, and the lines of that function's caller, where execution comes out
+	 * when the function returns first; for Step out, the caller's alone. resume() runs PHP on,
+	 * stops it at the first of them the step's own frame reaches, and takes them away again.
 	 *
-	 * PHP runs as it does for Continue: at full speed, stopping at breakpoints inside the calls
-	 * it passes, and open to a pause.
+	 * PHP then runs as it does for Continue: at full speed, stopping at breakpoints inside the
+	 * calls it passes, and open to a pause.
 	 */
 	async seekFrom(from, kind)
 	{
@@ -579,9 +591,12 @@ export class DebugEngine
 			)
 		]);
 
-		// The function called again, deeper, is run to where it returns. Not a generator, whose
-		// first frame is gone before it returns.
-		this.seek = {kind, from, lines, swift: !(own ?? caller).generator};
+		// The function called again, deeper, is run to where it returns: phpdbg's "leave", which
+		// passes breakpoints, so only where there are none to pass. Not a generator either,
+		// whose first frame is gone before it returns.
+		const swift = !(own ?? caller).generator && !this.installedBreakpoints.length;
+
+		this.seek = {kind, from, lines, swift};
 
 		for(const place of lines)
 		{
@@ -593,8 +608,6 @@ export class DebugEngine
 				await this.quietly(`break ${place}`);
 			}
 		}
-
-		await this.go('continue');
 
 		return true;
 	}
@@ -656,8 +669,9 @@ export class DebugEngine
 
 	/**
 	 * Carry on from a stop that is not a pause. `again` says a step's temporary breakpoint was
-	 * met deeper than the step began: its function has been called again. That call is run to
-	 * where it returns first, or each of its lines would be a stop of its own.
+	 * met deeper than the step began: its function has been called again. Where no breakpoint
+	 * could be passed by it, that call is run to where it returns first; otherwise each of its
+	 * lines is a stop of its own, to carry on from.
 	 */
 	async onward(again)
 	{

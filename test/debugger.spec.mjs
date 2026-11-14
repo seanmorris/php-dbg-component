@@ -1348,6 +1348,125 @@ test(
 );
 
 test(
+	'a step meets a breakpoint on the first line of a call, and one deep in a recursion'
+	, async({page}) => {
+		await setup(page);
+
+		await create(
+			page
+			, {
+				code: [
+					'<?php'
+					, 'function fib($n) {'
+					, '    if($n < 2) {'
+					, '        return $n;'
+					, '    }'
+					, '    $a = fib($n - 1);'
+					, '    $b = fib($n - 2);'
+					, '    return $a + $b;'
+					, '}'
+
+					, 'function first() {'
+					, '    return 1;'
+					, '}'
+
+					, '$x = first();'
+					, '$y = first();'
+					, 'echo fib(12) + $x + $y, " ";'
+					, '$again = true;'
+					, 'echo fib(11);'
+				].join('\n')
+				, breakpoints: [13]
+			}
+		);
+
+		const report = await page.evaluate(async() => {
+			const pauses = [];
+			const visited = [];
+			const notices = [];
+
+			dbg.addEventListener('pause', event => pauses.push(event.detail.reason));
+
+			dbg.addEventListener('output', event => {
+				if(event.detail.kind === 'notice')
+				{
+					notices.push(event.detail.text);
+				}
+			});
+
+			/** Where a resume ended and why, and whether it took under five seconds. */
+			const landed = async resumed => {
+				const started = performance.now();
+				const {line} = await resumed;
+				const quick = performance.now() - started < 5000 ? 'quick' : 'SLOW';
+
+				visited.push(`${line} ${pauses.at(-1)} ${quick}`);
+			};
+
+			const done = dbg.run();
+
+			await dbg.whenPaused();
+
+			// The first line of a function is where a step into it lands. Its breakpoint is met
+			// there by Step over, and by Until, which run on from that line.
+			await dbg.setBreakpoints([11]);
+			await landed(dbg.stepOver());
+			await landed(dbg.stepOut());
+			await landed(dbg.until());
+			await landed(dbg.until());
+
+			// With no breakpoint to pass, a call of the function being stepped through is run
+			// whole at once: 287 calls of it here.
+			await dbg.setBreakpoints([{line: 6, condition: '$n === 12'}]);
+			await landed(dbg.continue());
+			await dbg.setBreakpoints([]);
+			await landed(dbg.stepOver());
+
+			// With one, the calls are followed line by line, and the breakpoint is met where
+			// the recursion ends, eleven calls down.
+			await dbg.setBreakpoints([4]);
+			await landed(dbg.stepOver());
+
+			const deep = (await dbg.evaluate('$n')).value;
+
+			// A breakpoint on the line stepped over, whose condition fails in each call
+			// passed, stops none of them. Nothing is said of the stops made on the way.
+			const condition = '$n === 11 && isset($GLOBALS["again"])';
+
+			await dbg.setBreakpoints([{line: 6, condition}]);
+			await landed(dbg.continue());
+
+			const said = notices.length;
+
+			await landed(dbg.stepOver());
+
+			const chatter = notices.length - said;
+
+			await dbg.setBreakpoints([]);
+			await dbg.continue();
+
+			return {visited, deep, chatter, stdout: (await done).stdout};
+		});
+
+		expect(report.visited).toEqual([
+			'11 breakpoint quick'
+			, '13 step quick'
+			, '14 step quick'
+			, '11 breakpoint quick'
+			, '6 breakpoint quick'
+			, '7 step quick'
+			, '4 breakpoint quick'
+			, '6 breakpoint quick'
+			, '7 step quick'
+		]);
+
+		expect(report.deep).toBe(1);
+		expect(report.chatter).toBeLessThan(10);
+		expect(report.stdout).toBe('146 89');
+	}
+);
+
+test(
 	'a step stops at a breakpoint inside what it passes; Step out is exact, generators included'
 	, async({page}) => {
 		await setup(page);
