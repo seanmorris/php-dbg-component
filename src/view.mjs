@@ -947,6 +947,13 @@ export class DebuggerView
 			event.preventDefault();
 
 			const row = this.content.querySelector(`#${CSS.escape(target)}`);
+
+			// A target that is not listed leaves everything as it is.
+			if(!row)
+			{
+				return;
+			}
+
 			const cell = row.cells[0];
 
 			for(const marked of this.content.querySelectorAll('tr[data-jumped]'))

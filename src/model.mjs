@@ -199,20 +199,79 @@ const opSize = 28;
 function dumpedOp(line, index, text)
 {
 	const [, result = '', opcode = text, operands = ''] = text.match(
-		/^(?:(\S+) = )?([A-Z][A-Z0-9_]*)(?: (.*))?$/
+		/^(?:(\S+) = )?([A-Z][A-Z0-9_]*)(?: (.*))?$/s
 	) ?? [];
 
 	return {line, index, result, opcode, operands};
 }
 
-/** One op in PHP 8.0's columns. */
+/**
+ * Where a column that began at `start` ends. printf pads a column to a width in bytes, so a
+ * variable named in other than ASCII fills its column in fewer characters.
+ */
+function columnEnd(text, start, width)
+{
+	let at = start;
+
+	for(let bytes = 0; at < text.length && bytes < width; at++)
+	{
+		const code = text.codePointAt(at);
+
+		bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+		at += code > 0xFFFF ? 1 : 0;
+	}
+
+	return at;
+}
+
+/**
+ * One op in PHP 8.0's columns: the opcode padded to 23 and op1, op2 and the result to 20 each,
+ * a space between them. phpdbg cuts a string or a variable's name to fit its column but not an
+ * opcode, so a long one, "INIT_STATIC_METHOD_CALL<1>", moves the columns after it along.
+ */
 function paddedOp(line, index, text)
 {
-	const [opcode, op1, op2, result] = [[0, 23], [24, 44], [45, 65], [66]].map(
+	const opcode = text.match(/^\S*/)[0];
+	const first = Math.max(opcode.length, 23) + 1;
+	const second = columnEnd(text, first, 20) + 1;
+	const third = columnEnd(text, second, 20) + 1;
+
+	const [op1, op2, result] = [[first, second], [second, third], [third]].map(
 		([start, end]) => text.slice(start, end).trim()
 	);
 
 	return {line, index, result, opcode, operands: [op1, op2].filter(Boolean).join(' ')};
+}
+
+/**
+ * Whether the dumper is inside a string once it has written `text`. It writes a string as
+ * string("…"), its quotes and backslashes escaped and its line breaks as they are, so a string
+ * with a line break in it carries its op onto the lines that follow.
+ */
+function insideString(text, inside = false)
+{
+	for(let at = 0; at < text.length; at++)
+	{
+		if(!inside)
+		{
+			inside = text.startsWith('string("', at);
+			at += inside ? 7 : 0;
+
+			continue;
+		}
+
+		// A backslash takes the character after it with it; a bare quote ends the string.
+		if(text[at] === '\\')
+		{
+			at++;
+		}
+		else if(text[at] === '"')
+		{
+			inside = false;
+		}
+	}
+
+	return inside;
 }
 
 /** A function the listing begins, named as phpdbg's frames name it: the script is {main}. */
@@ -233,35 +292,51 @@ function listedFunction(name, fields = {})
 
 /**
  * The functions in what a print command wrote, each with its ops in order. Lines that are not a
- * function, an op or a detail of one, such as phpdbg's own "Stack in total() (17 ops)", are
- * passed over.
+ * function, an op or a detail of one, such as phpdbg's own "Stack in total() (17 ops)" and the
+ * internal methods it names after a class, are passed over.
+ *
+ * A string may hold anything, a line that reads as a function or an op included, so a line is
+ * read for what it is only outside a string, a function begins only where the dumper's count of
+ * its lines follows, and an op must be the next in number.
  */
 export function parseOpcodes(text)
 {
 	const functions = [];
+
+	// A carriage return in a string is dumped as it is; it is shown as PHP writes it.
+	const lines = text.replaceAll('\r', '\\r').split('\n');
 	let current = null;
 
-	// A string with a line break in it carries its op onto the next line.
-	let last = null;
+	// The dumped op whose string is still open: the lines that follow are the rest of it.
+	let unfinished = null;
 
-	for(const line of text.split('\n'))
-	{
-		const dumped = line.match(/^L(\d+) (\d+) (.*)$/);
-		const padded = line.match(/^\s*L(\d+)\s+#(\d+)\s+(.*)$/);
-
-		if(dumped || padded)
+	lines.forEach((line, at) => {
+		if(unfinished)
 		{
-			const [, number, index, rest] = dumped || padded;
+			unfinished.operands += '\\n' + line;
+			unfinished = insideString(line, true) ? unfinished : null;
 
+			return;
+		}
+
+		const dumped = line.match(/^L(\d+) (\d+) (.*)$/s);
+		const padded = line.match(/^\s*L(\d+)\s+#(\d+)\s+(.*)$/s);
+		const [, number, index, rest] = dumped || padded || [];
+		const expected = current?.ops.length ? current.ops.at(-1).index + 1 : null;
+
+		if(rest !== undefined && (expected === null || Number(index) === expected))
+		{
 			if(!current)
 			{
 				functions.push(current = listedFunction('?'));
 			}
 
-			last = (dumped ? dumpedOp : paddedOp)(Number(number), Number(index), rest);
-			current.ops.push(last);
+			const op = (dumped ? dumpedOp : paddedOp)(Number(number), Number(index), rest);
 
-			continue;
+			current.ops.push(op);
+			unfinished = dumped && insideString(op.operands) ? op : null;
+
+			return;
 		}
 
 		const heading = line.match(/^L(\d+)-(\d+) (.+)\(\) (.*) - (0x[0-9a-f]+) \+ \d+ ops$/);
@@ -277,44 +352,28 @@ export function parseOpcodes(text)
 				, address: parseInt(address, 16)
 			}));
 
-			last = null;
+			return;
+		}
 
-			continue;
+		// The dumper names a function on a line of its own, then counts its lines.
+		if(/^[^\s;].*:$/.test(line) && /^\s+; \(lines=\d+/.test(lines[at + 1] ?? ''))
+		{
+			functions.push(current = listedFunction(line.slice(0, -1)));
+
+			return;
 		}
 
 		const detail = line.match(/^\s+; (?:\((.+)\)|(.+):(\d+)-(\d+))$/);
 
-		if(detail && current)
+		// A function's details come before its first op.
+		if(detail && current && !current.ops.length)
 		{
 			const [, info, file, start, end] = detail;
 			const range = {file, start: Number(start), end: Number(end)};
 
 			Object.assign(current, info ? {info} : range);
-
-			continue;
 		}
-
-		// The dumper's tables after a function's ops end it.
-		if(/^(?:LIVE RANGES|EXCEPTION TABLE):$/.test(line))
-		{
-			last = null;
-
-			continue;
-		}
-
-		if(/^[^\s;].*:$/.test(line))
-		{
-			functions.push(current = listedFunction(line.slice(0, -1)));
-			last = null;
-
-			continue;
-		}
-
-		if(last && line)
-		{
-			last.operands += '\\n' + line;
-		}
-	}
+	});
 
 	// Which ops each op can jump to, once its operands are whole.
 	for(const listed of functions)

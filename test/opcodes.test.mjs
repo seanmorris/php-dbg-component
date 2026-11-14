@@ -174,6 +174,7 @@ test('a class lists each method; the script is {main}; a string may span lines',
 
 	const script = [
 		'$_main:'
+		, '     ; (lines=13, args=0, vars=1, tmps=7)'
 		, '     ; /main.php:1-12'
 		, 'L0012 0012 T5 = ROPE_END 2 T6 string("'
 		, '")'
@@ -186,4 +187,215 @@ test('a class lists each method; the script is {main}; a string may span lines',
 	assert.equal(main.name, '{main}');
 	assert.deepEqual(main.ops.map(op => op.operands), ['2 T6 string("\\n")']);
 	assert.equal(parseOpcodes('L1-12 {main}() /main.php - 0x2348bd8 + 15 ops')[0].name, '{main}');
+});
+
+// What follows was captured from the PHP 8.4 and 8.0 runtimes, for a script made to be awkward;
+// the op inside the string below is numbered as the next op would be, the hardest case.
+
+/** phpdbg's own lines for a class that extends Exception: the internal methods it inherits. */
+const inherited = [
+	'__clone'
+	, '__construct'
+	, '__wakeup'
+	, 'getMessage'
+	, 'getCode'
+	, 'getFile'
+
+	, 'getLine'
+	, 'getTrace'
+	, 'getPrevious'
+	, 'getTraceAsString'
+	, '__toString'
+].map(method => `\tInternal Exception::${method}()`);
+
+test('a string may hold what reads as a function or an op, and is still one operand', () => {
+	const tricky = [
+		''
+		, 'App\\tricky:'
+		, '     ; (lines=6, args=0, vars=0, tmps=0)'
+		, '     ; /main.php:7-10'
+		, 'L0007 0000 EXT_STMT'
+
+		, 'L0007 0001 ECHO string("say(\\"hi\\")'
+		, 'Options:'
+		, 'L0003 0002 RETURN int(9)'
+		, '")'
+		, 'L0010 0002 EXT_STMT'
+		, 'L0010 0003 RETURN int(2)'
+		, 'L0010 0004 EXT_STMT'
+		, 'L0010 0005 RETURN null'
+	].join('\n');
+
+	const [listed, ...others] = parseOpcodes(tricky);
+
+	assert.deepEqual(others, []);
+	assert.equal(listed.name, 'App\\tricky');
+	assert.deepEqual(listed.ops.map(op => op.index), [0, 1, 2, 3, 4, 5]);
+
+	assert.equal(
+		listed.ops[1].operands
+		, 'string("say(\\"hi\\")\\nOptions:\\nL0003 0002 RETURN int(9)\\n")'
+	);
+
+	assert.deepEqual(listed.ops[3], {
+		line: 10
+		, index: 3
+		, result: ''
+		, opcode: 'RETURN'
+		, operands: 'int(2)'
+		, jumps: []
+	});
+});
+
+test('a line that only looks like a function or an op is passed over', () => {
+	const listing = [
+		'total:'
+		, '     ; (lines=3, args=0, vars=0, tmps=0)'
+		, '     ; /main.php:2-4'
+		, 'L0002 0000 EXT_STMT'
+		, 'Options:'
+		, 'L0009 0007 RETURN int(9)'
+		, '     ; /other.php:1-2'
+		, 'L0003 0001 RETURN int(1)'
+		, 'L0004 0002 RETURN null'
+	].join('\n');
+
+	const [listed, ...others] = parseOpcodes(listing);
+
+	assert.deepEqual(others, []);
+	assert.deepEqual([listed.file, listed.start, listed.end], ['/main.php', 2, 4]);
+	assert.deepEqual(listed.ops.map(op => op.operands), ['', 'int(1)', 'null']);
+});
+
+test('the internal methods phpdbg names after a class are no part of an op', () => {
+	const dumped = [
+		'User Class: App\\Broke (12 methods)'
+		, ''
+		, 'App\\Broke::why:'
+		, '     ; (lines=4, args=0, vars=0, tmps=0)'
+		, '     ; /main.php:11-11'
+		, 'L0011 0000 EXT_STMT'
+		, 'L0011 0001 RETURN string("x")'
+		, 'L0011 0002 EXT_STMT'
+		, 'L0011 0003 RETURN null'
+		, ...inherited
+	].join('\n');
+
+	const padded = [
+		'User Class: App\\Broke (12 methods)'
+		, 'L11-11 App\\Broke::why() /main.php - 0x2351948 + 4 ops'
+		, ' L11   #0     EXT_STMT' + ' '.repeat(78)
+		, ' L11   #1     RETURN                  "x"' + ' '.repeat(59)
+		, ' L11   #2     EXT_STMT' + ' '.repeat(78)
+		, ' L11   #3     RETURN<-1>              null' + ' '.repeat(58)
+		, ...inherited
+	].join('\n');
+
+	for(const [listing, opcode] of [[dumped, 'RETURN'], [padded, 'RETURN<-1>']])
+	{
+		const [listed, ...others] = parseOpcodes(listing);
+
+		assert.deepEqual(others, []);
+		assert.equal(listed.name, 'App\\Broke::why');
+
+		assert.deepEqual(listed.ops.at(-1), {
+			line: 11
+			, index: 3
+			, result: ''
+			, opcode
+			, operands: 'null'
+			, jumps: []
+		});
+	}
+
+	// A class with no PHP of its own lists nothing.
+	assert.deepEqual(parseOpcodes('User Class: App\\Plain (0 methods)\n'), []);
+
+	assert.deepEqual(
+		parseOpcodes(['Internal Class: Exception (11 methods)', ...inherited].join('\n'))
+		, []
+	);
+});
+
+test('PHP 8.0: an opcode longer than its column moves the columns after it along', () => {
+	const stack = [
+		'Stack in App\\total() (21 ops)'
+		, 'L14-17 App\\total() /main.php - 0x2352250 + 21 ops'
+		, ' L14   #0     RECV                    1                                         $n'
+		, ' L15   #1     EXT_STMT'
+		, ' L15   #2     ASSIGN                  $aVeryLongVariableN+ "a fairly long str"+'
+		, ' L16   #3     EXT_STMT'
+		, ' L16   #4     INIT_NS_FCALL_BY_NAME<1>                      "App\\\\strlen"'
+
+		, ' L16   #5     SEND_VAL_EX             "abc"                1'
+		, ' L16   #6     EXT_FCALL_BEGIN'
+		, ' L16   #7     DO_FCALL                                                          @1'
+		, ' L16   #8     EXT_FCALL_END'
+		, ' L16   #9     INIT_STATIC_METHOD_CALL<1> "App\\\\Bag"           "put"'
+
+		, ' L16   #10    SEND_VAL                "q"                  1'
+		, ' L16   #11    EXT_FCALL_BEGIN'
+		, ' L16   #12    DO_FCALL                                                          @2'
+		, ' L16   #13    EXT_FCALL_END'
+		, ' L16   #14    ADD                     @1                   @2                   ~3'
+	].join('\n');
+
+	const functions = parseOpcodes(stack);
+	const [{ops}] = functions;
+
+	/** An op as its opcode, operands and result. */
+	const brief = index => [ops[index].opcode, ops[index].operands, ops[index].result];
+
+	assert.deepEqual(brief(0), ['RECV', '1', '$n']);
+	assert.deepEqual(brief(2), ['ASSIGN', '$aVeryLongVariableN+ "a fairly long str"+', '']);
+	assert.deepEqual(brief(4), ['INIT_NS_FCALL_BY_NAME<1>', '"App\\\\strlen"', '']);
+	assert.deepEqual(brief(7), ['DO_FCALL', '', '@1']);
+	assert.deepEqual(brief(9), ['INIT_STATIC_METHOD_CALL<1>', '"App\\\\Bag" "put"', '']);
+	assert.deepEqual(brief(14), ['ADD', '@1 @2', '~3']);
+
+	// The opline of op 9, as phpdbg prints it: the same columns, 28 bytes of address an op.
+	const opline = 'L16           0x235234c INIT_STATIC_METHOD_CALL<1> "App\\\\Bag"           "put"'
+		+ ' '.repeat(37) + '/main.php';
+
+	assert.deepEqual(parseOpline(opline, functions), {line: 16, index: 9});
+});
+
+test('PHP 8.0 pads a column in bytes; a carriage return is shown as PHP writes it', () => {
+	const padded = [
+		'L2-5 f() /main.php - 0x2348860 + 10 ops'
+		, ' L2    #0     RECV                    1                                         $café'
+		, ' L3    #1     EXT_STMT'
+		, ' L3    #2     CONCAT                  $café               "  "                 ~0'
+		, ' L3    #3     CONCAT                  ~0                   "cr  me br  l  e, "+ ~1'
+		, ' L3    #4     ASSIGN                  $naïve              ~1'
+	].join('\n');
+
+	const [{ops}] = parseOpcodes(padded);
+
+	assert.deepEqual(
+		ops.map(op => [op.opcode, op.operands, op.result])
+		, [
+			['RECV', '1', '$café']
+			, ['EXT_STMT', '', '']
+			, ['CONCAT', '$café "  "', '~0']
+			, ['CONCAT', '~0 "cr  me br  l  e, "+', '~1']
+			, ['ASSIGN', '$naïve ~1', '']
+		]
+	);
+
+	const dumped = [
+		'f:'
+		, '     ; (lines=6, args=1, vars=1, tmps=1)'
+		, '     ; /main.php:2-4'
+		, 'L0002 0000 CV0($a) = RECV 1'
+		, 'L0003 0001 EXT_STMT'
+		, 'L0003 0002 T1 = CONCAT CV0($a) string("x\r'
+		, 'y")'
+		, 'L0003 0003 RETURN T1'
+	].join('\n');
+
+	const [listed] = parseOpcodes(dumped);
+
+	assert.deepEqual(listed.ops.map(op => op.index), [0, 1, 2, 3]);
+	assert.equal(listed.ops[2].operands, 'CV0($a) string("x\\r\\ny")');
 });

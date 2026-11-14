@@ -894,17 +894,20 @@ export class DebugEngine
 	}
 
 	/**
-	 * What a print command writes: phpdbg's own lines, and from PHP 8.1 the dump PHP writes to
-	 * standard error. None of it reaches the console or the run's diagnostics; an error is thrown.
+	 * What a print command lists. From PHP 8.1 that is the dump PHP writes to standard error, and
+	 * phpdbg's own lines around it, such as the internal methods it names after a class, are no
+	 * part of it; PHP 8.0's phpdbg writes the listing itself. None of it reaches the console or
+	 * the run's diagnostics; an error is thrown.
 	 */
 	async printed(command)
 	{
-		const lines = [];
+		const own = [];
+		const dumped = [];
 
 		/** Standard error arrives a line at a time. */
-		const listen = event => lines.push(...event.detail);
+		const listen = event => dumped.push(...event.detail);
 
-		this.printing = lines;
+		this.printing = own;
 		this.printErrors = [];
 		this.php.addEventListener('error', listen);
 
@@ -923,7 +926,7 @@ export class DebugEngine
 			throw new Error(this.printErrors.join('\n'));
 		}
 
-		return lines.join('');
+		return (dumped.length ? dumped : own).join('');
 	}
 
 	async evaluate(expression, {frame = this.frame} = {})

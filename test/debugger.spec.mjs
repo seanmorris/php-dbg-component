@@ -919,6 +919,64 @@ test('opcodes() lists what phpdbg prints, and marks the op the frame stands on',
 	expect(result.stdout).toBe('8');
 });
 
+test(
+	'opcodes() reads a string with line breaks, a class that extends a built-in, a long opcode'
+	, async({page}) => {
+		await setup(page);
+
+		await create(
+			page
+			, {
+				code: [
+					'<?php'
+					, 'function show() { echo "Usage:\\nOptions:\\n  -h\\n"; return 1; }'
+					, 'class Broke extends Exception { function why() { return "x"; } }'
+					, 'class Bag { static function put($a) { return strlen($a); } }'
+					, 'echo Bag::put("q");'
+				].join('\n')
+				, breakpoints: [5]
+			}
+		);
+
+		const result = await page.evaluate(async() => {
+			const done = dbg.run();
+
+			await dbg.whenPaused();
+
+			const show = (await dbg.opcodes({function: 'show'})).functions;
+			const broke = (await dbg.opcodes({class: 'Broke'})).functions;
+			const [script] = (await dbg.opcodes()).functions;
+
+			// Line 5 is met again when its call returns.
+			while(dbg.state === 'paused')
+			{
+				await dbg.continue();
+			}
+
+			await done;
+
+			return {show, broke, call: script.ops.find(op => op.opcode.startsWith('INIT_STATIC'))};
+		});
+
+		// The string's second line, "Options:", is not a function, and its ops stay in order.
+		expect(result.show.map(listed => listed.name)).toEqual(['show']);
+
+		const [{ops}] = result.show;
+
+		expect(ops.map(op => op.index)).toEqual(ops.map((op, index) => index));
+		expect(ops.find(op => op.opcode === 'ECHO').operands).toContain('Options:');
+
+		// The eleven internal methods phpdbg names after why() are not operands of its last op.
+		expect(result.broke.map(listed => listed.name)).toEqual(['Broke::why']);
+		expect(result.broke[0].ops.at(-1).operands).toBe('null');
+
+		// PHP 8.0 writes this opcode wider than its column; the operands are still its own.
+		expect(result.call.opcode).toMatch(/^INIT_STATIC_METHOD_CALL(<1>)?$/);
+
+		expect(result.call.operands).toMatch(/^(1 string\("Bag"\) string\("put"\)|"Bag" "put")$/);
+	}
+);
+
 test('a run ends as a failed test whatever shape its expectations have', async({page}) => {
 	await setup(page);
 	await create(page, {code: '<?php echo "ok";'});
