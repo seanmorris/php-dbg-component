@@ -59,6 +59,10 @@ export class DebuggerView
 		// What the Opcodes panel lists: "frame", "script", "function:name" or "class:name".
 		this.opcodeChoice = 'frame';
 		this.refreshNumber = 0;
+
+		// The value edit forms that are open, by their value's path: a refresh builds the list
+		// again and puts each one back as it is.
+		this.editForms = new Map();
 		this.watches = [];
 		// Which values are open, by their path of names from the panel down, so the tree comes back
 		// as it was after an edit or a step.
@@ -255,9 +259,16 @@ export class DebuggerView
 
 			this.textarea.spellcheck = false;
 
+			// Typing changes the line numbers only, and only when a line comes or goes; the
+			// breakpoints and their list are as they were.
 			this.textarea.addEventListener(
 				'input'
-				, () => this.gutterUpdate()
+				, () => {
+					if(this.textarea.value.split('\n').length !== this.gutter.children.length)
+					{
+						this.drawGutter();
+					}
+				}
 				, {signal: this.abort.signal}
 			);
 
@@ -582,7 +593,7 @@ export class DebuggerView
 		);
 
 		on('framechange', () => void this.refresh());
-		on('variablechange', () => void this.refresh());
+		on('variablechange', () => this.applying || void this.refresh());
 		on('breakpointchange', () => this.gutterUpdate());
 
 		on(
@@ -704,6 +715,10 @@ export class DebuggerView
 	{
 		const foldable = this.tabList.filter(tab => tab.dataset.panel !== 'variables');
 
+		// A tab with focus that folds away would leave focus on the page, out of the debugger's
+		// reach; More, which then holds it, takes the focus.
+		const focused = this.tabList.find(tab => tab === this.root.getRootNode().activeElement);
+
 		/** Whether the row is wider than its place. */
 		const overflows = () => this.tabBar.scrollWidth > this.tabBar.clientWidth;
 
@@ -737,6 +752,11 @@ export class DebuggerView
 		}
 
 		this.markTabs();
+
+		if(focused?.hidden)
+		{
+			this.more.focus();
+		}
 	}
 
 	/** Make More as wide as the name it shows. */
@@ -1344,11 +1364,43 @@ export class DebuggerView
 
 		if(state !== 'paused')
 		{
+			// A step empties the panel for as long as PHP runs. Where the panel was scrolled to
+			// is kept for the pause that follows, and what was typed in a value's box goes.
+			if(this.shown === 'paused')
+			{
+				this.place = {panel: this.panel, top: this.content.scrollTop};
+			}
+
+			this.editForms.clear();
 			this.refreshNumber++;
 			this.holdFocus();
 
 			this.showIdle();
 		}
+
+		this.shown = state;
+	}
+
+	/** The box being typed in, when it is in a value's edit form, which a refresh puts back. */
+	typingIn()
+	{
+		const active = this.root.getRootNode().activeElement;
+		const forms = [...this.editForms.values()];
+
+		return forms.some(open => open.form.contains(active)) ? active : null;
+	}
+
+	/**
+	 * Where a panel being filled again is scrolled to: where it is now or, after a step, where it
+	 * was when PHP ran on.
+	 */
+	scrolled()
+	{
+		const kept = this.place?.panel === this.panel ? this.place.top : 0;
+
+		this.place = null;
+
+		return this.content.scrollTop || kept;
 	}
 
 	/**
@@ -1428,7 +1480,7 @@ export class DebuggerView
 		return {
 			idle: 'Ready.'
 			, loading: `Loading PHP ${this.dbg.options.version}…`
-			, ready: 'Starting…'
+			, ready: this.dbg.active ? 'Starting…' : 'Ready.'
 			, running: 'Running…'
 			, paused: 'Paused.'
 			, error: 'Failed.' + test
@@ -1607,10 +1659,16 @@ export class DebuggerView
 			dbg.breakpoints.filter(bp => bp.file === dbg.options.entrypoint)
 		);
 
-		if(!this.gutter)
+		if(this.gutter)
 		{
-			return;
+			this.drawGutter();
 		}
+	}
+
+	/** The built-in editor's line numbers, one for each line, with the breakpoints on them. */
+	drawGutter()
+	{
+		const dbg = this.dbg;
 
 		// The numbers are rebuilt whole; a breakpoint set from the keyboard must keep its place.
 		const held = this.gutter.contains(this.root.getRootNode().activeElement);
@@ -2118,9 +2176,15 @@ export class DebuggerView
 
 		this.markTabs();
 
-		// The breakpoints are the view's own, there at any time: nothing is loaded for them.
+		// The breakpoints are the view's own, there at any time: nothing is loaded for them. The
+		// counts on the other tabs still follow the pause.
 		if(this.panel === 'breakpoints')
 		{
+			if(this.dbg.state === 'paused')
+			{
+				await this.recount(generation, {});
+			}
+
 			return;
 		}
 
@@ -2134,7 +2198,13 @@ export class DebuggerView
 		// What this panel held, for the count on its tab.
 		const loaded = {};
 
-		await this.act(async() => {
+		/** Whether this refresh is still the one to show: not overtaken, and its run not ending. */
+		const wanted = () => generation === this.refreshNumber
+			&& this.dbg.state === 'paused'
+			&& !this.dbg.active?.finishing;
+
+		/** Load the panel and show it. */
+		const load = async() => {
 			if(this.panel === 'opcodes')
 			{
 				await this.showOpcodes(generation);
@@ -2169,6 +2239,10 @@ export class DebuggerView
 				const rows = new Map();
 				const nodes = [];
 
+				// An open edit form goes into the new list as that is built, and the caret
+				// leaves its box then; it is given back once the list is on show.
+				const typing = this.typingIn();
+
 				for(const value of values)
 				{
 					nodes.push(await this.valueNode(value, [this.panel, value.name], rows));
@@ -2179,7 +2253,8 @@ export class DebuggerView
 					return;
 				}
 
-				const scrolled = this.content.scrollTop;
+				const scrolled = this.scrolled();
+
 				const held = this.holdFocus();
 
 				this.rows = rows;
@@ -2200,13 +2275,19 @@ export class DebuggerView
 				}
 
 				this.returnFocus(held);
+
+				if(this.content.contains(typing))
+				{
+					typing.focus();
+				}
 			}
 			else
 			{
 				const rows = new Map();
 				const listed = Array.isArray(values) ? values : Object.values(values);
 				const list = this.symbolList(listed, rows);
-				const scrolled = this.content.scrollTop;
+
+				const scrolled = this.scrolled();
 				const held = this.holdFocus();
 
 				this.rows = rows;
@@ -2219,9 +2300,17 @@ export class DebuggerView
 				this.content.scrollTop = scrolled;
 				this.returnFocus(held);
 			}
-		});
+		};
 
-		if(generation === this.refreshNumber && this.dbg.state === 'paused')
+		// A run stopped while its values were on their way has nothing wrong to report.
+		await this.act(() => load().catch(error => {
+			if(wanted())
+			{
+				throw error;
+			}
+		}));
+
+		if(wanted())
 		{
 			await this.recount(generation, loaded);
 		}
@@ -2361,6 +2450,16 @@ export class DebuggerView
 			this.control(rows, `edit ${key}`, edit);
 			line.append(edit);
 			edit.addEventListener('click', () => this.editValue(value, key, line, edit));
+
+			// A form left open on this value goes where its button now is.
+			const open = this.editForms.get(key);
+
+			if(open)
+			{
+				open.edit = edit;
+				edit.hidden = true;
+				line.append(open.form);
+			}
 		}
 
 		return row;
@@ -2385,19 +2484,24 @@ export class DebuggerView
 				? ''
 				: value.displayValue;
 
+		// The form, and the Edit button it stands in for, which a refresh replaces.
+		const open = {form, edit};
+
 		save.type = 'submit';
 		cancel.type = 'button';
 		problem.setAttribute('role', 'alert');
 		form.append(input, save, cancel, problem);
 		line.append(form);
 		edit.hidden = true;
+		this.editForms.set(key, open);
 		input.focus();
 		input.select();
 
 		const close = () => {
+			this.editForms.delete(key);
 			form.remove();
-			edit.hidden = false;
-			edit.focus();
+			open.edit.hidden = false;
+			open.edit.focus();
 		};
 
 		cancel.addEventListener('click', close);
@@ -2414,6 +2518,10 @@ export class DebuggerView
 			event.preventDefault();
 			problem.textContent = '';
 			input.removeAttribute('aria-invalid');
+
+			// The list is built again here, once, with focus on this value's button; the change
+			// the debugger announces meanwhile needs no refresh of its own.
+			this.applying = true;
 
 			try
 			{
@@ -2433,8 +2541,13 @@ export class DebuggerView
 
 				return;
 			}
+			finally
+			{
+				this.applying = false;
+			}
 
 			// The form goes with the old list; focus belongs back on the button that opened it.
+			this.editForms.delete(key);
 			this.focusKey = `edit ${key}`;
 			await this.refresh();
 		});

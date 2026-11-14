@@ -880,6 +880,234 @@ test(
 	}
 );
 
+test(
+	'a step keeps the inspector where it was scrolled, and counts follow any pause'
+	, async({page}) => {
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		await page.evaluate(() => {
+			window.dbg = new PhpDebugger(
+				{
+					version: window.phpVersionUnderTest
+					, runtimeBaseUrl: '/runtime/'
+					, code: [
+						'<?php'
+						, 'function inner($a) {'
+						, '    $b = $a + 1;'
+						, '    return $b;'
+						, '}'
+
+						// With argv, argc and $r, which is not set yet, that is 45 variables.
+						, Array.from({length: 42}, (_, i) => `$v${i} = ${i};`).join(' ')
+						, '$r = inner(1);'
+						, 'echo $r;'
+					].join('\n')
+					, breakpoints: [7]
+				}
+			);
+
+			dbg.mount(document.querySelector('#host'));
+		});
+
+		const status = page.getByRole('status');
+		const values = page.getByRole('tabpanel', {name: 'Variables', exact: true});
+
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(status).toContainText('Paused at line 7');
+		await expect(tabNamed(page, 'Variables')).toHaveText('Variables 45');
+
+		// Scrolled down the list, a step over leaves the list where it was.
+		await values.evaluate(panel => {panel.scrollTop = 300;});
+
+		await page.getByRole('button', {name: 'Step over', exact: true}).click();
+		await expect(status).toContainText('Paused at line 8');
+		await expect(values.getByRole('button', {name: 'Edit v41', exact: true})).toBeVisible();
+		expect(await values.evaluate(panel => panel.scrollTop)).toBe(300);
+		await page.getByRole('button', {name: 'Stop', exact: true}).click();
+		await expect(status).toHaveText('Stopped.');
+
+		// With Breakpoints showing, the other tabs' counts are still those of the pause.
+		await openPanel(page, 'Breakpoints');
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(status).toContainText('Paused at line 7');
+
+		await expect(tabNamed(page, 'Variables')).toHaveText('Variables 45');
+		await expect(tabNamed(page, 'Frames')).toHaveText('Frames 1');
+		await page.getByRole('button', {name: 'Step into', exact: true}).click();
+		await expect(status).toContainText('Paused at line 3');
+		await expect(tabNamed(page, 'Variables')).toHaveText('Variables 2');
+		await expect(tabNamed(page, 'Frames')).toHaveText('Frames 2');
+		await page.evaluate(() => dbg.destroy());
+	}
+);
+
+test('a value\'s edit form keeps what was typed while the list is built again', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	await page.evaluate(() => {
+		window.dbg = new PhpDebugger(
+			{
+				version: window.phpVersionUnderTest
+				, runtimeBaseUrl: '/runtime/'
+				, code: '<?php\n$a = 1;\n$b = 2;\necho $a + $b;'
+				, breakpoints: [4]
+			}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+		window.refreshes = 0;
+	});
+
+	const a = page.getByRole('textbox', {name: 'New PHP expression for a', exact: true});
+	const b = page.getByRole('textbox', {name: 'New PHP expression for b', exact: true});
+	const expression = page.getByRole('textbox', {name: 'PHP expression', exact: true});
+
+	await page.getByRole('button', {name: 'Run', exact: true}).click();
+	await expect(page.getByRole('status')).toContainText('Paused');
+	await page.getByRole('button', {name: 'Edit a', exact: true}).click();
+	await a.fill('10');
+	await page.getByRole('button', {name: 'Edit b', exact: true}).click();
+	await b.fill('20');
+
+	// Applying one closes its own form and leaves the other with what was typed in it.
+	await a.press('Enter');
+	await expect(a).toHaveCount(0);
+	await expect(page.getByRole('button', {name: 'Edit a', exact: true})).toBeFocused();
+	await expect(b).toHaveValue('20');
+
+	// So does an evaluation, and a change made from a script while the box has the caret.
+	await expression.fill('$a + 1');
+	await expression.press('Enter');
+	await expect(page.locator('.php-debugger-console')).toContainText('11');
+	await expect(b).toHaveValue('20');
+	await b.focus();
+
+	await page.evaluate(async() => {
+		const [a] = (await dbg.inspect('variables')).filter(value => value.name === 'a');
+
+		await dbg.setVariable(a.reference, '11');
+	});
+
+	await expect(page.getByRole('tabpanel', {name: 'Variables', exact: true})).toContainText('11');
+	await expect(b).toBeFocused();
+	await page.keyboard.type('0');
+	await b.press('Enter');
+	await expect(b).toHaveCount(0);
+
+	await page.getByRole('button', {name: 'Continue', exact: true}).click();
+	await expect(page.getByRole('status')).toContainText('Finished');
+	expect(await page.evaluate(() => dbg.result.stdout)).toBe('211');
+	await page.evaluate(() => dbg.destroy());
+});
+
+test(
+	'the status is Ready once prepared; a run stopped mid-load reports nothing wrong'
+	, async({page}) => {
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		await page.evaluate(async() => {
+			window.dbg = new PhpDebugger(
+				{
+					version: window.phpVersionUnderTest
+					, runtimeBaseUrl: '/runtime/'
+					, code: '<?php\n$a = 1;\necho $a;'
+					, breakpoints: [3]
+				}
+			);
+
+			dbg.mount(document.querySelector('#host'));
+			await dbg.prepare();
+		});
+
+		const status = page.getByRole('status');
+		const message = page.locator('.php-debugger-message');
+
+		// Prepared and waiting, nothing is starting.
+		await expect(status).toHaveText('Ready.');
+
+		// Stopped the moment it pauses, while the inspector is still asking for its values.
+		await page.evaluate(async() => {
+			const done = dbg.run();
+
+			await dbg.whenPaused();
+			await dbg.stop();
+			await done;
+		});
+
+		await expect(status).toHaveText('Stopped.');
+		await expect(message).toHaveText('');
+		await page.evaluate(() => dbg.destroy());
+	}
+);
+
+test(
+	'typing in the source leaves the breakpoint list alone; a tab that folds hands its focus on'
+	, async({page}) => {
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		await page.evaluate(() => {
+			window.dbg = new PhpDebugger(
+				{
+					version: window.phpVersionUnderTest
+					, runtimeBaseUrl: '/runtime/'
+					, code: '<?php\n$a = 1;\necho $a;'
+					, breakpoints: [2]
+				}
+			);
+
+			dbg.mount(document.querySelector('#host'));
+		});
+
+		const source = page.getByRole('textbox', {name: 'PHP source', exact: true});
+		const lines = page.locator('.php-debugger-line');
+		const row = page.locator('.php-debugger-breakpoint');
+
+		// A row of the list is marked; while it is the same row, the list was not built again.
+		await openPanel(page, 'Breakpoints');
+		await row.evaluate(item => {item.dataset.same = 'yes';});
+
+		await source.press('End');
+		await source.pressSequentially(' // more');
+		await expect(lines).toHaveCount(3);
+		await expect(row).toHaveAttribute('data-same', 'yes');
+
+		// A new line gets its number, and the breakpoint keeps its mark.
+		await source.press('Enter');
+		await expect(lines).toHaveCount(4);
+		await expect(lines.nth(1)).toHaveAttribute('data-breakpoint', 'true');
+		await expect(row).toHaveAttribute('data-same', 'yes');
+
+		// Narrowed until the tab with focus folds into More, focus goes to More with it.
+		const folded = await page.evaluate(async() => {
+			const host = document.querySelector('#host');
+
+			const shown = () => [...host.querySelectorAll('[role=tab]')].filter(tab => !tab.hidden);
+
+			host.style.width = '520px';
+			await new Promise(resolve => setTimeout(resolve, 100));
+
+			const last = shown().at(-1);
+
+			last.focus();
+
+			for(let width = 500; width >= 200 && !last.hidden; width -= 20)
+			{
+				host.style.width = `${width}px`;
+				await new Promise(resolve => setTimeout(resolve, 60));
+			}
+
+			return {hidden: last.hidden, focus: document.activeElement?.getAttribute('aria-label')};
+		});
+
+		expect(folded).toEqual({hidden: true, focus: 'More panels'});
+		await page.evaluate(() => dbg.destroy());
+	}
+);
+
 test('bare-element page rules cannot move line numbers or reveal hidden lines', async({page}) => {
 	await page.goto('/test/harness.html');
 	await page.waitForFunction(() => window.PhpDebugger);
