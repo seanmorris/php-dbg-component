@@ -433,7 +433,8 @@ export class DebugEngine
 	{
 		await this.go('step');
 
-		while(await this.goes() && (await this.frames()).length > from.depth)
+		// Where the stack cannot be measured, the step is left where phpdbg put it.
+		while(await this.goes() && await this.depth() > (from.depth ?? Infinity))
 		{
 			await this.go('leave');
 
@@ -445,7 +446,7 @@ export class DebugEngine
 			// Back on the line, what is left of it is still to run. Anywhere deeper is another
 			// call, one a function of PHP's own makes for each element, say.
 			const back = await this.goes()
-				&& (await this.frames()).length === from.depth
+				&& await this.depth() === from.depth
 				&& await this.php.currentLine() === from.line;
 
 			if(back)
@@ -456,19 +457,31 @@ export class DebugEngine
 	}
 
 	/**
-	 * Where execution paused, for Until: its line, and how deep the stack is. The line is the
-	 * one the pause was reported at; the runtime's own answer is the evaluation's once anything
-	 * has been evaluated there.
+	 * How deep the stack is, or null where the runtime cannot list its frames: an older one can
+	 * fail to, with a function of PHP's own on the stack.
+	 */
+	async depth()
+	{
+		return this.frames().then(frames => frames.length, () => null);
+	}
+
+	/**
+	 * Where execution paused, for Step over and Until: its line, and how deep the stack is. The
+	 * line is the one the pause was reported at; the runtime's own answer is the evaluation's
+	 * once anything has been evaluated there.
 	 */
 	async place()
 	{
-		return {line: this.stopped.line, depth: (await this.frames()).length};
+		return {line: this.stopped.line, depth: await this.depth()};
 	}
 
 	/** Whether execution is past the line Until began on: on a later one, or out of its frame. */
 	async past(began, line)
 	{
-		return (await this.frames()).length !== began.depth || line > began.line;
+		const depth = await this.depth();
+
+		return (depth !== null && began.depth !== null && depth !== began.depth)
+			|| line > began.line;
 	}
 
 	async resume(command = 'continue')
