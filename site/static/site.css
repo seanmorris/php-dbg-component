@@ -136,6 +136,8 @@ a:hover { text-decoration-thickness: 2px; }
 .btn:disabled { opacity: .5; cursor: default; }
 .btn-primary { color: var(--paper); background: var(--link); border-color: var(--link); }
 .field { display: grid; gap: .2rem; font-size: .8rem; color: var(--ink-2); }
+/* A name under its box ends where the box does. */
+.field > select + label { justify-self: end; }
 
 /* The arrow is drawn, so it sits as far inside the right edge as the text does inside the left. */
 .field-select {

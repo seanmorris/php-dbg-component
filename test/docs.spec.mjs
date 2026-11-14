@@ -39,7 +39,8 @@ test('the home page demo does what it asks of the reader', async({page}) => {
 	expect(steps.y).toBeGreaterThan(demo.y + demo.height);
 	await expect(page.getByRole('navigation', {name: 'Contents'})).toBeVisible();
 
-	// Opposite the steps, at the right: Reset, then the editor choice with its name under it.
+	// Opposite the steps, at the right: Reset, then the editor choice with its name under it,
+	// ending where the choice does.
 	const reset = await page.locator('#reset').boundingBox();
 	const choice = page.getByRole('combobox', {name: 'Source editor', exact: true});
 	const choiceBox = await choice.boundingBox();
@@ -48,6 +49,7 @@ test('the home page demo does what it asks of the reader', async({page}) => {
 	expect(reset.x).toBeGreaterThan(steps.x + steps.width);
 	expect(reset.x + reset.width).toBeLessThanOrEqual(choiceBox.x);
 	expect(name.y).toBeGreaterThanOrEqual(choiceBox.y + choiceBox.height);
+	expect(Math.abs(name.x + name.width - choiceBox.x - choiceBox.width)).toBeLessThan(1);
 
 	// The example opens in CodeMirror 6, inside the debugger.
 	await expect(choice).toHaveValue('codemirror6');
