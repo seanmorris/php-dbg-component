@@ -977,6 +977,75 @@ test(
 	}
 );
 
+test('Step over runs the calls a line makes whole; Step into enters one', async({page}) => {
+	await setup(page);
+
+	await create(
+		page
+		, {
+			code: [
+				'<?php'
+				, 'function put($a) {'
+				, '    return strlen($a);'
+				, '}'
+				, '$n = 0;'
+				, '$n += put("q") + put("rr");'
+				, '$all = array_map(fn($w) => put($w), ["a", "bb"]);'
+
+				, 'for($i = 0; $i < 2; $i++) {'
+				, '    $n += put("x");'
+				, '}'
+				, 'echo $n;'
+			].join('\n')
+			, breakpoints: [6]
+		}
+	);
+
+	const report = await page.evaluate(async() => {
+		const visited = [];
+
+		/** Where a resume ended, and what $n was there. */
+		const landed = async resumed => {
+			const {line} = await resumed;
+
+			visited.push(`${line} n=${(await dbg.evaluate('$n')).value}`);
+		};
+
+		const done = dbg.run();
+
+		await dbg.whenPaused();
+
+		// A line with two calls, one with a call PHP makes for each element, and a loop's lines.
+		await landed(dbg.stepOver());
+		await landed(dbg.stepOver());
+		await landed(dbg.stepOver());
+		await landed(dbg.stepOver());
+		await landed(dbg.stepOver());
+
+		// Until, from the loop's last line, finishes the loop, and runs its call whole too.
+		await landed(dbg.until());
+		await dbg.continue();
+
+		const {stdout} = await done;
+
+		// Step into, from the same line, enters the first call.
+		const again = dbg.run();
+
+		await dbg.whenPaused();
+
+		const {line} = await dbg.stepInto();
+
+		await dbg.stop();
+		await again;
+
+		return {visited, stdout, into: line};
+	});
+
+	expect(report.visited).toEqual(['7 n=3', '8 n=3', '9 n=3', '8 n=4', '9 n=4', '11 n=5']);
+	expect(report.stdout).toBe('5');
+	expect(report.into).toBe(3);
+});
+
 test(
 	'Step out stops in the caller; Until stops past its line, or at a breakpoint'
 	, async({page}) => {

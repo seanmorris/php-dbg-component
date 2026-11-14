@@ -392,24 +392,66 @@ export class DebugEngine
 	}
 
 	/**
-	 * Start what a resume asks for. Two of phpdbg's commands do not stop where their names say:
-	 * "finish" runs on past the caller, and "until" past the next line, to the next breakpoint or
-	 * the end. Stepping out is therefore "leave", which stops where the function returns, and
-	 * one step from there into the caller; Until is a step over a line, which resume() repeats.
+	 * Start what a resume asks for. Three of phpdbg's commands do not stop where their names
+	 * say. "next" stops inside a call the line makes; "finish" runs on past the caller, and
+	 * "until" past the next line, to the next breakpoint or the end. Stepping over is therefore
+	 * over(); stepping out is "leave", which stops where the function returns, and one step
+	 * from there into the caller; and Until is a step over a line, which resume() repeats.
 	 */
-	async begin(command)
+	async begin(command, from)
 	{
-		if(command !== 'finish')
+		if(from)
 		{
-			return this.go(command === 'until' ? 'next' : command);
+			return this.over(from);
 		}
 
-		await this.go('leave');
+		await this.go(command === 'finish' ? 'leave' : command);
 
 		// Stopped where the function returns, and not by an exception or a pause on the way.
-		if(await this.php.isRunning() && !this.exception && !this.pauseRequested)
+		if(command === 'finish' && await this.goes())
 		{
 			await this.go('step');
+		}
+	}
+
+	/** Whether PHP has stopped of its own accord: not ended, thrown or been asked to pause. */
+	async goes()
+	{
+		return await this.php.isRunning() && !this.exception && !this.pauseRequested;
+	}
+
+	/**
+	 * Step over the line of a frame: `from` is the line and how deep the stack is there. A call
+	 * the line makes is run whole: a step stops at the call's first line, and from there it is
+	 * run to where it returns and stepped out of, and what is left of the line is stepped over
+	 * in its turn. Breakpoints in what is run that way are passed, as phpdbg passes them.
+	 *
+	 * The steps are phpdbg's "step", not its "next". "next" stops inside a call as well, and
+	 * leaves phpdbg seeking the caller's next line, which then makes "leave" run to the end.
+	 */
+	async over(from)
+	{
+		await this.go('step');
+
+		while(await this.goes() && (await this.frames()).length > from.depth)
+		{
+			await this.go('leave');
+
+			if(await this.goes())
+			{
+				await this.go('step');
+			}
+
+			// Back on the line, what is left of it is still to run. Anywhere deeper is another
+			// call, one a function of PHP's own makes for each element, say.
+			const back = await this.goes()
+				&& (await this.frames()).length === from.depth
+				&& await this.php.currentLine() === from.line;
+
+			if(back)
+			{
+				await this.go('step');
+			}
 		}
 	}
 
@@ -446,10 +488,12 @@ export class DebugEngine
 		// Run and Continue stop at breakpoints; a step stops where it lands.
 		const continues = ['run', 'continue'].includes(command);
 
-		// Until goes on line by line from where it began, and stops once past that line.
-		const began = command === 'until' ? await this.place() : null;
+		// Step over and Until go by lines of the frame they begin in; Until goes on from line to
+		// line, and stops once past the one it began on.
+		const from = ['next', 'until'].includes(command) ? await this.place() : null;
+		const began = command === 'until' ? from : null;
 
-		await this.begin(command);
+		await this.begin(command, from);
 
 		while(await this.php.isRunning())
 		{
@@ -476,7 +520,7 @@ export class DebugEngine
 
 			if(passes && !this.pauseRequested)
 			{
-				await this.go(began ? 'next' : 'continue');
+				await (began ? this.over({line, depth: began.depth}) : this.go('continue'));
 
 				continue;
 			}
