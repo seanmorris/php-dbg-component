@@ -59,6 +59,30 @@ const phpNumber = value => typeof value !== 'number' || Number.isFinite(value)
 	? String(value)
 	: Number.isNaN(value) ? 'NAN' : value < 0 ? '-INF' : 'INF';
 
+/**
+ * Call back in a task of its own, as soon as one can start. A timer of no delay is not that: a
+ * browser holds it back four milliseconds once timers nest, as they do from one command to the
+ * next, and a step can be made of hundreds of commands.
+ */
+const soon = callback => {
+	if(typeof MessageChannel !== 'function')
+	{
+		setTimeout(callback, 0);
+
+		return;
+	}
+
+	const {port1, port2} = new MessageChannel();
+
+	/** An open port would keep a process that is not a browser's alive. */
+	port1.onmessage = () => {
+		port1.close();
+		callback();
+	};
+
+	port2.postMessage(null);
+};
+
 /** What the inspector lists for a child it could not read. */
 const unavailable = (name, error) => ({
 	name
@@ -187,19 +211,16 @@ export class DebugEngine
 
 		this.php.addEventListener('stdin-request', () => {
 			// The native async call must unwind before reading its state.
-			setTimeout(
-				() => {
-					this.sequence++;
+			soon(() => {
+				this.sequence++;
 
-					for(const waiter of this.waiters)
-					{
-						waiter.resolve();
-					}
-
-					this.waiters.clear();
+				for(const waiter of this.waiters)
+				{
+					waiter.resolve();
 				}
-				, 0
-			);
+
+				this.waiters.clear();
+			});
 		});
 
 		const prompt = this.waitPrompt();
