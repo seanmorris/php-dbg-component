@@ -105,7 +105,7 @@ const result = await test.run({mode: 'test', timeoutMs: 5000});
 console.log(result.test.status); // passed, failed, or unchecked
 ```
 
-`run()` returns `{runId,version,status,exitCode,stdout,stderr,diagnostics,durationMs,test}`. Status is `completed`, `cancelled`, `timed-out`, or `error`; a completed PHP process can still have a nonzero exit code. The promise resolves with failures as data. Invalid API arguments and overlapping runs throw.
+`run()` returns `{runId,version,status,exitCode,stdout,stderr,logs,diagnostics,durationMs,test}`. Status is `completed`, `cancelled`, `timed-out`, or `error`; a completed PHP process can still have a nonzero exit code. The promise resolves with failures as data. Invalid API arguments and overlapping runs throw.
 
 Expectations accept exact strings or RegExp for `stdout`, `stderr`, and diagnostic `error`, plus an explicit `exitCode`, and `logs`: one string or RegExp per logpoint message, in order. Output whitespace is preserved, including output from shutdown functions, destructors, and output handlers. With expectations, successful exit zero is required by default; specify the expected nonzero code for negative tests. An optional async `assert(result)` may return false or throw to fail the test. With no expectations/assertion, status is `unchecked`. Test mode skips breakpoints, except logpoints, and continues through exception stops. Each result lists what logpoints printed in `logs` (`{file, line, message}`). Cancellation, timeouts, and infrastructure errors cannot pass expectations.
 

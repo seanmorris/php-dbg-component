@@ -4,7 +4,22 @@
   "type": "module",
   "description": "A scriptable, styleable vanilla JavaScript PHP debugger and test component.",
   "license": "(Apache-2.0 OR GPL-2.0-only)",
-  "repository": "https://github.com/seanmorris/php-dbg-component",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/seanmorris/php-dbg-component.git"
+  },
+  "homepage": "https://seanmorris.github.io/php-dbg-component/",
+  "bugs": "https://github.com/seanmorris/php-dbg-component/issues",
+  "keywords": [
+    "php",
+    "debugger",
+    "phpdbg",
+    "php-wasm",
+    "wasm",
+    "webassembly",
+    "breakpoints",
+    "custom-element"
+  ],
   "exports": {
     ".": {
       "types": "./src/index.d.ts",
@@ -23,6 +38,7 @@
   "files": [
     "src",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE",
     "LICENSE-GPL",
     "NOTICE",
