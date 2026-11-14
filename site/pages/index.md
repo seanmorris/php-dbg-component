@@ -45,8 +45,6 @@ hero: |
   ## Try it here {#try}
 
   Click **Run** to pause on line 8, at the first item in the cart. Open `item` and change `price` to `10`, then click **Continue**. It pauses on line 8 again for the pen and the backpack, with `sum` growing each time; click **Continue** until it finishes. The notebook's line comes to `30`, the discount to `7`, and the total to `63` instead of `58`.
-
-  [PHP 8.0 to 8.5 run in a worker in your browser. The selected version downloads on its first run; debuggers on the same page share the download.]{.note}
   :::
 ---
 
