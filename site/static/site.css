@@ -203,10 +203,11 @@ a:hover { text-decoration-thickness: 2px; }
 
 /* Documentation pages: contents, article, outline. */
 
-.frame { display: grid; grid-template-columns: 14rem minmax(0, 1fr) 13rem; gap: 3rem; align-items: start; padding-block: 2.5rem 4rem; }
+.frame { display: grid; grid-template-columns: 11rem minmax(0, 1fr) 13rem; gap: 2.5rem; align-items: start; padding-block: 2.5rem 4rem; }
 .contents, .outline { position: sticky; top: 1.5rem; max-height: calc(100vh - 3rem); overflow: auto; font-size: .9rem; }
 .sheet { min-width: 0; }
-.contents-panel > summary { margin-bottom: .6rem; font-size: .75rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); cursor: pointer; }
+/* The button that folds the contents away on a phone; wider, the list is always shown. */
+.contents-toggle { display: none; }
 .contents ul, .outline ul { margin: 0; padding: 0; list-style: none; }
 .menu > ul > details, .menu > ul > li { margin-bottom: .9rem; }
 .menu summary { padding: .2rem 0; font-weight: 600; color: var(--ink); cursor: pointer; }
@@ -255,7 +256,7 @@ code.sourceCode span:is(.co, .do, .in, .an, .cv) { color: var(--ink-2); font-sty
 code.sourceCode span:is(.al, .er) { color: var(--stop); }
 
 @media (max-width: 1100px) {
-	.frame { grid-template-columns: 13rem minmax(0, 1fr); gap: 2rem; }
+	.frame { grid-template-columns: 11rem minmax(0, 1fr); gap: 2rem; }
 	.outline { display: none; }
 }
 
@@ -263,6 +264,10 @@ code.sourceCode span:is(.al, .er) { color: var(--stop); }
 	.wrap { padding-inline: 1rem; }
 	.frame { display: block; padding-block: 1.25rem 2.5rem; }
 	.contents { position: static; max-height: none; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--rule); }
+	.contents-toggle:not([hidden]) { display: inline-flex; align-items: center; gap: .5rem; min-height: 2.75rem; padding: 0 .9rem; font: inherit; font-weight: 600; color: var(--ink); background: none; border: 1px solid var(--rule-2); border-radius: 4px; cursor: pointer; }
+	.contents-toggle:hover { border-color: var(--ink-2); }
+	.contents-toggle:not([hidden])[aria-expanded="false"] ~ .contents-nav { display: none; }
+	.contents-toggle[aria-expanded="true"] ~ .contents-nav { margin-top: 1rem; }
 	.hero { padding-block: 2rem 1.5rem; }
 	.band { padding-block: 1.75rem; }
 	.split { grid-template-columns: minmax(0, 1fr); }

@@ -167,6 +167,12 @@ test(
 		await expect(page.getByRole('heading', {level: 1})).toHaveText('Guide');
 
 		const contents = page.getByRole('navigation', {name: 'Contents'});
+		const toggle = page.getByRole('button', {name: 'Contents', exact: true});
+
+		// On a wide screen the contents are a narrow column, always shown, with nothing to fold.
+		await expect(contents).toBeVisible();
+		await expect(toggle).toBeHidden();
+		expect((await contents.boundingBox()).width).toBeLessThanOrEqual(176);
 
 		await contents.getByRole('link', {name: 'Get started', exact: true}).click();
 		await expect(page.getByRole('heading', {level: 1})).toHaveText('Get started');
@@ -188,8 +194,17 @@ test(
 		await page.getByRole('button', {name: 'Check curl extension', exact: true}).click();
 		await expect(page.locator('#curl-result')).toHaveAttribute('data-status', 'passed');
 
-		// Every page fits a phone without scrolling sideways.
+		// On a phone the contents fold behind a button, and open from it.
 		await page.setViewportSize({width: 390, height: 800});
+		await page.goto(docs + '/guide/getting-started.html');
+		await expect(contents).toBeHidden();
+		await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+		await toggle.click();
+		await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+		await contents.getByRole('link', {name: 'Custom element', exact: true}).click();
+		await expect(page.getByRole('heading', {level: 1})).toHaveText('Custom element');
+
+		// Every page fits a phone without scrolling sideways.
 
 		for(
 			const path of [
