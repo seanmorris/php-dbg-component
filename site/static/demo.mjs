@@ -7,17 +7,29 @@ const $ = selector => document.querySelector(selector);
 const asset = path => new URL('./assets/' + path, import.meta.url).href;
 const runtimeBaseUrl = asset('runtime/');
 
+// Three items, a running total, and a discount once the subtotal reaches 50: enough to step
+// through, to watch a value grow, and to change one on the way.
 const code = `<?php
-function total(array $cart) {
+function discount(int $subtotal): int {
+    return $subtotal >= 50 ? intdiv($subtotal, 10) : 0;
+}
+function total(array $cart): int {
     $sum = 0;
     foreach ($cart as $item) {
-        $sum += $item['price'] * $item['quantity'];
+        $line = $item['price'] * $item['quantity'];
+        echo "{$item['name']}: {$item['quantity']} x {$item['price']} = $line\\n";
+        $sum += $line;
     }
-    return $sum;
+    $off = discount($sum);
+    echo "Discount: $off\\n";
+    return $sum - $off;
 }
-$cart = [['name' => 'Notebook', 'price' => 8, 'quantity' => 3]];
-$total = total($cart);
-echo "Cart total: $total\\n";`;
+$cart = [
+    ['name' => 'Notebook', 'price' => 8, 'quantity' => 3],
+    ['name' => 'Pen', 'price' => 2, 'quantity' => 5],
+    ['name' => 'Backpack', 'price' => 30, 'quantity' => 1],
+];
+echo "Total: " . total($cart) . "\\n";`;
 
 // The debugger reports its own state. This line is only for what goes wrong around it.
 
@@ -165,7 +177,7 @@ async function mount(reset = false)
 	}
 
 	dbg = new PhpDebugger(
-		{runtimeBaseUrl, version, versions, code: value, source: editor?.adapter, breakpoints: [5]}
+		{runtimeBaseUrl, version, versions, code: value, source: editor?.adapter, breakpoints: [8]}
 	);
 
 	dbg.mount($('#debugger-host'));

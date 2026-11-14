@@ -35,7 +35,7 @@ Let readers step through examples and edit variables as PHP runs in their browse
 :::: {.band #try}
 ## Try it here
 
-Click **Run** to pause on line 5. Open `item` and change `price` to `10`, then click **Continue**. The total changes from `24` to `30`.
+Click **Run** to pause on line 8, at the first item in the cart. Open `item` and change `price` to `10`, then click **Continue**. It pauses on line 8 again for the pen and the backpack, with `sum` growing each time; click **Continue** until it finishes. The notebook's line comes to `30`, the discount to `7`, and the total to `63` instead of `58`.
 
 <div class="demo">
 <div class="demo-bar">

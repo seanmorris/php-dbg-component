@@ -32,21 +32,41 @@ test('the home page demo does what it asks of the reader', async({page}) => {
 	const values = page.locator('.php-debugger-values');
 	const output = page.locator('.php-debugger-console');
 
-	// "Click Run to pause on line 5. Open item and change price to 10, then click Continue."
+	/** What the panel shows for one value, by its name. */
+	const value = name => values.locator('.php-debugger-value-line').filter(
+		{hasText: new RegExp(`^${name}: `)}
+	);
+
+	// "Click Run to pause on line 8, at the first item in the cart. Open item and change price
+	// to 10, then click Continue."
 	await page.getByRole('button', {name: 'Run', exact: true}).click();
-	await expect(status).toHaveText('Paused at line 5 of /main.php, on a breakpoint.');
+	await expect(status).toHaveText('Paused at line 8 of /main.php, on a breakpoint.');
+	await expect(value('sum')).toContainText('0');
 	await values.getByRole('button', {name: 'item', exact: true}).click();
 	await values.getByRole('button', {name: 'Edit price', exact: true}).click();
 	await page.keyboard.type('10');
 	await page.keyboard.press('Enter');
 
-	await expect(
-		values.locator('.php-debugger-value-line').filter({hasText: /^price: /})
-	).toContainText('10');
+	await expect(value('price')).toContainText('10');
 
-	await page.getByRole('button', {name: 'Continue', exact: true}).click();
+	// "It pauses on line 8 again for the pen and the backpack, with sum growing each time; click
+	// Continue until it finishes."
+	const continueButton = page.getByRole('button', {name: 'Continue', exact: true});
+
+	for(const sum of ['30', '40'])
+	{
+		await continueButton.click();
+		await expect(value('sum')).toContainText(sum);
+		await expect(status).toHaveText('Paused at line 8 of /main.php, on a breakpoint.');
+	}
+
+	await continueButton.click();
 	await expect(status).toHaveText('Finished with exit code 0.');
-	await expect.poll(() => output.evaluate(element => element.innerText)).toBe('Cart total: 30\n');
+
+	// "The notebook's line comes to 30, the discount to 7, and the total to 63 instead of 58."
+	await expect.poll(() => output.evaluate(element => element.innerText)).toBe(
+		'Notebook: 3 x 10 = 30\nPen: 5 x 2 = 10\nBackpack: 1 x 30 = 30\nDiscount: 7\nTotal: 63\n'
+	);
 
 	// The page has no status line of its own to go stale beside the debugger's.
 	await expect(page.locator('#demo-problem')).toHaveText('');
@@ -108,9 +128,9 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 			await expect.poll(lightness).toBeLessThan(.3);
 
 			await page.getByRole('button', {name: 'Run', exact: true}).click();
-			await expect(page.locator('.php-debugger-status')).toContainText('Paused at line 5');
+			await expect(page.locator('.php-debugger-status')).toContainText('Paused at line 8');
 
-			// The paused line's marker is on line 5, and the line numbers are a column, not a page:
+			// The paused line's marker is on line 8, and the line numbers are a column, not a page:
 			// CodeMirror 5 created before its stylesheet measures a gutter a thousand pixels wide.
 			const marks = await host.evaluate(async element => {
 				await new Promise(
@@ -122,7 +142,7 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 				)];
 
 				const line = lines.find(
-					node => node.textContent.includes('$sum +=')
+					node => node.textContent.includes('$line = $item')
 				).getBoundingClientRect();
 
 				const paused = element.querySelector(
@@ -149,7 +169,9 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 				return dbg.result;
 			});
 
-			expect(result.stdout).toBe('Cart total: 24\n');
+			expect(result.stdout).toBe(
+				'Notebook: 3 x 8 = 24\nPen: 5 x 2 = 10\nBackpack: 1 x 30 = 30\nDiscount: 6\nTotal: 58\n'
+			);
 		}
 	);
 }
