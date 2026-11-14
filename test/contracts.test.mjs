@@ -558,6 +558,114 @@ test(
 	}
 );
 
+/**
+ * An engine stopped on line 2 of a script, where a logpoint is, with a stand-in for PHP that stops
+ * there once more after Continue and then ends. `during` runs while the log is evaluated.
+ */
+const stoppedEngine = async (binary, during = () => {}) => {
+	const {DebugEngine} = await import('../src/engine.mjs');
+	const events = [];
+	const commands = [];
+	const engine = new DebugEngine(event => events.push(event));
+	let stops = 2;
+
+	engine.paused = true;
+	engine.binary = binary;
+	engine.config = {mode: 'debug', entrypoint: '/main.php', code: '<?php\n$n = 1;\n'};
+	engine.sources = new Map([['/main.php', engine.config.code]]);
+	engine.installedBreakpoints = [{file: '/main.php', line: 2, enabled: true, log: '$n'}];
+
+	engine.writeFile = () => {};
+
+	engine.finish = async () => 'finished';
+
+	engine.php = {
+
+		async switchFrame() {return 0;}
+
+		, async isRunning() {return stops-- > 0;}
+
+		, async currentFile() {return '/main.php';}
+
+		, async currentLine() {return 2;}
+	};
+
+	engine.command = async line => {
+		commands.push(line.split('(')[0]);
+
+		if(line.startsWith('ev '))
+		{
+			during(engine);
+			engine.captured = {value: {0: true, 1: '1'}};
+		}
+	};
+
+	return {engine, events, commands};
+};
+
+test(
+	'breakpoints are off while PHP is stopped, by the runtime\'s switches or by command'
+	, async () => {
+		const switched = [];
+
+		const binary = {
+			_phpdbg_enable_breakpoints: () => switched.push('on')
+			, _phpdbg_disable_breakpoints: () => switched.push('off')
+		};
+
+		const direct = await stoppedEngine(binary);
+
+		// Two stops on the logpoint, each logged and continued from, then the end of the run.
+		assert.equal(await direct.engine.resume('continue'), 'finished');
+		assert.deepEqual(switched, ['on', 'off', 'on', 'off', 'on']);
+
+		assert.deepEqual(
+			direct.commands
+			, ['continue', 'ev vrzno_shared', 'continue', 'ev vrzno_shared', 'continue']
+		);
+
+		assert.deepEqual(direct.events.filter(event => event.type === 'log').length, 2);
+
+		// A runtime without the switches is told by command, around each time PHP runs.
+		const told = await stoppedEngine({});
+
+		await told.engine.resume('continue');
+
+		assert.deepEqual(told.commands.slice(0, 5), [
+			'set breaks on'
+			, 'continue'
+			, 'set breaks off'
+			, 'ev vrzno_shared'
+			, 'set breaks on'
+		]);
+	}
+);
+
+test('a pause asked for while a breakpoint decides waits for it, then pauses there', async () => {
+	const binary = {dbgPauseRequested: false};
+	let asked = null;
+
+	const {engine, events, commands} = await stoppedEngine(binary, engine => {
+		engine.pause();
+		asked = binary.dbgPauseRequested;
+	});
+
+	const location = await engine.resume('continue');
+
+	// PHP was not asked to pause inside the log; the log was printed, and the pause is here.
+	assert.equal(asked, false);
+	assert.deepEqual({file: location.file, line: location.line}, {file: '/main.php', line: 2});
+	assert.deepEqual(events.map(event => event.type), ['state', 'log', 'paused']);
+	assert.equal(events.at(-1).reason, 'pause');
+	assert.equal(commands.includes('continue'), true);
+	assert.equal(commands.at(-1), 'ev vrzno_shared');
+	assert.equal(binary.dbgPauseRequested, false);
+
+	// Asked while PHP runs, it is PHP that is told.
+	engine.pause();
+	assert.equal(binary.dbgPauseRequested, true);
+});
+
 test('an evaluated value keeps its PHP type when the runtime provides debugger API 2', async () => {
 	const {DebugEngine} = await import('../src/engine.mjs');
 

@@ -977,6 +977,148 @@ test(
 	}
 );
 
+test(
+	'a breakpoint acts once each time its line is reached, and nothing evaluated stops at one'
+	, async({page}) => {
+		await setup(page);
+		await create(page);
+
+		const report = await page.evaluate(async() => {
+			const code = [
+				'<?php'
+				, 'function put($a) {'
+				, '    return strlen($a);'
+				, '}'
+				, '$n = 0;'
+				, 'for($i = 0; $i < 2; $i++) {'
+				, '    $n += put("q") + put("rr");'
+				, '}'
+				, 'echo $n;'
+			].join('\n');
+
+			const report = {};
+
+			/** Continue from each pause to the end of the run, noting where each one was. */
+			const pauses = async done => {
+				const seen = [];
+
+				await dbg.whenPaused();
+
+				while(dbg.state === 'paused')
+				{
+					seen.push(`${dbg.location.line} i=${(await dbg.evaluate('$i ?? "-"')).value}`);
+					await dbg.continue();
+				}
+
+				return {seen, result: await done};
+			};
+
+			dbg.setCode(code);
+
+			// Line 7 makes two calls. phpdbg reports the line reached again as each returns; a
+			// logpoint there logs once each time round the loop.
+			await dbg.setBreakpoints([{line: 7, log: '"i=$i"'}]);
+			report.logged = (await dbg.run()).logs.map(entry => entry.message);
+
+			// A breakpoint that pauses does so again as each call returns, as phpdbg's do.
+			await dbg.setBreakpoints([7]);
+			report.paused = (await pauses(dbg.run())).seen;
+
+			// The loop's own line is reached for its start and for each step of it.
+			await dbg.setBreakpoints([{line: 6, log: '"at " . ($i ?? "-")'}]);
+			report.loop = (await dbg.run()).logs.map(entry => entry.message);
+
+			// A log that calls a function with a breakpoint in it: the log is the call's value,
+			// and the breakpoint is first reached by the program's own call.
+			await dbg.setBreakpoints([3, {line: 5, log: 'put("abc")'}]);
+
+			const done = dbg.run();
+			const first = await dbg.whenPaused();
+
+			report.nested = {
+				line: first.location.line
+				, argument: (await dbg.evaluate('$a')).value
+				, logs: [...dbg.active.logs]
+			};
+
+			// So is an expression evaluated there, and the pause is where it was.
+			report.evaluated = (await dbg.evaluate('put("zz") + put("z")')).value;
+			report.after = {line: dbg.location.line, argument: (await dbg.evaluate('$a')).value};
+			await dbg.setBreakpoints([]);
+			await dbg.continue();
+			report.stdout = (await done).stdout;
+
+			return report;
+		});
+
+		expect(report.logged).toEqual(['i=0', 'i=1']);
+		expect(report.paused).toEqual(['7 i=0', '7 i=0', '7 i=0', '7 i=1', '7 i=1', '7 i=1']);
+		expect(report.loop).toEqual(['at -', 'at 0', 'at 1']);
+
+		expect(report.nested).toEqual({
+			line: 3
+			, argument: 'q'
+			, logs: [{file: '/main.php', line: 5, message: '3'}]
+		});
+
+		expect(report.evaluated).toBe(3);
+		expect(report.after).toEqual({line: 3, argument: 'q'});
+		expect(report.stdout).toBe('6');
+	}
+);
+
+test(
+	'a step onto a logpoint prints its message and pauses; a return to its line does not'
+	, async({page}) => {
+		await setup(page);
+		await create(page);
+
+		const report = await page.evaluate(async() => {
+			const code = [
+				'<?php'
+				, 'function put($a) {'
+				, '    return strlen($a);'
+				, '}'
+				, '$n = 0;'
+				, 'for($i = 0; $i < 2; $i++) {'
+				, '    $n += put("q") + put("rr");'
+				, '}'
+				, 'echo $n;'
+			].join('\n');
+
+			const logs = [];
+			const visited = [];
+
+			/** Where a step landed, and what has been logged by then. */
+			const landed = async step => {
+				const {line} = await step;
+
+				visited.push(`${line}: ${logs.join(' ')}`);
+			};
+
+			dbg.addEventListener('log', event => logs.push(event.detail.message));
+			dbg.setCode(code);
+			await dbg.setBreakpoints([5, {line: 7, log: '"i=$i"'}]);
+
+			const done = dbg.run();
+
+			await dbg.whenPaused();
+			await landed(dbg.stepOver());
+			await landed(dbg.stepOver());
+			await landed(dbg.stepInto());
+			await landed(dbg.stepOut());
+			await dbg.continue();
+
+			return {visited, logs, stdout: (await done).stdout};
+		});
+
+		// Over the loop's line onto line 7, which logs; into put() and out again, which does not.
+		expect(report.visited).toEqual(['6: ', '7: i=0', '3: i=0', '7: i=0']);
+		expect(report.logs).toEqual(['i=0', 'i=1']);
+		expect(report.stdout).toBe('6');
+	}
+);
+
 test('a run ends as a failed test whatever shape its expectations have', async({page}) => {
 	await setup(page);
 	await create(page, {code: '<?php echo "ok";'});
