@@ -148,20 +148,20 @@ a:hover { text-decoration-thickness: 2px; }
 	border-radius: 4px;
 }
 
-/* Landing page: wide bands, the debugger at working size. */
+/*
+ * Landing page: the hero spans the page, with the debugger at working size and what to try under
+ * it; the rest follows in the documentation pages' frame.
+ */
 
-.landing { padding-block: 0 3rem; }
-.hero { padding-block: 3.5rem 2.5rem; }
+.hero { padding-block: 3.5rem 2.5rem; border-bottom: 1px solid var(--rule); }
 .hero h1 { max-width: 20ch; margin: 0 0 1rem; font-size: clamp(2.1rem, 4.4vw, 3.2rem); line-height: 1.08; letter-spacing: -.025em; }
-.hero p { max-width: 40rem; margin: 0 0 1.5rem; font-size: 1.15rem; color: var(--ink-2); }
-.hero p:last-child { display: flex; flex-wrap: wrap; gap: .75rem; margin: 0; }
-.band { padding-block: 2.5rem; border-top: 1px solid var(--rule); scroll-margin-top: 1rem; }
-.band h2 { margin: 0 0 .5rem; font-size: 1.45rem; line-height: 1.25; }
-.band > p { max-width: var(--measure); margin: .5rem 0; }
-.band .note { font-size: .85rem; color: var(--ink-2); }
-.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 1rem 2.5rem; align-items: start; }
-.split > * { min-width: 0; }
-.split-text p { margin: .5rem 0; }
+.lede p { max-width: 40rem; margin: 0; font-size: 1.15rem; color: var(--ink-2); }
+.try { margin-top: 1.5rem; }
+.try h2 { margin: 0 0 .5rem; font-size: 1.25rem; line-height: 1.25; }
+.try p { max-width: var(--measure); margin: .5rem 0; }
+.try .note { font-size: .85rem; color: var(--ink-2); }
+/* An article that opens on a section, as the landing page's does, needs no rule above it. */
+.prose > h2:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .demo { margin-top: 1.25rem; }
 .demo-bar { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem 1.25rem; margin-bottom: .75rem; }
 /* Pandoc wraps inline HTML in a paragraph; the bar lays out its controls, not that paragraph. */
@@ -277,8 +277,6 @@ code.sourceCode span:is(.al, .er) { color: var(--stop); }
 	.contents-toggle:not([hidden])[aria-expanded="false"] ~ .contents-nav { display: none; }
 	.contents-toggle[aria-expanded="true"] ~ .contents-nav { margin-top: 1rem; }
 	.hero { padding-block: 2rem 1.5rem; }
-	.band { padding-block: 1.75rem; }
-	.split { grid-template-columns: minmax(0, 1fr); }
 	.prose h1 { font-size: 1.6rem; }
 	pre { padding: .7rem .8rem; font-size: .8rem; }
 }

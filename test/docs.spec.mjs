@@ -32,6 +32,13 @@ test('the home page demo does what it asks of the reader', async({page}) => {
 	const values = page.locator('.php-debugger-values');
 	const output = page.locator('.php-debugger-console');
 
+	// The steps to try are under the debugger, and the page goes on beside the contents.
+	const steps = await page.getByRole('heading', {name: 'Try it here', exact: true}).boundingBox();
+	const demo = await page.locator('#debugger-host').boundingBox();
+
+	expect(steps.y).toBeGreaterThan(demo.y + demo.height);
+	await expect(page.getByRole('navigation', {name: 'Contents'})).toBeVisible();
+
 	/** What the panel shows for one value, by its name. */
 	const value = name => values.locator('.php-debugger-value-line').filter(
 		{hasText: new RegExp(`^${name}: `)}

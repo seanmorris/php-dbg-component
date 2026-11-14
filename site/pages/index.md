@@ -22,42 +22,37 @@ jsonld:
       codeRepository: https://github.com/seanmorris/php-dbg-component
       programmingLanguage: JavaScript
       runtimePlatform: Web browser
+# The top band: the debugger at working size, and what to try with it underneath. The body
+# follows beside the contents.
+hero: |
+  # Add a PHP debugger to your page
+
+  ::: {.lede}
+  Let readers step through examples and edit variables as PHP runs in their browser. Embed it with vanilla JavaScript, or connect an existing editor.
+  :::
+
+  <div class="demo">
+  <div class="demo-bar">
+  <label class="field">Source editor <select id="editor-kind" class="field-select"><option value="textarea">Textarea</option><option value="ace">Ace</option><option value="codemirror5">CodeMirror 5</option><option value="codemirror6">CodeMirror 6</option></select></label>
+  <button id="reset" type="button" class="btn">Reset example</button>
+  <div id="demo-problem" class="demo-problem" role="alert"></div>
+  </div>
+  <div id="debugger-host"></div>
+  </div>
+  <script type="module" src="demo.mjs"></script>
+
+  ::: {.try}
+  ## Try it here {#try}
+
+  Click **Run** to pause on line 8, at the first item in the cart. Open `item` and change `price` to `10`, then click **Continue**. It pauses on line 8 again for the pen and the backpack, with `sum` growing each time; click **Continue** until it finishes. The notebook's line comes to `30`, the discount to `7`, and the total to `63` instead of `58`.
+
+  [PHP 8.0 to 8.5 run in a worker in your browser. The selected version downloads on its first run; debuggers on the same page share the download.]{.note}
+  :::
 ---
 
-:::: {.hero}
-# Add a PHP debugger to your page
-
-Let readers step through examples and edit variables as PHP runs in their browser. Embed it with vanilla JavaScript, or connect an existing editor.
-
-[Try the debugger](#try){.btn .btn-primary} [Get started](guide/getting-started.html){.btn}
-::::
-
-:::: {.band #try}
-## Try it here
-
-Click **Run** to pause on line 8, at the first item in the cart. Open `item` and change `price` to `10`, then click **Continue**. It pauses on line 8 again for the pen and the backpack, with `sum` growing each time; click **Continue** until it finishes. The notebook's line comes to `30`, the discount to `7`, and the total to `63` instead of `58`.
-
-<div class="demo">
-<div class="demo-bar">
-<label class="field">Source editor <select id="editor-kind" class="field-select"><option value="textarea">Textarea</option><option value="ace">Ace</option><option value="codemirror5">CodeMirror 5</option><option value="codemirror6">CodeMirror 6</option></select></label>
-<button id="reset" type="button" class="btn">Reset example</button>
-<div id="demo-problem" class="demo-problem" role="alert"></div>
-</div>
-<div id="debugger-host"></div>
-</div>
-<script type="module" src="demo.mjs"></script>
-
-[PHP 8.0 to 8.5 run in a worker in your browser. The selected version downloads on its first run; debuggers on the same page share the download.]{.note}
-::::
-
-:::: {.band .split}
-::: {.split-text}
 ## Use it with your own code
 
 Pass a PHP string, put a `<textarea>` inside the custom element, or attach an Ace or CodeMirror adapter. The interface is plain HTML with its own stylesheet, and takes its colours from a handful of CSS variables.
-
-[Get started](guide/getting-started.html) · [Custom element](guide/custom-element.html) · [Editor adapters](guide/editors.html)
-:::
 
 ```javascript
 import {PhpDebugger} from 'php-dbg-component';
@@ -71,18 +66,12 @@ const dbg = new PhpDebugger({
 
 dbg.mount(document.querySelector('#debugger'));
 ```
-::::
 
-:::: {.band .split}
-::: {.split-text}
+[Get started](guide/getting-started.html) · [Custom element](guide/custom-element.html) · [Editor adapters](guide/editors.html)
+
 ## Run PHP tests from the page
 
 The same controller checks output and exit codes without showing an interface. Await each result, or run separate controllers side by side.
-
-<div class="try-result"><button id="run-test" type="button" class="btn">Run PHP assertion</button><output id="test-result" aria-live="polite">Not run</output></div>
-
-[Running tests](guide/tests.html)
-:::
 
 ```javascript
 const test = new PhpDebugger({
@@ -101,4 +90,7 @@ try {
   await test.destroy();
 }
 ```
-::::
+
+<div class="try-result"><button id="run-test" type="button" class="btn">Run PHP assertion</button><output id="test-result" aria-live="polite">Not run</output></div>
+
+[Running tests](guide/tests.html)
