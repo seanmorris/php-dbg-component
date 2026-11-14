@@ -813,16 +813,23 @@
 .php-debugger .php-debugger-breakpoint-settings {
 	display: grid;
 	grid-column: 1 / -1;
-	gap: .35em;
-	margin: .2em 0 .3em;
+	gap: .6em;
+	margin: .3em 0 .2em;
+	padding: .6em;
+	background: color-mix(in srgb, var(--php-debugger-fg) 4%, var(--php-debugger-bg));
+	border: 1px solid var(--php-debugger-border);
+	border-radius: var(--php-debugger-radius);
 }
 
-.php-debugger .php-debugger-breakpoint-setting {
+/* Each box under its name, with what it does in small type underneath. */
+.php-debugger .php-debugger-breakpoint-field {
 	display: grid;
-	grid-template-columns: minmax(7em, auto) minmax(0, 1fr);
-	gap: .5em;
-	align-items: center;
+	gap: .25em;
+}
+
+.php-debugger .php-debugger-breakpoint-label {
 	font-size: .9em;
+	font-weight: 600;
 }
 
 .php-debugger .php-debugger-breakpoint-expression {
@@ -830,14 +837,30 @@
 	font-family: var(--php-debugger-font);
 }
 
+.php-debugger .php-debugger-breakpoint-hint {
+	font-size: .82em;
+	color: var(--php-debugger-muted);
+}
+
+/* What the breakpoint will do, then Apply and Cancel. */
+.php-debugger .php-debugger-breakpoint-outcome {
+	margin: 0;
+	padding-top: .5em;
+	font-size: .9em;
+	overflow-wrap: anywhere;
+	border-top: 1px solid var(--php-debugger-border);
+}
+
+.php-debugger .php-debugger-breakpoint-outcome code {
+	padding: 0 .2em;
+	font-family: var(--php-debugger-font);
+	background: color-mix(in srgb, var(--php-debugger-fg) 8%, transparent);
+	border-radius: .2em;
+}
+
 .php-debugger .php-debugger-breakpoint-actions {
 	display: flex;
 	gap: .35em;
-	justify-content: flex-end;
-}
-
-.php-debugger .php-debugger-breakpoint:hover {
-	background: color-mix(in srgb, var(--php-debugger-fg) 5%, transparent);
 }
 
 .php-debugger .php-debugger-breakpoint-list > .php-debugger-empty {

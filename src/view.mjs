@@ -1676,6 +1676,10 @@ export class DebuggerView
 			this.breakpointFocus = {id: bp.id, part: `.php-debugger-breakpoint-${part}`};
 
 			this.listBreakpoints();
+
+			// The panel scrolls; the whole form comes into view, its buttons included.
+			this.breakpointList.querySelector('.php-debugger-breakpoint-settings')
+				?.scrollIntoView({block: 'nearest'});
 		});
 
 		remove.type = 'button';
@@ -1698,16 +1702,39 @@ export class DebuggerView
 	}
 
 	/**
-	 * The form under a breakpoint for its condition and its log: PHP that must be true for it to
-	 * act, and PHP whose value it logs instead of pausing. Enter applies, Escape cancels.
+	 * The form under a breakpoint for its condition and its log, each explained under its box. A
+	 * sentence under both says what the breakpoint will do with what is typed, as it is typed.
+	 * Enter applies, Escape cancels.
 	 */
 	breakpointSettings(bp)
 	{
 		const form = node('form', 'php-debugger-breakpoint-settings');
-		const condition = this.breakpointField(form, 'Only when', bp.condition, '$i > 2');
-		const log = this.breakpointField(form, 'Log, without pausing', bp.log, '"total: $total"');
+
+		const condition = this.breakpointField(
+			form
+			, 'condition'
+			, 'Condition'
+			, bp.condition
+			, 'PHP that must be true for the breakpoint to act. Empty: every time.'
+		);
+
+		const log = this.breakpointField(
+			form
+			, 'log'
+			, 'Log message'
+			, bp.log
+			, 'PHP whose value is printed instead of stopping. Empty: it stops.'
+		);
+
+		const outcome = node('p', 'php-debugger-breakpoint-outcome');
+		const actions = node('div', 'php-debugger-breakpoint-actions');
 		const apply = node('button', 'php-debugger-button', 'Apply');
 		const cancel = node('button', 'php-debugger-button', 'Cancel');
+
+		/** Say what the breakpoint will do with what the boxes hold now. */
+		const describe = () => outcome.replaceChildren(
+			...this.breakpointOutcome(bp, condition.value.trim(), log.value.trim())
+		);
 
 		/** Close the form, and go back to the row's Edit button. */
 		const close = () => {
@@ -1717,6 +1744,8 @@ export class DebuggerView
 
 		apply.type = 'submit';
 		cancel.type = 'button';
+		form.addEventListener('input', describe);
+		describe();
 
 		// The form stays open when the change is refused, as it is while PHP runs.
 		form.addEventListener('submit', event => {
@@ -1746,26 +1775,58 @@ export class DebuggerView
 			}
 		});
 
-		const actions = node('span', 'php-debugger-breakpoint-actions');
-
 		actions.append(apply, cancel);
-		form.append(actions);
+		form.append(outcome, actions);
 
 		return form;
 	}
 
-	/** One labelled box of the breakpoint form, holding PHP. */
-	breakpointField(form, name, value, example)
+	/**
+	 * What a breakpoint will do, as a sentence with its PHP in code: "Prints $total when $i > 2
+	 * is true at line 6, without stopping."
+	 */
+	breakpointOutcome(bp, condition, log)
 	{
-		const label = node('label', 'php-debugger-breakpoint-setting');
-		const input = node('input', 'php-debugger-breakpoint-expression');
+		const where = this.breakpointPlace(bp).replace(/^Line/, 'line');
 
+		/** A piece of PHP, set as code. */
+		const php = text => node('code', '', text);
+
+		if(log && condition)
+		{
+			const rest = ` is true at ${where}, without stopping.`;
+
+			return ['Prints ', php(log), ' when ', php(condition), rest];
+		}
+
+		if(log)
+		{
+			return ['Prints ', php(log), ` each time ${where} runs, without stopping.`];
+		}
+
+		return condition
+			? [`Stops at ${where} when `, php(condition), ' is true.']
+			: [`Stops each time ${where} runs.`];
+	}
+
+	/** One box of the breakpoint form: its name above, the PHP, and what it does underneath. */
+	breakpointField(form, key, name, value, help)
+	{
+		const id = `${this.id}-breakpoint-${key}`;
+		const field = node('div', 'php-debugger-breakpoint-field');
+		const label = node('label', 'php-debugger-breakpoint-label', name);
+		const input = node('input', 'php-debugger-breakpoint-expression');
+		const hint = node('span', 'php-debugger-breakpoint-hint', help);
+
+		label.htmlFor = id;
+		input.id = id;
 		input.value = value ?? '';
-		input.placeholder = example;
 		input.spellcheck = false;
 		input.autocomplete = 'off';
-		label.append(node('span', '', name), input);
-		form.append(label);
+		hint.id = `${id}-hint`;
+		input.setAttribute('aria-describedby', hint.id);
+		field.append(label, input, hint);
+		form.append(field);
 
 		return input;
 	}
