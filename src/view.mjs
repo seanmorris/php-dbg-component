@@ -592,7 +592,13 @@ export class DebuggerView
 			}
 		);
 
-		on('framechange', () => void this.refresh());
+		// Another frame has variables of its own, some by the same names: what was being typed
+		// for a value of the last one goes.
+		on('framechange', () => {
+			this.editForms.clear();
+			void this.refresh();
+		});
+
 		on('variablechange', () => this.applying || void this.refresh());
 		on('breakpointchange', () => this.gutterUpdate());
 
@@ -872,6 +878,7 @@ export class DebuggerView
 		const moved = shown.stands !== stands;
 
 		this.opcodesShown = Object.assign(shown, {stands});
+		shown.picker.value = this.opcodeChoice;
 
 		if(!attached)
 		{
@@ -895,10 +902,18 @@ export class DebuggerView
 
 		const here = this.content.querySelector('tr[aria-current]');
 
+		// Put back after a step, the listing follows the op the frame stands on; one with no
+		// such op, another function's, is where it was scrolled to.
 		if(here && (!attached || moved))
 		{
 			this.keepInView(here);
 		}
+		else if(!attached)
+		{
+			this.content.scrollTop = this.scrolled();
+		}
+
+		this.place = null;
 
 		if(problem)
 		{
@@ -951,7 +966,7 @@ export class DebuggerView
 			? []
 			: [node('p', 'php-debugger-empty', `No opcodes to list for ${chosen}.`)];
 
-		return {rows, bar, tables, empty};
+		return {rows, bar, picker, tables, empty};
 	}
 
 	/**
@@ -1324,7 +1339,13 @@ export class DebuggerView
 			this.pauseReason = null;
 		}
 
-		// A step keeps the counts until the next pause replaces them; the end of a run drops them.
+		// A step keeps the counts until the next pause replaces them; the end of a run drops them,
+		// and where the inspector was scrolled to.
+		if(!['paused', 'running'].includes(state))
+		{
+			this.place = null;
+		}
+
 		if(!['paused', 'running'].includes(state) && Object.keys(this.counts).length)
 		{
 			this.showCounts({});

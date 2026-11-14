@@ -945,6 +945,21 @@ test(
 		await expect(status).toContainText('Paused at line 3');
 		await expect(tabNamed(page, 'Variables')).toHaveText('Variables 2');
 		await expect(tabNamed(page, 'Frames')).toHaveText('Frames 2');
+
+		// Where the list was scrolled to is kept for the next pause of a run, not for the
+		// next run: left far down when one ends, it opens at the top in the next.
+		await page.getByRole('button', {name: 'Stop', exact: true}).click();
+		await openPanel(page, 'Variables');
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(status).toContainText('Paused at line 7');
+		await values.evaluate(panel => {panel.scrollTop = 300;});
+
+		await page.getByRole('button', {name: 'Stop', exact: true}).click();
+		await expect(status).toHaveText('Stopped.');
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(status).toContainText('Paused at line 7');
+		await expect(values.getByRole('button', {name: 'Edit v0', exact: true})).toBeVisible();
+		expect(await values.evaluate(panel => panel.scrollTop)).toBe(0);
 		await page.evaluate(() => dbg.destroy());
 	}
 );
@@ -1006,6 +1021,47 @@ test('a value\'s edit form keeps what was typed while the list is built again', 
 	await page.getByRole('button', {name: 'Continue', exact: true}).click();
 	await expect(page.getByRole('status')).toContainText('Finished');
 	expect(await page.evaluate(() => dbg.result.stdout)).toBe('211');
+	await page.evaluate(() => dbg.destroy());
+});
+
+test('a value\'s edit form goes with the frame it was opened in', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	await page.evaluate(() => {
+		window.dbg = new PhpDebugger(
+			{
+				version: window.phpVersionUnderTest
+				, runtimeBaseUrl: '/runtime/'
+				, code: '<?php\nfunction inner($n) {\n    return $n;\n}\n'
+					+ 'function outer($n) {\n    return inner($n + 10);\n}\necho outer(1);'
+				, breakpoints: [3]
+			}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+	});
+
+	const box = page.getByRole('textbox', {name: 'New PHP expression for n', exact: true});
+	const values = page.getByRole('tabpanel', {name: 'Variables', exact: true});
+
+	await page.getByRole('button', {name: 'Run', exact: true}).click();
+	await expect(page.getByRole('status')).toContainText('Paused at line 3');
+	await page.getByRole('button', {name: 'Edit n', exact: true}).click();
+	await box.fill('99');
+
+	// The caller has an $n of its own. The form was for the inner one, and is not put on it.
+	await openPanel(page, 'Frames');
+	await page.locator('.php-debugger-symbol').nth(1).click();
+	await expect(page.getByRole('status')).toContainText('Showing frame 1');
+	await openPanel(page, 'Variables');
+	await expect(values).toContainText('1');
+	await expect(box).toHaveCount(0);
+	await expect(page.getByRole('button', {name: 'Edit n', exact: true})).toBeVisible();
+
+	await page.getByRole('button', {name: 'Continue', exact: true}).click();
+	await expect(page.getByRole('status')).toContainText('Finished');
+	expect(await page.evaluate(() => dbg.result.stdout)).toBe('11');
 	await page.evaluate(() => dbg.destroy());
 });
 
@@ -1851,6 +1907,27 @@ test(
 		await expect(current).toHaveText(['6']);
 		await expect(panel.getByRole('table')).toHaveAttribute('data-kept', 'yes');
 		await expect(panel.locator('tr[data-jumped]')).toHaveCount(0);
+
+		// Refused while the frame's own listing is the one on show, a choice is not left in
+		// the picker.
+		await scope.evaluate(select => {
+			select.append(new Option('lost()', 'function:lost'));
+			select.value = 'function:lost';
+			select.dispatchEvent(new Event('change', {bubbles: true}));
+		});
+
+		await expect(message).toHaveText('The function lost could not be found');
+		await expect(scope).toHaveValue('frame');
+
+		// A function's own listing, with no op to follow, is where it was after a step.
+		await scope.selectOption('function:long');
+		await expect(panel.locator('tr[aria-current]')).toHaveCount(0);
+		await panel.evaluate(content => {content.scrollTop = 400;});
+
+		await page.getByRole('button', {name: 'Step over', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Paused at line 7');
+		await expect(panel.locator('caption')).toContainText('long()');
+		expect(await panel.evaluate(content => content.scrollTop)).toBe(400);
 		await page.evaluate(() => dbg.destroy());
 	}
 );
