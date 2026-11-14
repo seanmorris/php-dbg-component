@@ -147,18 +147,23 @@
 
 /*
  * A box's arrow is drawn, so it sits as far inside the right edge as the text does inside the
- * left; the browser's own sits against the border.
+ * left; the browser's own sits against the border. It is one triangle in the text's colour: two
+ * halves drawn side by side leave a pale line where they meet.
  */
+:where(.php-debugger) {
+	--php-debugger-arrow: conic-gradient(
+		from -45deg at 50% 100%, currentColor 90deg, transparent 0
+	);
+}
+
 .php-debugger .php-debugger-version,
 .php-debugger .php-debugger-opcodes-scope {
 	appearance: none;
 	padding-right: 1.6em;
 	cursor: pointer;
-	background-image:
-		linear-gradient(45deg, transparent 50%, currentColor 50%),
-		linear-gradient(135deg, currentColor 50%, transparent 50%);
-	background-position: calc(100% - .8em) 55%, calc(100% - .5em) 55%;
-	background-size: .3em .3em;
+	background-image: var(--php-debugger-arrow);
+	background-position: calc(100% - .5em) 55%;
+	background-size: .6em .3em;
 	background-repeat: no-repeat;
 }
 
@@ -583,16 +588,14 @@
 	background: var(--php-debugger-border);
 }
 
-/* A select drawn as a tab, with a chevron in its text colour. */
+/* A select drawn as a tab, with an arrow in its text colour. */
 .php-debugger .php-debugger-tab-more {
 	appearance: none;
 	padding-right: 1.6em;
 	cursor: pointer;
-	background-image:
-		linear-gradient(45deg, transparent 50%, currentColor 50%),
-		linear-gradient(135deg, currentColor 50%, transparent 50%);
-	background-position: calc(100% - .95em) 55%, calc(100% - .65em) 55%;
-	background-size: .3em .3em;
+	background-image: var(--php-debugger-arrow);
+	background-position: calc(100% - .65em) 55%;
+	background-size: .6em .3em;
 	background-repeat: no-repeat;
 }
 
