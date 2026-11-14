@@ -667,12 +667,22 @@ export class DebugEngine
 	}
 
 	/**
-	 * How deep the stack is, or null where the runtime cannot list its frames: an older one can
-	 * fail to, with a function of PHP's own on the stack.
+	 * How deep the stack is, in frames of the program's own. The runtime is asked whether there
+	 * is a frame of each number in turn. Its list of frames is not used: an older runtime's can
+	 * fail with a function of PHP's own on the stack, as when array_map() calls back.
 	 */
 	async depth()
 	{
-		return this.frames().then(frames => frames.length, () => null);
+		let depth = 1;
+
+		while(depth < 4096 && await this.php.switchFrame(depth) >= 0)
+		{
+			depth++;
+		}
+
+		await this.php.switchFrame(0);
+
+		return depth;
 	}
 
 	/**
