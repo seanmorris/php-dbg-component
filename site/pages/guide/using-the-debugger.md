@@ -41,6 +41,8 @@ This is the interface `mount()` builds, from top to bottom. The [example on the 
 
 </div>
 
+Step over, Step out and Until stop at a breakpoint inside a call they pass, as Continue does, and Pause stops them there too. Leave does neither: it runs to the end of its function whatever is on the way.
+
 The button to press next is filled: **Run** before a run, **Continue** during a pause. The keys work while focus is anywhere inside the debugger, the source included. The **PHP** list picks the version for the next run; choosing another one during a run ends that run, and the status line says so.
 
 ## Status
@@ -51,17 +53,23 @@ The line at the bottom of the debugger says where things stand: `Paused at line 
 
 Click a line number to set a breakpoint, and again to clear it. Or open the **Breakpoints** tab on the right, type a line in the **Line** box and press Enter. The tab lists every breakpoint, before a run as well as during one. Untick a breakpoint to keep it without stopping there, or remove it with ×.
 
+A breakpoint stops execution once each time it reaches the line: every time round a loop, and not a second time when a function the line called returns.
+
 From the keyboard, the line numbers are one tab stop: the arrow keys move along them, and Enter sets or clears the breakpoint on the line in focus.
+
+**Edit** on a breakpoint's row has two checkboxes; tick one and a box for a PHP expression appears under it. A **Condition** must be true for the breakpoint to stop, so `$i === 3` stops a loop on its fourth time round. A **Log message** makes it a logpoint: execution goes on, and the value is printed in the output, after the line it came from. With both, it logs only when the condition holds. Unticking one turns it off and keeps what you typed. A sentence under the boxes says what the breakpoint will do as you tick and type. Enter applies, Escape cancels. A logpoint's mark beside the line number is a diamond, and a breakpoint with a condition is drawn hollow.
 
 When execution pauses, the line is marked across the whole editor and scrolled into view.
 
 ## Values
 
-The tabs on the right show what is in scope while paused. **Variables**, **Frames**, **Watches** and **Breakpoints** come first, each with a count of what it holds. After them come the whole program's **Globals**, **Constants**, **Functions**, **Classes** and **Files**. When the row is too narrow for every tab, the last ones move into **More**. The panel under the tabs is always as tall as the output beside it.
+The tabs on the right show what is in scope while paused. **Variables**, **Frames**, **Opcodes**, **Watches** and **Breakpoints** come first; all but Opcodes count what they hold. After them come the whole program's **Globals**, **Constants**, **Functions**, **Classes** and **Files**. When the row is too narrow for every tab, the last ones move into **More**. The panel under the tabs is always as tall as the output beside it.
 
 - An array or object opens when you click its name, and closes again. What you opened stays open as you step.
 - **Edit** opens a box for a PHP expression. Enter applies it, Escape cancels. A value PHP refuses is explained under the box.
-- **Frames** lists the call stack. Choosing a frame shows that call's variables and moves the marker to its line.
+- **Frames** lists the call stack, a row per call. Choosing a frame shows that call's variables and moves the marker to its line.
+- **Frames**, **Functions**, **Classes** and **Files** are lists of rows. Click a row, or reach the list with Tab, move along it with the arrow keys and press Enter. A function, class or file shows where it is in the source.
+- **Opcodes** shows what PHP compiled the paused function to, as phpdbg's `print` command lists it, with the op the frame stands on marked like the paused line. Each op's number comes first; where an op can jump, its target is a link to that op. Choose a frame to see its function, or pick the main script, a function or a class from the list above the table.
 
 ## Expressions
 

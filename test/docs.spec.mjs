@@ -32,21 +32,64 @@ test('the home page demo does what it asks of the reader', async({page}) => {
 	const values = page.locator('.php-debugger-values');
 	const output = page.locator('.php-debugger-console');
 
-	// "Click Run to pause on line 5. Open item and change price to 10, then click Continue."
+	// The steps to try are under the debugger, and the page goes on beside the contents.
+	const steps = await page.getByRole('heading', {name: 'Try it here', exact: true}).boundingBox();
+	const demo = await page.locator('#debugger-host').boundingBox();
+
+	expect(steps.y).toBeGreaterThan(demo.y + demo.height);
+	await expect(page.getByRole('navigation', {name: 'Contents'})).toBeVisible();
+
+	// Opposite the steps, at the right: Reset, then the editor choice with its name under it,
+	// ending where the choice does.
+	const reset = await page.locator('#reset').boundingBox();
+	const choice = page.getByRole('combobox', {name: 'Source editor', exact: true});
+	const choiceBox = await choice.boundingBox();
+	const name = await page.locator('label[for=editor-kind]').boundingBox();
+
+	expect(reset.x).toBeGreaterThan(steps.x + steps.width);
+	expect(reset.x + reset.width).toBeLessThanOrEqual(choiceBox.x);
+	expect(name.y).toBeGreaterThanOrEqual(choiceBox.y + choiceBox.height);
+	expect(Math.abs(name.x + name.width - choiceBox.x - choiceBox.width)).toBeLessThan(1);
+
+	// The example opens in CodeMirror 6, inside the debugger.
+	await expect(choice).toHaveValue('codemirror6');
+	await expect(page.locator('.php-debugger-hosted-editor > .cm-editor')).toBeVisible();
+
+	/** What the panel shows for one value, by its name. */
+	const value = name => values.locator('.php-debugger-value-line').filter(
+		{hasText: new RegExp(`^${name}: `)}
+	);
+
+	// "Click Run to pause on line 8, at the first item in the cart. Open item and change price
+	// to 10, then click Continue."
 	await page.getByRole('button', {name: 'Run', exact: true}).click();
-	await expect(status).toHaveText('Paused at line 5 of /main.php, on a breakpoint.');
+	await expect(status).toHaveText('Paused at line 8 of /main.php, on a breakpoint.');
+	await expect(value('sum')).toContainText('0');
 	await values.getByRole('button', {name: 'item', exact: true}).click();
 	await values.getByRole('button', {name: 'Edit price', exact: true}).click();
 	await page.keyboard.type('10');
 	await page.keyboard.press('Enter');
 
-	await expect(
-		values.locator('.php-debugger-value-line').filter({hasText: /^price: /})
-	).toContainText('10');
+	await expect(value('price')).toContainText('10');
 
-	await page.getByRole('button', {name: 'Continue', exact: true}).click();
+	// "It pauses on line 8 again for the pen and the backpack, with sum growing each time; click
+	// Continue until it finishes."
+	const continueButton = page.getByRole('button', {name: 'Continue', exact: true});
+
+	for(const sum of ['30', '40'])
+	{
+		await continueButton.click();
+		await expect(value('sum')).toContainText(sum);
+		await expect(status).toHaveText('Paused at line 8 of /main.php, on a breakpoint.');
+	}
+
+	await continueButton.click();
 	await expect(status).toHaveText('Finished with exit code 0.');
-	await expect.poll(() => output.evaluate(element => element.innerText)).toBe('Cart total: 30\n');
+
+	// "The notebook's line comes to 30, the discount to 7, and the total to 63 instead of 58."
+	await expect.poll(() => output.evaluate(element => element.innerText)).toBe(
+		'Notebook: 3 x 10 = 30\nPen: 5 x 2 = 10\nBackpack: 1 x 30 = 30\nDiscount: 7\nTotal: 63\n'
+	);
 
 	// The page has no status line of its own to go stale beside the debugger's.
 	await expect(page.locator('#demo-problem')).toHaveText('');
@@ -73,7 +116,7 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 			await page.selectOption('#editor-kind', kind);
 			await expect(page.locator('#editor-kind')).toBeEnabled();
 
-			const host = page.locator('#editor-host');
+			const host = page.locator('#debugger-host .php-debugger-hosted-editor');
 
 			// What each editor calls its frame and a highlighted keyword.
 			const [frame, keyword] = {
@@ -108,9 +151,9 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 			await expect.poll(lightness).toBeLessThan(.3);
 
 			await page.getByRole('button', {name: 'Run', exact: true}).click();
-			await expect(page.locator('.php-debugger-status')).toContainText('Paused at line 5');
+			await expect(page.locator('.php-debugger-status')).toContainText('Paused at line 8');
 
-			// The paused line's marker is on line 5, and the line numbers are a column, not a page:
+			// The paused line's marker is on line 8, and the line numbers are a column, not a page:
 			// CodeMirror 5 created before its stylesheet measures a gutter a thousand pixels wide.
 			const marks = await host.evaluate(async element => {
 				await new Promise(
@@ -122,7 +165,7 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 				)];
 
 				const line = lines.find(
-					node => node.textContent.includes('$sum +=')
+					node => node.textContent.includes('$line = $item')
 				).getBoundingClientRect();
 
 				const paused = element.querySelector(
@@ -149,10 +192,46 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 				return dbg.result;
 			});
 
-			expect(result.stdout).toBe('Cart total: 24\n');
+			expect(result.stdout).toBe(
+				'Notebook: 3 x 8 = 24\nPen: 5 x 2 = 10\nBackpack: 1 x 30 = 30\nDiscount: 6\nTotal: 58\n'
+			);
 		}
 	);
 }
+
+test('the editors page debugs one of its own code blocks, as Pandoc built it', async({page}) => {
+	await page.goto(docs + '/guide/editors.html');
+	await page.waitForFunction(() => window.phpDebuggerBlockDemo);
+
+	const block = page.locator('#code-block-example');
+	const debuggerBox = page.locator('#code-block-debugger');
+	const line = block.locator('.php-debugger-code-line').nth(4);
+
+	// A number before each line, which sets a breakpoint; the run pauses there, marked.
+	await expect(block.locator('.php-debugger-code-gutter')).toHaveCount(7);
+	await block.getByRole('button', {name: 'Breakpoint on line 5', exact: true}).click();
+	await debuggerBox.getByRole('button', {name: 'Run', exact: true}).click();
+
+	await expect(debuggerBox.locator('.php-debugger-status')).toHaveText(
+		'Paused at line 5 of /main.php, on a breakpoint.'
+	);
+
+	await expect(line).toHaveClass(/php-debugger-active-line/);
+	await expect(line).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+
+	const result = await page.evaluate(async() => {
+		const dbg = window.phpDebuggerBlockDemo;
+		const done = dbg.whenPaused().catch(() => {});
+
+		await dbg.setBreakpoints([]);
+		await dbg.continue();
+		await done;
+
+		return dbg.result;
+	});
+
+	expect(result.stdout).toBe('Total: 40\n');
+});
 
 test(
 	'guide and reference pages link up, highlight their code and run their examples'
@@ -167,6 +246,21 @@ test(
 		await expect(page.getByRole('heading', {level: 1})).toHaveText('Guide');
 
 		const contents = page.getByRole('navigation', {name: 'Contents'});
+		const toggle = page.getByRole('button', {name: 'Contents', exact: true});
+
+		/** The names in tables' first columns broken over lines, other than at one of `allowed`. */
+		const brokenNames = allowed => page.locator('.prose td:first-child code').evaluateAll(
+			(codes, allowed) => codes.filter(
+				code => code.getClientRects().length > 1
+					&& !allowed.some(character => code.textContent.includes(character))
+			).map(code => code.textContent)
+			, allowed
+		);
+
+		// On a wide screen the contents are a narrow column, always shown, with nothing to fold.
+		await expect(contents).toBeVisible();
+		await expect(toggle).toBeHidden();
+		expect((await contents.boundingBox()).width).toBeLessThanOrEqual(176);
 
 		await contents.getByRole('link', {name: 'Get started', exact: true}).click();
 		await expect(page.getByRole('heading', {level: 1})).toHaveText('Get started');
@@ -180,6 +274,25 @@ test(
 		await page.getByRole('button', {name: 'Run PHP assertion', exact: true}).click();
 		await expect(page.locator('#test-result')).toHaveAttribute('data-status', 'passed');
 
+		// The logpoint example passes, beside its button, and what each logpoint printed is a line
+		// of its own under it.
+		const logpoints = page.locator('#logpoints-result');
+		const run = page.getByRole('button', {name: 'Run with a logpoint', exact: true});
+		const logged = page.getByRole('list', {name: 'Logged', exact: true});
+
+		await run.click();
+		await expect(logpoints).toHaveAttribute('data-status', 'passed');
+		await expect(logpoints).toHaveText(/^passed · 40 · \d+ ms$/);
+
+		await expect(logged.getByRole('listitem')).toHaveText(
+			['line 5: notebook costs 8', 'line 5: backpack costs 30', 'line 7: total: 40']
+		);
+
+		const button = await run.boundingBox();
+
+		expect((await logpoints.boundingBox()).x).toBeGreaterThan(button.x + button.width);
+		expect((await logged.boundingBox()).y).toBeGreaterThanOrEqual(button.y + button.height);
+
 		await contents.getByRole(
 			'link'
 			, {name: 'PHP versions and extensions', exact: true}
@@ -188,8 +301,24 @@ test(
 		await page.getByRole('button', {name: 'Check curl extension', exact: true}).click();
 		await expect(page.locator('#curl-result')).toHaveAttribute('data-status', 'passed');
 
-		// Every page fits a phone without scrolling sideways.
+		// Wider than a phone, a name in a table's first column stays on one line.
+		for(const path of ['/reference/api.html', '/reference/styling.html'])
+		{
+			await page.goto(docs + path);
+			expect(await brokenNames([])).toEqual([]);
+		}
+
+		// On a phone the contents fold behind a button, and open from it.
 		await page.setViewportSize({width: 390, height: 800});
+		await page.goto(docs + '/guide/getting-started.html');
+		await expect(contents).toBeHidden();
+		await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+		await toggle.click();
+		await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+		await contents.getByRole('link', {name: 'Custom element', exact: true}).click();
+		await expect(page.getByRole('heading', {level: 1})).toHaveText('Custom element');
+
+		// Every page fits a phone without scrolling sideways.
 
 		for(
 			const path of [
@@ -204,6 +333,10 @@ test(
 			expect(
 				await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)
 			).toBeLessThanOrEqual(0);
+
+			// On a phone a name in a table's first column may wrap at a space or a hyphen, never
+			// inside a word.
+			expect(await brokenNames([' ', '-'])).toEqual([]);
 		}
 	}
 );

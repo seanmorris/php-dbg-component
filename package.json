@@ -4,7 +4,22 @@
   "type": "module",
   "description": "A scriptable, styleable vanilla JavaScript PHP debugger and test component.",
   "license": "(Apache-2.0 OR GPL-2.0-only)",
-  "repository": "https://github.com/seanmorris/php-dbg-component",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/seanmorris/php-dbg-component.git"
+  },
+  "homepage": "https://seanmorris.github.io/php-dbg-component/",
+  "bugs": "https://github.com/seanmorris/php-dbg-component/issues",
+  "keywords": [
+    "php",
+    "debugger",
+    "phpdbg",
+    "php-wasm",
+    "wasm",
+    "webassembly",
+    "breakpoints",
+    "custom-element"
+  ],
   "exports": {
     ".": {
       "types": "./src/index.d.ts",
@@ -17,11 +32,13 @@
     "./adapters/ace": "./src/adapters/ace.mjs",
     "./adapters/codemirror5": "./src/adapters/codemirror5.mjs",
     "./adapters/codemirror6": "./src/adapters/codemirror6.mjs",
+    "./adapters/code-block": "./src/adapters/code-block.mjs",
     "./styles.css": "./src/styles.css"
   },
   "files": [
     "src",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE",
     "LICENSE-GPL",
     "NOTICE",
@@ -63,6 +80,7 @@
     "codemirror": "^5.65.0",
     "esbuild": "^0.25.0",
     "eslint": "^10.14.0",
+    "highlight.js": "^11.12.0",
     "sm-no-saccade-style": "^0.2.3",
     "typescript": "^5.9.0"
   }

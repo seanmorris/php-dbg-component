@@ -85,6 +85,176 @@ test('source paths and breakpoints have unambiguous command boundaries', async (
 	assert.throws(() => normalizePath('/../php.ini'));
 });
 
+test('a breakpoint keeps a condition and a log as PHP strings, and drops blank ones', async () => {
+	const {normalizeBreakpoints} = await import('../src/model.mjs');
+
+	const [conditional, logpoint, plain] = normalizeBreakpoints(
+		[
+			{line: 2, condition: ' $i > 2 '}
+			, {line: 3, log: '$sum', condition: ''}
+			, {line: 4, log: ' '}
+		]
+		, '/main.php'
+	);
+
+	assert.deepEqual(
+		[conditional, logpoint, plain]
+		, [
+			{id: '/main.php:2', file: '/main.php', line: 2, enabled: true, condition: '$i > 2'}
+			, {id: '/main.php:3', file: '/main.php', line: 3, enabled: true, log: '$sum'}
+			, {id: '/main.php:4', file: '/main.php', line: 4, enabled: true}
+		]
+	);
+
+	assert.throws(() => normalizeBreakpoints([{line: 2, condition: true}]), TypeError);
+	assert.throws(() => normalizeBreakpoints([{line: 2, log: 3}]), TypeError);
+});
+
+test('expected logs match the messages one for one, in order', async () => {
+	const {checkExpectations} = await import('../src/expectations.mjs');
+
+	const result = {
+		status: 'completed'
+		, stdout: ''
+		, stderr: ''
+		, exitCode: 0
+		, diagnostics: []
+
+		, logs: [
+			{file: '/main.php', line: 4, message: '0'}
+			, {file: '/main.php', line: 4, message: '1'}
+		]
+	};
+
+	assert.equal((await checkExpectations(result, {logs: ['0', /^1$/]})).status, 'passed');
+
+	const missing = await checkExpectations(result, {logs: ['0']});
+
+	assert.equal(missing.status, 'failed');
+	assert.deepEqual(missing.failures, [{field: 'logs', expected: '0', actual: '0\n1'}]);
+	assert.equal((await checkExpectations(result, {logs: ['1', '0']})).status, 'failed');
+});
+
+test('expectations of the wrong shape fail the test and are not thrown', async () => {
+	const {checkExpectations} = await import('../src/expectations.mjs');
+
+	const result = {
+		status: 'completed'
+		, stdout: ''
+		, stderr: ''
+		, exitCode: 0
+		, diagnostics: []
+		, logs: [{file: '/main.php', line: 4, message: 'total: 40'}]
+	};
+
+	for(const logs of ['total: 40', null, 5, {0: 'total: 40'}])
+	{
+		const {status, failures} = await checkExpectations(result, {logs});
+
+		assert.equal(status, 'failed');
+
+		assert.deepEqual(
+			failures
+			, [{field: 'logs', message: 'expect.logs must be an array of strings or patterns'}]
+		);
+	}
+
+	// A pattern and a list are objects too, with none of the fields; they are refused as text is.
+	for(const shape of ['total: 40', /total/, ['total: 40'], 40])
+	{
+		const {status, failures} = await checkExpectations(result, shape);
+
+		assert.equal(status, 'failed');
+		assert.deepEqual(failures, [{field: 'expect', message: 'Expectations must be an object'}]);
+	}
+
+	// An assertion fails the test by whatever it throws, nothing at all included.
+	const thrown = [
+		[() => Promise.reject(), 'Assertion rejected without a reason']
+		, [() => {throw null;}, 'Assertion rejected without a reason']
+		, [() => {throw 'a string';}, 'a string']
+		, [() => {throw new Error('an error');}, 'an error']
+		, [() => false, 'Assertion returned false']
+	];
+
+	for(const [assertion, message] of thrown)
+	{
+		assert.deepEqual(
+			(await checkExpectations(result, undefined, assertion)).failures
+			, [{field: 'assertion', message}]
+		);
+	}
+
+	// With null there is nothing to compare, and the run must still have ended well.
+	assert.equal((await checkExpectations(result, null)).status, 'passed');
+	assert.equal((await checkExpectations({...result, exitCode: 2}, null)).status, 'failed');
+});
+
+test('the custom element forwards every event and method the controller declares', async () => {
+	const {debuggerEvents} = await import('../src/model.mjs');
+	const {readFileSync} = await import('node:fs');
+
+	/** A source file's text. */
+	const read = name => readFileSync(new URL(`../src/${name}`, import.meta.url), 'utf8');
+
+	const types = read('index.d.ts');
+	const controller = read('index.mjs');
+	const element = read('element.mjs');
+	const elementTypes = read('element.d.ts');
+
+	/** The names a block of a declaration file begins its lines with, one tab in. */
+	const members = (source, opening) => {
+		const block = source.slice(source.indexOf(opening)).split(/^}/m)[0];
+
+		return [...new Set([...block.matchAll(/^\t(\w+)[(:?]/gm)].map(match => match[1]))];
+	};
+
+	// The events: the list the element forwards is the declared one, and nothing is emitted
+	// under a name that is not on it.
+	assert.deepEqual(
+		[...debuggerEvents].sort()
+		, members(types, 'export interface DebuggerEvents').sort()
+	);
+
+	const emitted = [...controller.matchAll(/this\.emit\(\s*'(\w+)'/g)].map(match => match[1]);
+
+	assert.equal(emitted.length > 10, true);
+	assert.deepEqual(emitted.filter(name => !debuggerEvents.includes(name)), []);
+	assert.match(element, /for\(const name of debuggerEvents\)/);
+
+	// The methods: all but those that make no sense on an element, one under another name.
+	const kept = ['constructor', 'readCode', 'setCode', 'destroy', 'mount'];
+	const renamed = {children: 'inspectChildren'};
+
+	const expected = members(types, 'export class PhpDebugger').filter(
+		name => !kept.includes(name) && !name.endsWith('EventListener')
+	).map(name => renamed[name] ?? name);
+
+	const declared = members(elementTypes, 'export interface PhpDebuggerElement');
+
+	assert.equal(expected.includes('opcodes') && expected.includes('run'), true);
+	assert.deepEqual(expected.filter(name => !declared.includes(name)), []);
+
+	for(const name of expected)
+	{
+		assert.match(element, new RegExp(`^\\t\\t${name}\\(`, 'm'), name);
+	}
+});
+
+test('a string is written as a PHP literal on one line', async () => {
+	const {phpLiteral} = await import('../src/model.mjs');
+
+	// As it reads, in single quotes, when nothing in it needs an escape.
+	assert.equal(phpLiteral('plain $text "quoted"'), '\'plain $text "quoted"\'');
+	assert.equal(phpLiteral('it\'s a \\ path'), '\'it\\\'s a \\\\ path\'');
+
+	// In double quotes, with PHP's escapes, when it holds a line break or another control
+	// character; there a dollar sign and a double quote are escaped as well.
+	assert.equal(phpLiteral('line one\nline two'), '"line one\\nline two"');
+	assert.equal(phpLiteral('a\r\nb\t$c "d" \\ e'), '"a\\r\\nb\\t\\$c \\"d\\" \\\\ e"');
+	assert.equal(phpLiteral('nul\0 esc\x1b bell\x07'), '"nul\\x00 esc\\e bell\\x07"');
+});
+
 test('controller import and construction are DOM-free and do not load a runtime', async () => {
 	const {PhpDebugger} = await import('../src/index.mjs');
 	const dbg = new PhpDebugger({code: '<?php echo 1;'});
@@ -474,6 +644,165 @@ test(
 	}
 );
 
+/**
+ * An engine stopped on line 2 of a script, where a logpoint is, with a stand-in for PHP that stops
+ * there once more after Continue and then ends. `during` runs while the log is evaluated.
+ */
+const stoppedEngine = async (binary, during = () => {}) => {
+	const {DebugEngine} = await import('../src/engine.mjs');
+	const events = [];
+	const commands = [];
+	const engine = new DebugEngine(event => events.push(event));
+	let stops = 2;
+
+	engine.paused = true;
+	engine.binary = binary;
+	engine.config = {mode: 'debug', entrypoint: '/main.php', code: '<?php\n$n = 1;\n'};
+	engine.installedBreakpoints = [{file: '/main.php', line: 2, enabled: true, log: '$n'}];
+
+	// Nothing is known of the logpoint's line, and this stand-in has no listing to give: the
+	// line is then taken for one that can only be arrived at.
+	engine.arrivals = new Map();
+
+	engine.writeFile = () => {};
+
+	engine.finish = async () => 'finished';
+
+	engine.php = {
+
+		async switchFrame() {return 0;}
+
+		, async isRunning() {return stops-- > 0;}
+
+		, async currentFile() {return '/main.php';}
+
+		, async currentLine() {return 2;}
+	};
+
+	engine.command = async line => {
+		commands.push(line.split('(')[0]);
+
+		if(line.startsWith('ev '))
+		{
+			during(engine);
+			engine.captured = {value: {0: true, 1: '1'}};
+		}
+	};
+
+	return {engine, events, commands};
+};
+
+test(
+	'breakpoints are off while PHP is stopped, by the runtime\'s switches or by command'
+	, async () => {
+		const switched = [];
+
+		const binary = {
+			_phpdbg_enable_breakpoints: () => switched.push('on')
+			, _phpdbg_disable_breakpoints: () => switched.push('off')
+		};
+
+		const direct = await stoppedEngine(binary);
+
+		// Two stops on the logpoint, each logged and continued from, then the end of the run.
+		assert.equal(await direct.engine.resume('continue'), 'finished');
+		assert.deepEqual(switched, ['on', 'off', 'on', 'off', 'on']);
+
+		assert.deepEqual(
+			direct.commands
+			, ['continue', 'ev vrzno_shared', 'continue', 'ev vrzno_shared', 'continue']
+		);
+
+		assert.deepEqual(direct.events.filter(event => event.type === 'log').length, 2);
+
+		// A runtime without the switches is told by command, around each time PHP runs.
+		const told = await stoppedEngine({});
+
+		await told.engine.resume('continue');
+
+		assert.deepEqual(told.commands.slice(0, 5), [
+			'set breaks on'
+			, 'continue'
+			, 'set breaks off'
+			, 'ev vrzno_shared'
+			, 'set breaks on'
+		]);
+	}
+);
+
+test('a pause asked for while a breakpoint decides waits for it, then pauses there', async () => {
+	const binary = {dbgPauseRequested: false};
+	let asked = null;
+
+	const {engine, events, commands} = await stoppedEngine(binary, engine => {
+		engine.pause();
+		asked = binary.dbgPauseRequested;
+	});
+
+	const location = await engine.resume('continue');
+
+	// PHP was not asked to pause inside the log; the log was printed, and the pause is here.
+	assert.equal(asked, false);
+	assert.deepEqual({file: location.file, line: location.line}, {file: '/main.php', line: 2});
+	assert.deepEqual(events.map(event => event.type), ['state', 'log', 'paused']);
+	assert.equal(events.at(-1).reason, 'pause');
+	assert.equal(commands.includes('continue'), true);
+	assert.equal(commands.at(-1), 'ev vrzno_shared');
+	assert.equal(binary.dbgPauseRequested, false);
+
+	// Asked while PHP runs, it is PHP that is told.
+	engine.pause();
+	assert.equal(binary.dbgPauseRequested, true);
+});
+
+test('a command line with other than ASCII in it is given room for its bytes', async () => {
+	const {DebugEngine} = await import('../src/engine.mjs');
+	const {isPhpName} = await import('../src/model.mjs');
+	const engine = new DebugEngine(() => {});
+
+	const lines = [];
+
+	engine.process = new Promise(() => {});
+
+	// Stands in for the runtime: the prompt comes back as soon as a line is given.
+	engine.php = {
+
+		async provideInput(line) {
+			lines.push(line);
+
+			for(const waiter of engine.waiters)
+			{
+				waiter.resolve();
+			}
+		}
+
+		, flush() {}
+	};
+
+	await engine.command('print func caféé');
+	await engine.command('print func 😀');
+	await engine.command('continue');
+
+	// Two bytes more than characters in each name, and as many spaces after it.
+	assert.deepEqual(lines, ['print func caféé  ', 'print func 😀  ', 'continue']);
+
+	// What may be put on that line as a name, and what may not.
+	for(const name of ['total', 'App\\total', '\\App\\Bag', 'café', 'App\\😀', '_x9'])
+	{
+		assert.equal(isPhpName(name), true, name);
+	}
+
+	const refused = [
+		'9x', '', 'twice; continue', 'a b', 'App\\', 'App\\\\total', 'App\\{closure}'
+		, 'class@anonymous\0/main.php:3$0', null
+	];
+
+	for(const name of refused)
+	{
+		assert.equal(isPhpName(name), false, String(name));
+	}
+});
+
 test('an evaluated value keeps its PHP type when the runtime provides debugger API 2', async () => {
 	const {DebugEngine} = await import('../src/engine.mjs');
 
@@ -673,6 +1002,8 @@ test(
 			, get: (target, key) => key === 'open' || key === keys[3] ? stored[key] : undefined
 		});
 
+		const evaluations = [];
+
 		const list = async api => {
 			const engine = new DebugEngine(() => {});
 
@@ -684,14 +1015,29 @@ test(
 				? 'string'
 				: key === keys[0] ? 'float' : 'int';
 
+			// As the runtime does: a child is described where it is, by its key, but its value is
+			// looked for on the parent as JavaScript sees it, where a mangled key finds nothing.
+			// The values PHP hands back in a list are described by their place in it.
 			engine.php = {
-				describeChild: async (parent, key) => ({
-					type: type(key)
+				switchFrame: async () => 0
+				, describeChild: async (parent, key) => ({
+					type: type(parent === job ? key : keys[key])
 					, className: null
 					, count: null
 					, reference: false
-					, value: stored[key]
+					, value: parent[key]
 				})
+			};
+
+			// Stands in for PHP: asked for the object the engine holds, cast to an array, it
+			// answers the keys the properties are stored by and their values.
+
+			engine.writeFile = (path, content) => {
+				evaluations.push([content, engine.subject === job]);
+			};
+
+			engine.command = async () => {
+				engine.captured = {value: {0: true, 1: [keys, keys.map(key => stored[key])]}};
 			};
 
 			const parent = engine.describe(
@@ -716,6 +1062,14 @@ test(
 			, ['odd\0named\0key', 'public', '9', true]
 			, ['hidden', 'private', '2', false]
 		]);
+
+		// The three the runtime gave no value for were read in one evaluation, of the object
+		// the engine holds and not of the expression it came from.
+		assert.deepEqual(evaluations, [[
+			'return ((static fn($held) => [array_keys($held), array_values($held)])((array) \n'
+				+ 'vrzno_shared(\'__phpDebugger\')->subject()\n));'
+			, true
+		]]);
 
 		// An older runtime cannot read a property by its mangled name, so only public ones are
 		// shown.

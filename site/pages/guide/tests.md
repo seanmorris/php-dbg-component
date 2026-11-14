@@ -20,7 +20,7 @@ jsonld:
 
 # Run PHP tests
 
-A controller runs PHP without mounting anything. In test mode it skips breakpoints and resolves to the output, the exit code and whether your expectations held:
+A controller runs PHP without mounting anything. In test mode it skips breakpoints, other than logpoints, and resolves to the output, the exit code and whether your expectations held:
 
 ```javascript
 import {PhpDebugger} from 'php-dbg-component';
@@ -54,6 +54,52 @@ That code, run here:
 
 `result.test.status` is `passed`, `failed`, or `unchecked` when there was nothing to check. `result.test.failures` lists what did not match.
 
+## Logpoints
+
+A logpoint is a breakpoint with a `log`: a PHP expression whose value is printed each time execution reaches the line, without pausing. A test run keeps its logpoints, so it can check values in the middle of the program without changing the code. A string is logged as it is; anything else as `var_export()` writes it. Add a `condition` to log only when it is true.
+
+Here one logpoint reports each price over 5 as the loop reaches it, and another reports the total as the function returns. Nothing pauses, and the test checks both the output and what was logged:
+
+```javascript
+const code = `<?php
+function total(array $prices): int {
+    $total = 0;
+    foreach ($prices as $name => $price) {
+        $total += $price;  // line 5
+    }
+    return $total;         // line 7
+}
+echo total(['pen' => 2, 'notebook' => 8, 'backpack' => 30]);`;
+
+const test = new PhpDebugger({
+  runtimeBaseUrl: './runtime/',
+  code,
+  breakpoints: [
+    // Each time round the loop, for prices over 5.
+    {line: 5, log: '"$name costs $price"', condition: '$price > 5'},
+    // Once, as the function returns.
+    {line: 7, log: '"total: $total"'}
+  ]
+});
+
+const result = await test.run({
+  mode: 'test',
+  expect: {
+    stdout: '40',
+    logs: ['notebook costs 8', 'backpack costs 30', 'total: 40']
+  }
+});
+
+console.log(result.logs.map(entry => `line ${entry.line}: ${entry.message}`));
+// ["line 5: notebook costs 8", "line 5: backpack costs 30", "line 7: total: 40"]
+```
+
+That code, run here:
+
+<div class="try-result"><button id="run-logpoints" type="button" class="btn">Run with a logpoint</button><output id="logpoints-result" aria-live="polite">Not run</output></div>
+
+`expect.logs` takes one string or regular expression for each message, in order. A log whose expression fails, or whose condition does, logs the reason with `error: true`.
+
 ## The result
 
 `run()` resolves to:
@@ -64,6 +110,7 @@ That code, run here:
   status,       // "completed", "cancelled", "timed-out" or "error"
   exitCode,
   stdout, stderr,
+  logs,         // what logpoints printed: {file, line, message}
   diagnostics,  // PHP errors and uncaught exceptions
   durationMs,
   test          // {status, failures}

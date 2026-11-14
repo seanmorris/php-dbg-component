@@ -1,8 +1,9 @@
 <?php
 
 /**
- * The landing page. The Markdown supplies wide bands; nothing is confined to
- * the reading measure, because the product itself is shown at working size.
+ * The landing page. The hero, from the page's `hero` field, spans the page:
+ * the debugger is shown at working size, with what to try under it. The body
+ * follows in the documentation pages' frame, beside the same contents.
  */
 
 ?><!DOCTYPE html>
@@ -13,8 +14,18 @@
 <body class="home">
 <?php include resolveTemplateInclude('templates/masthead.php'); ?>
 
-	<main id="content" class="wrap landing">
-		$body$
+	<main id="content" class="landing">
+		<div class="wrap hero">
+			$hero$
+		</div>
+		<div class="wrap frame">
+<?php include resolveTemplateInclude('templates/contents.php'); ?>
+			<div class="sheet">
+				<article class="prose">
+					$body$
+				</article>
+			</div>
+		</div>
 	</main>
 
 <?php include resolveTemplateInclude('templates/colophon.php'); ?>

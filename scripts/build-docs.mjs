@@ -77,6 +77,7 @@ await build(
 		stdin: {contents: codemirror5, resolveDir: root}
 		, bundle: true
 		, format: 'iife'
+		, minify: true
 		, outfile: path.join(editors, 'codemirror5.js')
 	}
 );
@@ -97,6 +98,7 @@ await build(
 		stdin: {contents: codemirror6, resolveDir: root}
 		, bundle: true
 		, format: 'esm'
+		, minify: true
 		, outfile: path.join(editors, 'codemirror6.mjs')
 	}
 );

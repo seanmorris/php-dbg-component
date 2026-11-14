@@ -5,15 +5,23 @@ import {
 	, phpClassLabel
 	, phpPropertyName
 	, evaluationError
+
+	, isPhpName
+	, parseOpcodes
+	, parseOpline
+	, plainLine
+	, arrivesAt
 } from './model.mjs';
 
-// What evaluate() runs in the paused frame. The inner eval() compiles and runs the expression
-// in that frame too, so a syntax error or an uncaught exception arrives in this catch block.
-// Left to phpdbg, either one is reported as the script's own fatal error, and a run that then
-// ends normally exits with 255.
-const evaluationRunner = `try
+/**
+ * What an "ev" command runs for the expression in a file of /.php-debugger, in the paused frame.
+ * The inner eval() compiles and runs the expression in that frame too, so a syntax error or an
+ * uncaught exception arrives in this catch block. Left to phpdbg, either one is reported as the
+ * script's own fatal error, and a run that then ends normally exits with 255.
+ */
+const runner = name => `try
 {
-	return [true, eval(file_get_contents('/.php-debugger/eval.php'))];
+	return [true, eval(file_get_contents('/.php-debugger/${name}.php'))];
 }
 catch(\\Throwable $__phpDebuggerError)
 {
@@ -28,6 +36,52 @@ finally
 {
 	unset($__phpDebuggerError);
 }`;
+
+// The runner for each file an expression is put in: the one evaluate() uses, and those for a
+// breakpoint's condition and its log.
+const runners = {run: 'eval', 'run-condition': 'condition', 'run-log': 'log'};
+
+/** The PHP that runs a runner and is its answer. */
+const answer = name => `eval(file_get_contents('/.php-debugger/${name}.php'))`;
+
+/** The PHP that hands a value to the debugger, through its `capture` or its `decide`. */
+const handed = (method, php) => `vrzno_shared('__phpDebugger')->${method}(${php})`;
+
+// What a logpoint's expression is wrapped in: a string is logged as it is, anything else as
+// var_export() writes it.
+const logged = '(static fn($value) => is_string($value) ? $value : var_export($value, true))(';
+
+/**
+ * A value that is not text as PHP writes it: INF, -INF and NAN are its words for what JavaScript
+ * calls Infinity and NaN, and they are what an edit can hand back.
+ */
+const phpNumber = value => typeof value !== 'number' || Number.isFinite(value)
+	? String(value)
+	: Number.isNaN(value) ? 'NAN' : value < 0 ? '-INF' : 'INF';
+
+/**
+ * Call back in a task of its own, as soon as one can start. A timer of no delay is not that: a
+ * browser holds it back four milliseconds once timers nest, as they do from one command to the
+ * next, and a step can be made of hundreds of commands.
+ */
+const soon = callback => {
+	if(typeof MessageChannel !== 'function')
+	{
+		setTimeout(callback, 0);
+
+		return;
+	}
+
+	const {port1, port2} = new MessageChannel();
+
+	/** An open port would keep a process that is not a browser's alive. */
+	port1.onmessage = () => {
+		port1.close();
+		callback();
+	};
+
+	port2.postMessage(null);
+};
 
 /** What the inspector lists for a child it could not read. */
 const unavailable = (name, error) => ({
@@ -55,6 +109,7 @@ export class DebugEngine
 
 		this.paused = false;
 		this.closed = false;
+		this.deciding = false;
 
 		this.sessionId = crypto.randomUUID();
 		this.serial = Promise.resolve();
@@ -76,7 +131,20 @@ export class DebugEngine
 		const failed = deferred();
 		const shared = {
 			...(options.runtimeArgs?.shared || {})
-			, __phpDebugger: {capture: value => {this.captured = {value};}}
+			, __phpDebugger: {
+				capture: value => {this.captured = {value};}
+
+				// A condition's answer, [true, bool] when PHP could evaluate it. PHP goes on to the
+				// log only when this says the condition held.
+				, decide: value => {
+					this.decided = {value};
+
+					return value[0] === true && value[1] === true;
+				}
+
+				// The object whose hidden properties are being read: see unveiled().
+				, subject: () => this.subject
+			}
 		};
 
 		const args = {
@@ -135,23 +203,24 @@ export class DebugEngine
 			: 1;
 
 		this.binary.FS.mkdir('/.php-debugger');
-		this.writeFile('/.php-debugger/run.php', evaluationRunner);
+
+		for(const [file, expression] of Object.entries(runners))
+		{
+			this.writeFile(`/.php-debugger/${file}.php`, runner(expression));
+		}
 
 		this.php.addEventListener('stdin-request', () => {
 			// The native async call must unwind before reading its state.
-			setTimeout(
-				() => {
-					this.sequence++;
+			soon(() => {
+				this.sequence++;
 
-					for(const waiter of this.waiters)
-					{
-						waiter.resolve();
-					}
-
-					this.waiters.clear();
+				for(const waiter of this.waiters)
+				{
+					waiter.resolve();
 				}
-				, 0
-			);
+
+				this.waiters.clear();
+			});
 		});
 
 		const prompt = this.waitPrompt();
@@ -200,6 +269,26 @@ export class DebugEngine
 		}
 
 		const text = stream.decoder.decode(bytes, {stream: true});
+
+		// A print command's lines are its answer, not chatter; each arrives whole.
+		if(this.printing && !evaluating && [0, 3].includes(type))
+		{
+			(type === 3 ? this.printErrors : this.printing).push(type === 3 ? text : text + '\n');
+
+			return;
+		}
+
+		if(type === 0 && !evaluating)
+		{
+			this.heard?.push(text);
+		}
+
+		// A step on its way stops at breakpoints nobody set, perhaps thousands of times. What
+		// phpdbg says of each is not for the console.
+		if(type === 0 && !evaluating && this.seek)
+		{
+			return;
+		}
 
 		if(type === 3 && text)
 		{
@@ -254,7 +343,13 @@ export class DebugEngine
 		}
 
 		const prompt = this.waitPrompt();
-		await this.php.provideInput(line);
+
+		// The runtime makes room for as many bytes as the line has characters and cuts what is
+		// over, so a name in other than ASCII lost its end: "caféé" was read as "café". Spaces
+		// after the line make the room.
+		const over = new TextEncoder().encode(line).length - line.length;
+
+		await this.php.provideInput(line + ' '.repeat(over));
 		await Promise.race([prompt, this.process]);
 		this.php.flush();
 	}
@@ -264,6 +359,10 @@ export class DebugEngine
 		this.config = config;
 		this.diagnostics = [];
 		this.exception = null;
+
+		// What is known of each logpoint's line, by its place: see arrived().
+		this.arrivals = new Map();
+		this.seek = null;
 
 		for(const [path, content] of Object.entries(config.files || {}))
 		{
@@ -284,21 +383,354 @@ export class DebugEngine
 		return this.resume('run');
 	}
 
-	async breakpoints(breakpoints)
+	/**
+	 * Give phpdbg the breakpoints to stop at. `quiet` is for putting them back after a step's
+	 * temporary ones: what phpdbg says about it then is not for the console.
+	 */
+	async breakpoints(breakpoints, quiet = false)
 	{
-		this.installedBreakpoints = breakpoints;
-		await this.command('clear');
 
-		// A test run ignores breakpoints.
-		const enabled = this.config?.mode === 'test' ? [] : breakpoints.filter(bp => bp.enabled);
+		/** Give phpdbg one command. */
+		const tell = line => quiet ? this.quietly(line) : this.command(line);
+
+		// What was asked for, to put back when a step's temporary breakpoints go.
+		this.given = breakpoints;
+		await tell('clear');
+
+		// A test run never pauses, so of its breakpoints only those that log are kept.
+		const enabled = breakpoints.filter(
+			bp => bp.enabled && (this.config?.mode !== 'test' || bp.log)
+		);
+
+		this.installedBreakpoints = enabled;
 
 		for(const bp of enabled)
 		{
-			await this.command(`break ${bp.file}:${bp.line}`);
+			await tell(`break ${bp.file}:${bp.line}`);
 		}
 	}
 
+	/** Give phpdbg a command whose answer, an error included, is nobody's business. */
+	async quietly(line)
+	{
+		await this.printed(line).catch(() => {});
+	}
+
 	invalidate() {this.epoch++; this.references.clear();}
+
+	/**
+	 * Switch phpdbg's breakpoints on for PHP to run and off while it is stopped, so that nothing
+	 * the debugger evaluates or reads there, a function a condition calls or a magic method a
+	 * value has, stops at one. The runtime exports the two switches; one without them is told by
+	 * command.
+	 */
+	async arm(on)
+	{
+		const direct = on ? '_phpdbg_enable_breakpoints' : '_phpdbg_disable_breakpoints';
+
+		if(typeof this.binary?.[direct] === 'function')
+		{
+			this.binary[direct]();
+
+			return;
+		}
+
+		await this.command(`set breaks ${on ? 'on' : 'off'}`);
+	}
+
+	/**
+	 * Let PHP run, by a phpdbg command, until it next stops or ends. "leave" given where a
+	 * function already returns runs nothing, and phpdbg says so; `unmoved` remembers it.
+	 */
+	async go(command)
+	{
+		await this.arm(true);
+		this.heard = [];
+		await this.command(command);
+		this.unmoved = this.heard.some(text => text.includes('Already at the end of the function'));
+		this.heard = null;
+	}
+
+	/**
+	 * Start what a resume asks for. phpdbg's own "next", "finish" and "until" do not stop where
+	 * their names say: "next" stops inside a call the line makes, and the other two run on past
+	 * the caller or the next line, to the next breakpoint or the end. Step over, Until and Step
+	 * out are therefore made here, of a step and of temporary breakpoints PHP runs on to.
+	 */
+	async begin(command, from)
+	{
+		const steps = {next: 'over', until: 'until', finish: 'out'};
+
+		return steps[command] ? this[steps[command]](from) : this.go(command);
+	}
+
+	/** Whether PHP has stopped of its own accord: not ended, thrown or been asked to pause. */
+	async goes()
+	{
+		return await this.php.isRunning() && !this.exception && !this.pauseRequested;
+	}
+
+	/**
+	 * Step over the line of a frame; `from` is where that is. A step is all it takes unless the
+	 * line makes a call, where phpdbg stops at the call's first line. From there resume() runs
+	 * PHP on to another line of the frame the step began in, unless that first line has a
+	 * breakpoint of its own to meet.
+	 */
+	async over(from)
+	{
+		await this.go('step');
+
+		// Where the stack cannot be measured, the step is left where phpdbg put it.
+		if(await this.goes() && await this.depth() > (from.depth ?? Infinity))
+		{
+			await this.seekFrom(from, 'over');
+		}
+	}
+
+	/**
+	 * Until: a step, unless that lands back on the line or on an earlier one, as at the end of a
+	 * loop, or inside a call. From there resume() runs PHP on to a later line of the frame, as
+	 * it does for Step over.
+	 */
+	async until(from)
+	{
+		await this.go('step');
+
+		const landed = await this.goes()
+			&& !this.ended({kind: 'until', from}, await this.php.currentLine(), await this.depth());
+
+		if(landed)
+		{
+			await this.seekFrom(from, 'until');
+		}
+	}
+
+	/**
+	 * Step out: PHP runs on to a line of the caller. The main script has no caller and runs on
+	 * as Continue does.
+	 *
+	 * A line breakpoint is met only when the line's number changes, so it cannot see a function
+	 * return onto a line with the number of the line it returned from, as a function that calls
+	 * itself does. There, and where the caller cannot be listed, the return is taken exactly.
+	 */
+	async out(from)
+	{
+		if(from.depth === 1)
+		{
+			return this.go('continue');
+		}
+
+		const own = from.depth === null ? null : await this.listed(0);
+		const [, caller] = await this.frames().catch(() => []);
+		const unseen = !own || (!own.generator && own.returns.includes(caller?.lineNo));
+
+		if(unseen || !await this.seekFrom(from, 'out'))
+		{
+			return this.returnExactly();
+		}
+
+		// PHP has not moved yet, and the breakpoint it may be standing on has been met.
+		await this.go('continue');
+	}
+
+	/**
+	 * Run to where the function returns, by phpdbg's "leave", and one op further, which is the
+	 * caller's, where it made the call. phpdbg passes breakpoints, and a pause, on the way.
+	 */
+	async returnExactly()
+	{
+		await this.go('leave');
+
+		if(await this.goes())
+		{
+			await this.command('set stepping opcode');
+			await this.go('step');
+			await this.command('set stepping line');
+		}
+	}
+
+	/**
+	 * Arrange where a step ends, and answer whether that could be done. Temporary breakpoints
+	 * go on the lines it may end on: the other lines of the function the step began in, the
+	 * later ones for Until, and the lines of that function's caller, where execution comes out
+	 * when the function returns first; for Step out, the caller's alone. resume() runs PHP on,
+	 * stops it at the first of them the step's own frame reaches, and takes them away again.
+	 *
+	 * PHP then runs as it does for Continue: at full speed, stopping at breakpoints inside the
+	 * calls it passes, and open to a pause.
+	 */
+	async seekFrom(from, kind)
+	{
+		// How far down the stack the frame the step began in is by now.
+		const depth = await this.depth();
+		const below = depth - from.depth;
+		const own = kind === 'out' ? null : await this.listed(below);
+		const caller = await this.listed(below + 1);
+
+		if(!(kind === 'out' ? caller : own))
+		{
+			return false;
+		}
+
+		// Further out, the caller's caller and the outermost frame: where a return was not seen,
+		// the step ends on the next line reached there, and never runs away.
+		const further = [];
+
+		for(const frame of new Set([below + 2, depth - 1]))
+		{
+			further.push(frame > below + 1 ? await this.listed(frame) : null);
+		}
+
+		/** Whether a line of the step's own function is one it may end on. */
+		const ends = line => kind === 'until' ? line > from.line : line !== from.line;
+
+		const lines = new Set([
+			...own ? own.lines.filter(ends).map(line => `${own.file}:${line}`) : []
+			, ...[caller, ...further].flatMap(
+				listed => listed ? listed.lines.map(line => `${listed.file}:${line}`) : []
+			)
+		]);
+
+		// The function called again, deeper, is run to where it returns: phpdbg's "leave", which
+		// passes breakpoints, so only where there are none to pass. Not a generator either,
+		// whose first frame is gone before it returns.
+		const swift = !(own ?? caller).generator && !this.installedBreakpoints.length;
+
+		this.seek = {kind, from, lines, swift};
+
+		for(const place of lines)
+		{
+			const [file, line] = place.split(/:(?=\d+$)/);
+
+			// A line with a breakpoint of its own stops PHP already.
+			if(!this.installedBreakpoints.some(bp => bp.file === file && bp.line === Number(line)))
+			{
+				await this.quietly(`break ${place}`);
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * The function a frame is in, from its listing, as outline() has it. Null where there is no
+	 * such frame or nothing to list, or its file is not one a breakpoint can name.
+	 */
+	async listed(frame)
+	{
+		const there = !frame || await this.php.switchFrame(frame) >= 0;
+
+		const [listed] = there
+			? await this.printed('print stack').then(parseOpcodes, () => [])
+			: [];
+
+		if(frame)
+		{
+			await this.php.switchFrame(0);
+		}
+
+		return listed?.file && !/[\s:]/.test(listed.file) ? this.outline(listed) : null;
+	}
+
+	/**
+	 * What a step needs of a listed function: its file, the lines its ops are on, the lines it
+	 * returns from, and whether it is a generator.
+	 */
+	outline({file, ops})
+	{
+		const lines = [...new Set(ops.map(op => op.line))];
+
+		// PHP 8.0 writes a number after some opcodes: "RETURN<-1>".
+		const returns = ops.filter(op => /^(?:GENERATOR_)?RETURN\b/.test(op.opcode)).map(
+			op => op.line
+		);
+
+		const generator = ops.some(op => op.opcode === 'GENERATOR_CREATE');
+
+		return {file, lines, returns, generator};
+	}
+
+	/** Whether a step PHP is running on for ends where PHP has stopped. */
+	ended({kind, from}, line, depth)
+	{
+		// Where the stack cannot be measured, wherever PHP stopped is where the step ends.
+		if(depth === null || depth < from.depth)
+		{
+			return true;
+		}
+
+		if(kind === 'out' || depth > from.depth)
+		{
+			return false;
+		}
+
+		return kind === 'until' ? line > from.line : line !== from.line;
+	}
+
+	/**
+	 * Carry on from a stop that is not a pause. `again` says a step's temporary breakpoint was
+	 * met deeper than the step began: its function has been called again. Where no breakpoint
+	 * could be passed by it, that call is run to where it returns first; otherwise each of its
+	 * lines is a stop of its own, to carry on from.
+	 */
+	async onward(again)
+	{
+		if(again && this.seek.swift)
+		{
+			await this.go('leave');
+
+			if(!await this.goes())
+			{
+				return;
+			}
+		}
+
+		await this.go('continue');
+	}
+
+	/** Take a step's temporary breakpoints away, once it has ended or been stopped. */
+	async settle()
+	{
+		const seek = this.seek;
+
+		this.seek = null;
+
+		if(seek)
+		{
+			await this.breakpoints(this.given, true);
+		}
+	}
+
+	/**
+	 * How deep the stack is, in frames of the program's own. The runtime is asked whether there
+	 * is a frame of each number in turn. Its list of frames is not used: an older runtime's can
+	 * fail with a function of PHP's own on the stack, as when array_map() calls back.
+	 */
+	async depth()
+	{
+		let depth = 1;
+
+		while(depth < 4096 && await this.php.switchFrame(depth) >= 0)
+		{
+			depth++;
+		}
+
+		await this.php.switchFrame(0);
+
+		return depth;
+	}
+
+	/**
+	 * Where execution paused, for a step: its file and line, and how deep the stack is. The
+	 * place is the one the pause was reported at; the runtime's own answer is the evaluation's
+	 * once anything has been evaluated there.
+	 */
+	async place()
+	{
+		const {file, line} = this.stopped;
+
+		return {file, line, depth: await this.depth()};
+	}
 
 	async resume(command = 'continue')
 	{
@@ -313,37 +745,243 @@ export class DebugEngine
 		this.exception = null;
 		await this.php.switchFrame(0);
 		this.emit({type: 'state', state: 'running'});
-		await this.command(command);
+
+		// Run and Continue stop at breakpoints; a step stops where it lands.
+		const continues = ['run', 'continue'].includes(command);
+		const from = ['next', 'until', 'finish'].includes(command) ? await this.place() : null;
+
+		await this.begin(command, from);
 
 		while(await this.php.isRunning())
 		{
-			if(this.config.mode === 'test' && !this.pauseRequested)
+			await this.arm(false);
+
+			// A command that ran nothing leaves PHP where the last pause was, and the runtime's
+			// answer for where that is may be an evaluation's.
+			const unmoved = this.unmoved;
+			const file = unmoved ? this.stopped.file : await this.php.currentFile();
+			const line = unmoved ? this.stopped.line : await this.php.currentLine();
+			const interrupted = this.pauseRequested || this.exception;
+			const depth = this.seek && !interrupted ? await this.depth() : null;
+
+			// A step PHP is running on for, not yet where it ends. It meets a breakpoint as
+			// Continue does, but for the line it is stepping over, which is reached again as
+			// each call made on it returns.
+			const seeking = !!this.seek && !interrupted && !this.ended(this.seek, line, depth);
+			const own = seeking && this.seek.kind === 'over' && depth === this.seek.from.depth;
+
+			// The breakpoint on this line, unless execution stopped here for another reason.
+			const reached = interrupted || unmoved || own
+				? null
+				: this.installedBreakpoints?.find(bp => bp.file === file && bp.line === line);
+
+			const meets = continues || seeking;
+
+			// A breakpoint says whether execution pauses at it; without one, only a step still
+			// on its way goes on. A test run never pauses. A pause asked for while a breakpoint
+			// was deciding is answered here.
+			const passes = (reached ? !await this.reach(reached, meets) : seeking)
+				|| this.config.mode === 'test';
+
+			if(passes && !this.pauseRequested)
 			{
-				await this.command('continue');
+				const again = seeking && !reached && depth > this.seek.from.depth
+					&& this.seek.lines.has(`${file}:${line}`);
+
+				await this.onward(again);
+
 				continue;
 			}
 
+			await this.settle();
+
 			this.paused = true;
-			const location = {
-				file: await this.php.currentFile()
-				, line: await this.php.currentLine()
-				, frame: 0
-				, pauseId: this.epoch
-			};
+			const location = this.stopped = {file, line, frame: 0, pauseId: this.epoch};
 
 			const reason = this.pauseRequested
 				? 'pause'
 				: this.exception
 					? 'exception'
-					: command === 'continue' || command === 'run' ? 'breakpoint' : 'step';
+					: meets ? 'breakpoint' : 'step';
 
+			// The pause asked for is this one, whatever stopped PHP here.
 			this.pauseRequested = false;
+			this.binary.dbgPauseRequested = false;
 			this.emit({type: 'paused', reason, location});
 
 			return location;
 		}
 
+		this.seek = null;
+
 		return this.finish();
+	}
+
+	/**
+	 * Execution has stopped on a breakpoint's line, by Run or Continue or by a step. Answers
+	 * whether it pauses there on the breakpoint's account.
+	 *
+	 * A condition must be true for anything to happen; then a log prints its value and execution
+	 * goes on, and a breakpoint without one pauses. A step pauses where it lands whatever the
+	 * breakpoint says, after any log.
+	 *
+	 * A line a call was made on is reached again, as phpdbg sees it, when the call returns. A
+	 * breakpoint is for arriving at its line: it does not pause, ask its condition or print its
+	 * log a second time there.
+	 *
+	 * A condition PHP cannot evaluate pauses, with the reason in the console, so the mistake is
+	 * seen; in a test run, which never pauses, the reason is logged instead.
+	 */
+	async reach(bp, continues)
+	{
+		// A step has only the line's log to print.
+		if(!continues && !bp.log)
+		{
+			return true;
+		}
+
+		const where = {file: bp.file, line: bp.line};
+
+		this.deciding = true;
+
+		try
+		{
+			// Back on the line and not arrived at it, the breakpoint is passed; a step still
+			// pauses, where it landed.
+			if(!await this.arrived(bp))
+			{
+				return !continues;
+			}
+
+			if(!bp.condition && !bp.log)
+			{
+				return true;
+			}
+
+			const {met, message, failed} = await this.decide(bp);
+
+			if(failed === 'condition')
+			{
+				const reason = `The condition at ${bp.file}:${bp.line} failed: ${message}`;
+
+				if(this.config.mode === 'test')
+				{
+					this.emit({type: 'log', ...where, message: reason, error: true});
+
+					return false;
+				}
+
+				this.emit({type: 'output', channel: 'debug', kind: 'error', text: `${reason}\n`});
+
+				return true;
+			}
+
+			if(met && bp.log)
+			{
+				this.emit({type: 'log', ...where, message, ...failed && {error: true}});
+			}
+
+			// Met and with nothing to log, it is a breakpoint to pause at.
+			return met && !bp.log || !continues;
+		}
+		finally
+		{
+			this.deciding = false;
+		}
+	}
+
+	/**
+	 * Whether execution has arrived at a breakpoint's line, and is not merely back on it. phpdbg
+	 * reports a line reached whenever execution comes to it from another: also when a call made
+	 * on it returns, and when a statement written over several lines comes round to a line of
+	 * its own again. The op execution stands on tells the two apart.
+	 *
+	 * The function is listed once for each breakpoint. A line it can only arrive at is not asked
+	 * about again, so a breakpoint on one costs no command more.
+	 *
+	 * Where it cannot be told, the answer is that execution arrived: a pause too many is seen,
+	 * and one too few is not.
+	 */
+	async arrived(bp)
+	{
+		const place = `${bp.file}:${bp.line}`;
+
+		if(!this.arrivals.has(place))
+		{
+			const [listed] = await this.printed('print stack').then(parseOpcodes, () => []);
+
+			this.arrivals.set(place, listed && !plainLine(listed.ops, bp.line) ? listed : null);
+		}
+
+		const listed = this.arrivals.get(place);
+
+		if(!listed)
+		{
+			return true;
+		}
+
+		const at = parseOpline(await this.printed('print opline').catch(() => ''), [listed]);
+
+		// An op that is not this function's, on this line, is another function's on the same
+		// line, as an arrow function's is: what is known of this one says nothing of it.
+		return listed.ops[at?.index]?.line !== bp.line || arrivesAt(listed.ops, at.index);
+	}
+
+	/**
+	 * Evaluate a breakpoint's condition and, when it holds, its log, in one command, in the frame
+	 * that reached the line. Answers {met, message, failed}: `failed` is the part PHP could not
+	 * evaluate, "condition" or "log", and `message` is then the reason.
+	 */
+	async decide(bp)
+	{
+		// Each is put where its runner reads it. One of nothing but a semicolon is not left
+		// out, as if the breakpoint had none: it is said to be empty.
+		const empty = 'The expression is empty';
+
+		const [condition, log] = [['condition', '(bool) ('], ['log', logged]].map(
+			([part, before]) => bp[part] ? this.stage(part, before, bp[part], ')').trim() : ''
+		);
+
+		if(bp.condition && !condition)
+		{
+			return {met: false, failed: 'condition', message: empty};
+		}
+
+		const logs = log ? answer('run-log') : 'null';
+
+		const {captured, decided, errors} = await this.ev(
+			bp.condition ? `${handed('decide', answer('run-condition'))} ? ${logs} : null` : logs
+		);
+
+		/** Why PHP could not evaluate an expression: what its runner answered, if it did. */
+		const reason = (expression, answered) => answered
+			? evaluationError(expression, answered[1], answered[2], answered[3])
+			: errors || 'PHP expression evaluation failed';
+
+		if(bp.condition && decided?.[0] !== true)
+		{
+			return {met: false, failed: 'condition', message: reason(condition, decided)};
+		}
+
+		if(bp.condition && decided[1] !== true)
+		{
+			return {met: false};
+		}
+
+		if(!bp.log)
+		{
+			return {met: true};
+		}
+
+		if(!log)
+		{
+			return {met: true, failed: 'log', message: empty};
+		}
+
+		// The log's own answer, [true, message]; anything else is why there is none.
+		return captured?.[0] === true
+			? {met: true, message: captured[1]}
+			: {met: true, failed: 'log', message: reason(log, captured)};
 	}
 
 	async finish(compilationExitCode)
@@ -387,7 +1025,13 @@ export class DebugEngine
 		}
 
 		this.pauseRequested = true;
-		this.binary.dbgPauseRequested = true;
+
+		// PHP stopped on a breakpoint that is still deciding is not asked: it would stop inside
+		// the condition or the log. resume() pauses there once they are done.
+		if(!this.deciding)
+		{
+			this.binary.dbgPauseRequested = true;
+		}
 	}
 
 	async stop()
@@ -534,7 +1178,13 @@ export class DebugEngine
 			return value.toFixed(1);
 		}
 
-		return type === 'null' ? 'null' : String(value);
+		// What a resource is cannot be shown, only that it is one.
+		if(type === 'resource')
+		{
+			return 'resource';
+		}
+
+		return type === 'null' ? 'null' : phpNumber(value);
 	}
 
 	symbolExpression(scope, name)
@@ -556,7 +1206,10 @@ export class DebugEngine
 		const identity = this.identity(value);
 
 		const circular = identity !== null && ancestors.includes(identity);
-		const expandable = value !== null && typeof value === 'object' && !circular;
+
+		// A resource has nothing inside to list, and no PHP that would write it again.
+		const opaque = type === 'resource';
+		const expandable = value !== null && typeof value === 'object' && !circular && !opaque;
 		const reference = `${this.sessionId}:${this.epoch}:${++this.nextReference}`;
 
 		this.references.set(
@@ -572,9 +1225,11 @@ export class DebugEngine
 			, circular
 
 			// A function stands for a callable PHP value, which can be neither shown nor assigned.
-			, writable: !!expression && writable && typeof value !== 'function'
+			, writable: !!expression && writable && typeof value !== 'function' && !opaque
 			, ...(info && {className: info.className, count: info.count})
-			, value: expandable || circular || typeof value === 'function' ? undefined : value
+			, value: expandable || circular || opaque || typeof value === 'function'
+				? undefined
+				: value
 			, displayValue: this.text(value, type, {unset, circular, expandable, info})
 		};
 	}
@@ -602,7 +1257,7 @@ export class DebugEngine
 			return type === 'array' ? 'Array' : 'Object';
 		}
 
-		return typeof value === 'string' ? JSON.stringify(value) : String(value);
+		return typeof value === 'string' ? JSON.stringify(value) : phpNumber(value);
 	}
 
 	async inspect(scope = 'variables', options = {})
@@ -708,6 +1363,9 @@ export class DebugEngine
 
 		const values = [];
 
+		// The object's private and protected properties, read once if any is asked for.
+		let hidden = null;
+
 		for(const key of names.slice(offset, offset + limit))
 		{
 			// Only a property name is mangled. An array key is shown whole, NUL bytes included.
@@ -723,16 +1381,26 @@ export class DebugEngine
 			{
 				// Asking by key keeps the child's own PHP type; a float of 3.0 is just the number 3
 				// once converted.
-				const info = this.dbgApi >= 2
+				const described = this.dbgApi >= 2
 					? await this.php.describeChild(parent.value, key)
 					: null;
 
+				// A runtime describes a private or protected property, but may look for its value
+				// on the object as JavaScript sees it, where it is not.
+				const withheld = described?.value === undefined
+					&& !['undefined', 'null'].includes(described?.type ?? 'null')
+					&& (visibility ?? 'public') !== 'public';
+
+				hidden ??= withheld ? await this.unveiled(parent.value) : null;
+
+				const info = withheld ? await hidden(key) : described;
+
 				// An expression evaluated from outside the class cannot assign a private or
-				// protected property.
+				// protected property, nor reach what is inside one.
 				const value = this.describe(
 					name
 					, info ? info.value : parent.value[key]
-					, expression
+					, withheld ? null : expression
 					, parent.writable && (visibility ?? 'public') === 'public'
 					, parent.frame
 					, parent.ancestors
@@ -748,6 +1416,113 @@ export class DebugEngine
 		}
 
 		return {values, total: names.length, offset};
+	}
+
+	/**
+	 * An object's private and protected properties, which the runtime describes without their
+	 * values. PHP is handed the object the debugger already holds and casts it to an array,
+	 * where every property stands under the key PHP stores it by, whatever class it is hidden
+	 * in. Nothing of the program is evaluated again, and a built-in class's properties are read
+	 * like any other's.
+	 *
+	 * Answers a function from such a key to the runtime's description of the property, value
+	 * included.
+	 */
+	async unveiled(object)
+	{
+		this.subject = object;
+
+		try
+		{
+			const {captured} = await this.evaluated(
+				'(static fn($held) => [array_keys($held), array_values($held)])((array) '
+				, handed('subject', '')
+				, ')'
+			);
+
+			const [keys, held] = [captured[1][0], captured[1][1]];
+			const places = new Map(Object.keys(keys).map(at => [keys[at], at]));
+
+			return async key => {
+				if(!places.has(key))
+				{
+					throw new Error('This property could not be read');
+				}
+
+				return this.php.describeChild(held, places.get(key));
+			};
+		}
+		finally
+		{
+			this.subject = null;
+		}
+	}
+
+	/**
+	 * The ops phpdbg's print command lists. With no target, the selected frame's function, and
+	 * `current` is the op that frame stands on; or the main script, a function or a class.
+	 */
+	async opcodes(target = {})
+	{
+		this.assertPaused();
+
+		const name = target.function ?? target.class;
+
+		// A name reaches the phpdbg command line, so it must be a PHP name and nothing more.
+		if(name !== undefined && !isPhpName(name))
+		{
+			throw new TypeError(`Not a PHP function or class name: ${name}`);
+		}
+
+		const command = target.function !== undefined
+			? `print func ${name}`
+			: target.class !== undefined
+				? `print class ${name}`
+				: target.script ? 'print exec' : 'print stack';
+
+		const functions = parseOpcodes(await this.printed(command));
+
+		const current = command === 'print stack'
+			? parseOpline(await this.printed('print opline'), functions)
+			: null;
+
+		return {functions, current};
+	}
+
+	/**
+	 * What a print command lists. From PHP 8.1 that is the dump PHP writes to standard error, and
+	 * phpdbg's own lines around it, such as the internal methods it names after a class, are no
+	 * part of it; PHP 8.0's phpdbg writes the listing itself. None of it reaches the console or
+	 * the run's diagnostics; an error is thrown.
+	 */
+	async printed(command)
+	{
+		const own = [];
+		const dumped = [];
+
+		/** Standard error arrives a line at a time. */
+		const listen = event => dumped.push(...event.detail);
+
+		this.printing = own;
+		this.printErrors = [];
+		this.php.addEventListener('error', listen);
+
+		try
+		{
+			await this.command(command);
+		}
+		finally
+		{
+			this.php.removeEventListener('error', listen);
+			this.printing = null;
+		}
+
+		if(this.printErrors.length)
+		{
+			throw new Error(this.printErrors.join('\n'));
+		}
+
+		return (dumped.length ? dumped : own).join('');
 	}
 
 	async evaluate(expression, {frame = this.frame} = {})
@@ -768,57 +1543,90 @@ export class DebugEngine
 	 */
 	async evaluateWithin(before, expression, after, frame)
 	{
-		// "$n + 1;" is what people type; the semicolon is not part of the expression.
-		expression = expression.replace(/;\s*$/, '');
-
 		const previous = this.frame;
+
 		await this.selectFrame(frame);
-		this.captured = null;
-		this.commandErrors = [];
 
 		try
 		{
-			// A file avoids phpdbg's line-length limit and preserves multiline expressions. The
-			// expression has lines to itself, so a comment at its end cannot swallow the closing
-			// parenthesis and a syntax error's line says whether it is in the expression.
-			this.writeFile(
-				'/.php-debugger/eval.php'
-				, `return (${before}\n${expression}\n${after});`
-			);
-
-			await this.command(
-				"ev vrzno_shared('__phpDebugger')->capture("
-				+ "eval(file_get_contents('/.php-debugger/run.php')))"
-			);
-
-			if(!this.captured)
-			{
-				throw new Error(
-					this.commandErrors.map(d => d.message).join('\n')
-					|| 'PHP expression evaluation failed'
-				);
-			}
-
-			// [true, value], or [false, class, message, line of a syntax error].
-			const outcome = this.captured.value;
-
-			if(!outcome[0])
-			{
-				throw new Error(evaluationError(expression, outcome[1], outcome[2], outcome[3]));
-			}
+			const {captured, written} = await this.evaluated(before, expression, after);
 
 			// Read as a plain element, a float of 3.0 arrives as the number 3 and its PHP type is
 			// gone. An API 2 runtime describes the element where it is, as it does any other child.
-			const info = this.dbgApi >= 2 ? await this.php.describeChild(outcome, '1') : null;
-			const value = info ? info.value : outcome[1];
-			const code = `${before}${expression}${after}`;
+			const info = this.dbgApi >= 2 ? await this.php.describeChild(captured, '1') : null;
+			const value = info ? info.value : captured[1];
+			const code = `${before}${written}${after}`;
 
 			return this.describe(code, value, code, true, this.frame, [], info);
 		}
 		finally
 		{
-			this.commandErrors = null;
 			await this.selectFrame(previous);
+		}
+	}
+
+	/**
+	 * Evaluate `before`, the expression and `after` in the selected frame. Answers the runner's
+	 * [true, value] and the expression as it was written; an error is thrown, worded for the
+	 * expression alone.
+	 */
+	async evaluated(before, expression, after)
+	{
+		const written = this.stage('eval', before, expression, after);
+		const {captured, errors} = await this.ev(answer('run'));
+
+		if(!captured)
+		{
+			throw new Error(errors || 'PHP expression evaluation failed');
+		}
+
+		// [true, value], or [false, class, message, line of a syntax error].
+		if(!captured[0])
+		{
+			throw new Error(evaluationError(written, captured[1], captured[2], captured[3]));
+		}
+
+		return {captured, written};
+	}
+
+	/**
+	 * Put an expression in the file a runner reads. A file avoids phpdbg's line-length limit and
+	 * keeps a multiline expression whole. The expression has lines to itself, so a comment at its
+	 * end cannot swallow what closes it and a syntax error's line says whether it is in the
+	 * expression. Answers the expression as it was put there.
+	 */
+	stage(name, before, expression, after)
+	{
+		// "$n + 1;" is what people type; the semicolon is not part of the expression.
+		const written = expression.replace(/;\s*$/, '');
+
+		this.writeFile(`/.php-debugger/${name}.php`, `return (${before}\n${written}\n${after});`);
+
+		return written;
+	}
+
+	/**
+	 * Evaluate PHP by an "ev" command and hand its value to the debugger. Answers what came
+	 * back: `captured`, the value; `decided`, a condition's answer when the PHP asked for one;
+	 * and `errors`, what PHP reported meanwhile.
+	 */
+	async ev(php)
+	{
+		this.captured = null;
+		this.decided = null;
+		this.commandErrors = [];
+
+		try
+		{
+			await this.command(`ev ${handed('capture', php)}`);
+
+			const errors = this.commandErrors.map(d => d.message).join('\n');
+
+			return {captured: this.captured?.value, decided: this.decided?.value, errors};
+		}
+		finally
+		{
+			this.commandErrors = null;
 		}
 	}
 
@@ -873,7 +1681,7 @@ export class DebugEngine
 	{
 		const allowed = [
 			'execute', 'breakpoints', 'resume', 'pause', 'stop', 'inspect'
-			, 'children', 'selectFrame', 'evaluate', 'setVariable'
+			, 'children', 'selectFrame', 'evaluate', 'setVariable', 'opcodes'
 		];
 
 		if(!allowed.includes(method))

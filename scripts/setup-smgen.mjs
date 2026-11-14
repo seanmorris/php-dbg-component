@@ -26,9 +26,18 @@ export async function smgenCommand()
 
 	try
 	{
-		present = git('rev-parse', 'HEAD');
+		// For a directory with no repository of its own, git answers for the one around it,
+		// which here is this project's. Only a checkout that is its own top level is SMGen's.
+		const top = await fs.realpath(git('rev-parse', '--show-toplevel'));
+
+		present = top === await fs.realpath(checkout) ? git('rev-parse', 'HEAD') : '';
 	}
 	catch
+	{
+		// No directory, or a repository with nothing in it yet.
+	}
+
+	if(!present)
 	{
 		await prepare();
 	}

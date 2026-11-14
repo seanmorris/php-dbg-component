@@ -36,7 +36,7 @@ const dbg = new PhpDebugger(options);
 | `version`         | PHP version, `'8.0'` to `'8.5'`. Default `'8.4'`.                                         |
 | `code`            | The PHP to run: a string, or a function returning one (it may be async).                  |
 | `source`          | Instead of `code`: an element or an [editor adapter](../guide/editors.html).              |
-| `breakpoints`     | Line numbers, or `{file, line, enabled}` objects. Lines start at 1.                       |
+| `breakpoints`     | Line numbers, or `{file, line, enabled, condition, log}` objects. Lines start at 1. See [conditions and logpoints](#conditions-and-logpoints). |
 | `files`           | More files for the run, by absolute path: `{'/helpers.php': '<?php …'}`.                  |
 | `expect`, `assert` | What a [test](../guide/tests.html) should produce.                                       |
 | `timeoutMs`       | A limit on time spent running PHP. Default none.                                          |
@@ -76,6 +76,7 @@ const result = await done;
 | `selectFrame(index)`                                          | Choose the call to inspect and evaluate in. 0 is the innermost.                            |
 | `evaluate(expression, {frame})`                               | Evaluate a PHP expression in a paused frame.                                               |
 | `setVariable(reference, expression)`                          | Assign a PHP expression to a variable or to a child of one.                                |
+| `opcodes(target)`                                             | List the ops PHP compiled, as phpdbg's `print` does: the selected frame's function, or `{script: true}`, `{function}` or `{class}`. |
 | `setBreakpoints([...])`                                       | Replace the breakpoints, while idle or paused.                                             |
 | `setCode(code)`                                               | Set the string or function for the next run.                                               |
 | `setVersion(version)`                                         | End any run and select the version for the next.                                           |
@@ -83,6 +84,22 @@ const result = await done;
 | `destroy()`                                                   | End the run and remove the interface and its listeners.                                    |
 
 </div>
+
+## Conditions and logpoints
+
+A breakpoint can carry PHP of its own, evaluated in the frame that reaches its line:
+
+```javascript
+await dbg.setBreakpoints([
+  {line: 4, condition: '$i === 3'},          // pauses only when $i is 3
+  {line: 6, log: '"total: $total"'},         // prints, and does not pause
+  {line: 8, log: '$item', condition: '$item["price"] > 10'}
+]);
+```
+
+A `condition` must be true for the breakpoint to act; one PHP cannot evaluate pauses, with the reason in the console. A `log` makes the breakpoint a logpoint: its value is printed and execution goes on. A string is printed as it is, anything else as `var_export()` writes it. Each one is a `log` event and an entry of `result.logs`. Test runs skip breakpoints but keep logpoints; see [Run PHP tests](../guide/tests.html#logpoints).
+
+They act when Run or Continue reaches the line. A step that lands on one pauses there, as at any breakpoint.
 
 ## Values
 
@@ -124,6 +141,7 @@ dbg.addEventListener('complete', ({detail}) => {
 | `statechange`      | The state changed. `detail.state` is the new one.                                  |
 | `progress`         | The runtime is downloading: `loaded` and `total` bytes (`total` may be `null`).    |
 | `output`           | PHP printed something. `channel` is `stdout`, `stderr` or `debug`.                 |
+| `log`              | A logpoint printed a value: `file`, `line` and `message`.                          |
 | `pause`            | Execution paused. `reason` is `breakpoint`, `step`, `pause` or `exception`.        |
 | `locationchange`   | The file, line or frame being shown changed.                                       |
 | `framechange`      | Another frame was selected.                                                        |

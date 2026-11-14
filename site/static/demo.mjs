@@ -7,17 +7,29 @@ const $ = selector => document.querySelector(selector);
 const asset = path => new URL('./assets/' + path, import.meta.url).href;
 const runtimeBaseUrl = asset('runtime/');
 
+// Three items, a running total, and a discount once the subtotal reaches 50: enough to step
+// through, to watch a value grow, and to change one on the way.
 const code = `<?php
-function total(array $cart) {
+function discount(int $subtotal): int {
+    return $subtotal >= 50 ? intdiv($subtotal, 10) : 0;
+}
+function total(array $cart): int {
     $sum = 0;
     foreach ($cart as $item) {
-        $sum += $item['price'] * $item['quantity'];
+        $line = $item['price'] * $item['quantity'];
+        echo "{$item['name']}: {$item['quantity']} x {$item['price']} = $line\\n";
+        $sum += $line;
     }
-    return $sum;
+    $off = discount($sum);
+    echo "Discount: $off\\n";
+    return $sum - $off;
 }
-$cart = [['name' => 'Notebook', 'price' => 8, 'quantity' => 3]];
-$total = total($cart);
-echo "Cart total: $total\\n";`;
+$cart = [
+    ['name' => 'Notebook', 'price' => 8, 'quantity' => 3],
+    ['name' => 'Pen', 'price' => 2, 'quantity' => 5],
+    ['name' => 'Backpack', 'price' => 30, 'quantity' => 1],
+];
+echo "Total: " . total($cart) . "\\n";`;
 
 // The debugger reports its own state. This line is only for what goes wrong around it.
 
@@ -155,17 +167,17 @@ async function mount(reset = false)
 	editor?.adapter.dispose();
 	editor?.destroy();
 	editor = null;
-	$('#editor-host').replaceChildren();
 	$('#debugger-host').replaceChildren();
 
 	if(editors[kind])
 	{
-		editor = await editors[kind]($('#editor-host'), value);
+		// Made inside the mount point, the editor moves into the debugger, where the textarea is.
+		editor = await editors[kind]($('#debugger-host'), value);
 		editor.recolour();
 	}
 
 	dbg = new PhpDebugger(
-		{runtimeBaseUrl, version, versions, code: value, source: editor?.adapter, breakpoints: [5]}
+		{runtimeBaseUrl, version, versions, code: value, source: editor?.adapter, breakpoints: [8]}
 	);
 
 	dbg.mount($('#debugger-host'));
@@ -195,6 +207,10 @@ async function change(reset = false)
 /** Run PHP without an interface and report the outcome beside the button that asked. */
 async function runExample(button, output, options)
 {
+	// What the last run logged goes when the next starts.
+	const box = output.closest('.try-result');
+
+	box.querySelector('.try-logs')?.remove();
 	button.disabled = true;
 	output.textContent = 'Running…';
 
@@ -213,9 +229,24 @@ async function runExample(button, output, options)
 		const result = await test.run({mode: 'test', timeoutMs: 5000});
 		const said = result.stdout.trim() || result.diagnostics.map(d => d.message).join(' ');
 		const time = Math.round(result.durationMs);
-
 		output.dataset.status = result.test.status;
 		output.textContent = `${result.test.status} · ${said} · ${time} ms`;
+
+		// What logpoints printed, under the button: a line each, after where each came from.
+		if(result.logs.length)
+		{
+			const list = Object.assign(document.createElement('ol'), {className: 'try-logs'});
+
+			/** One logged message, after the line it came from. */
+			const item = entry => Object.assign(
+				document.createElement('li')
+				, {textContent: `line ${entry.line}: ${entry.message}`}
+			);
+
+			list.setAttribute('aria-label', 'Logged');
+			list.append(...result.logs.map(item));
+			box.append(list);
+		}
 	}
 	catch(error)
 	{
@@ -234,6 +265,36 @@ $('#run-test')?.addEventListener(
 		event.currentTarget
 		, $('#test-result')
 		, {code: '<?php echo 6 * 7, "\\n";', expect: {stdout: '42\n', exitCode: 0}}
+	)
+);
+
+// The logpoint example, as the tests page shows it: each price over 5 is logged as the loop
+// reaches it, then the total as the function returns, and nothing pauses.
+const logpointCode = `<?php
+function total(array $prices): int {
+    $total = 0;
+    foreach ($prices as $name => $price) {
+        $total += $price;  // line 5
+    }
+    return $total;         // line 7
+}
+echo total(['pen' => 2, 'notebook' => 8, 'backpack' => 30]);`;
+
+$('#run-logpoints')?.addEventListener(
+	'click'
+	, event => void runExample(
+		event.currentTarget
+		, $('#logpoints-result')
+		, {
+			code: logpointCode
+
+			, breakpoints: [
+				{line: 5, log: '"$name costs $price"', condition: '$price > 5'}
+				, {line: 7, log: '"total: $total"'}
+			]
+
+			, expect: {stdout: '40', logs: ['notebook costs 8', 'backpack costs 30', 'total: 40']}
+		}
 	)
 );
 
@@ -261,4 +322,22 @@ if($('#debugger-host') && versions.length)
 	);
 
 	await change(true);
+}
+
+// The editors page debugs one of its own code blocks, as Pandoc and SMGen built it.
+if($('#code-block-example') && versions.length)
+{
+	const {createCodeBlockAdapter} = await import(asset('component/adapters/code-block.mjs'));
+
+	const blockDebugger = new PhpDebugger(
+		{
+			runtimeBaseUrl
+			, version: versions.includes('8.4') ? '8.4' : versions[0]
+			, versions
+			, source: createCodeBlockAdapter($('#code-block-example'))
+		}
+	);
+
+	blockDebugger.mount($('#code-block-debugger'));
+	window.phpDebuggerBlockDemo = blockDebugger;
 }

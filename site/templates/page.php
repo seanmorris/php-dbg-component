@@ -19,12 +19,7 @@ $source = preg_replace('#^.*?/pages/#', '', (string) $pageFile) ?? '';
 
 	<div class="wrap frame">
 		<?php if($leftBarShow): ?>
-		<aside class="contents">
-			<details class="contents-panel" open>
-				<summary>Contents</summary>
-				<nav aria-label="Contents"><?php renderMenuRegion('sidebar'); ?></nav>
-			</details>
-		</aside>
+<?php include resolveTemplateInclude('templates/contents.php'); ?>
 		<?php endif; ?>
 		<main id="content" class="sheet">
 			<article class="prose">

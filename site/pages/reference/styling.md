@@ -103,4 +103,4 @@ The line height, padding and borders of the source and of its line numbers are f
 
 ## Markers in Ace and CodeMirror
 
-The paused-line and breakpoint markers an [adapter](../guide/editors.html) adds sit inside your editor, outside `.php-debugger`. Their default colours show on light and dark editor themes. Set `--php-debugger-active`, `--php-debugger-paused` and `--php-debugger-error` on the editor's container to change them.
+The paused-line and breakpoint markers an [adapter](../guide/editors.html) adds sit inside your editor, which keeps its own theme beside the debugger or moved into it. Their default colours show on light and dark editor themes. Set `--php-debugger-active`, `--php-debugger-paused` and `--php-debugger-error` on the editor's container to change them.

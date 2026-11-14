@@ -30,6 +30,7 @@ export interface PhpDebuggerElement extends HTMLElement {
 	selectFrame: PhpDebugger['selectFrame'];
 	evaluate: PhpDebugger['evaluate'];
 	setVariable: PhpDebugger['setVariable'];
+	opcodes: PhpDebugger['opcodes'];
 	setBreakpoints(breakpoints: Array<number | Breakpoint>): Promise<Breakpoint[]>;
 	setVersion(version: PhpVersion): Promise<void>;
 }

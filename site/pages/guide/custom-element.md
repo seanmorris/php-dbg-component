@@ -94,4 +94,4 @@ The nested script holds the [expectations](tests.html). Listen for `phpdbg-testr
 
 ## Layout
 
-The element is a block and fills the width it is given. The textarea is adopted only when it is inside the element (or inside whatever element you pass to `mount()`); a textarea elsewhere on the page, named with `source`, is yours to lay out and stays where it is, without line numbers.
+The element is a block and fills the width it is given. The textarea is adopted only when it is inside the element (or inside whatever element you pass to `mount()`); a textarea elsewhere on the page, named with `source`, is yours to lay out and stays where it is, without line numbers. An Ace or CodeMirror editor follows the same rule; see [editors](editors.html).

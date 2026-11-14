@@ -28,10 +28,32 @@ export function normalizeBreakpoints(input = [], entrypoint = '/main.php')
 
 		const file = normalizePath(bp.file || entrypoint);
 		const id = `${file}:${bp.line}`;
-		found.set(id, {id, file, line: bp.line, enabled: bp.enabled !== false});
+		const breakpoint = {id, file, line: bp.line, enabled: bp.enabled !== false};
+
+		// A condition or a log the breakpoint does not have is left out, not empty.
+		const condition = breakpointExpression(bp.condition);
+		const log = breakpointExpression(bp.log);
+
+		found.set(id, {...breakpoint, ...condition && {condition}, ...log && {log}});
 	}
 
 	return [...found.values()];
+}
+
+/** A breakpoint's condition or log expression: PHP as a string, or nothing when it is blank. */
+function breakpointExpression(value)
+{
+	if(value === undefined || value === null)
+	{
+		return '';
+	}
+
+	if(typeof value !== 'string')
+	{
+		throw new TypeError('A breakpoint condition or log is a PHP expression, as a string');
+	}
+
+	return value.trim();
 }
 
 export function deferred()
@@ -54,6 +76,42 @@ export function errorRecord(error)
 export function phpString(value)
 {
 	return "'" + String(value).replaceAll('\\', '\\\\').replaceAll("'", "\\'") + "'";
+}
+
+// How PHP writes, in double quotes, the characters that cannot stand in a literal as they are.
+const phpEscapes = {
+	'\n': '\\n'
+	, '\r': '\\r'
+	, '\t': '\\t'
+	, '\v': '\\v'
+	, '\f': '\\f'
+	, '\x1b': '\\e'
+
+	, '\\': '\\\\'
+	, '"': '\\"'
+	, $: '\\$'
+};
+
+/**
+ * A string as a PHP literal on one line, for a box that holds one line. A string with a line
+ * break, a tab or another control character in it is written in double quotes with PHP's
+ * escapes, and is the same string when PHP reads it back; any other is written in single
+ * quotes, as it reads.
+ */
+export function phpLiteral(value)
+{
+	const text = String(value);
+
+	if(!/[\x00-\x1f\x7f]/.test(text))
+	{
+		return phpString(text);
+	}
+
+	/** A character as PHP escapes it: by name where it has one, by its code where it has not. */
+	const escaped = char => phpEscapes[char]
+		?? '\\x' + char.charCodeAt(0).toString(16).padStart(2, '0');
+
+	return '"' + text.replace(/[\x00-\x1f\x7f\\"$]/g, escaped) + '"';
 }
 
 /**
@@ -151,5 +209,401 @@ export function typeLabel({type, className, count, displayValue})
 		: type === 'string' ? `string(${count})` : type;
 
 	return String(displayValue).toLowerCase().startsWith(label.toLowerCase()) ? '' : label;
+}
+
+/**
+ * The events a debugger dispatches, each a CustomEvent with its detail. The custom element
+ * dispatches every one of them again as phpdbg-<name>.
+ */
+export const debuggerEvents = [
+	'statechange'
+	, 'progress'
+	, 'output'
+	, 'log'
+	, 'pause'
+	, 'locationchange'
+	, 'framechange'
+
+	, 'variablechange'
+	, 'breakpointchange'
+	, 'versionchange'
+	, 'sourcechange'
+	, 'diagnostic'
+	, 'testresult'
+	, 'complete'
+];
+
+// A part of a PHP name: a letter, an underscore or anything past ASCII, then digits as well.
+const namePart = '[A-Za-z_\\u{80}-\\u{10FFFF}][\\w\\u{80}-\\u{10FFFF}]*';
+const phpName = new RegExp(`^\\\\?${namePart}(?:\\\\${namePart})*$`, 'u');
+
+/**
+ * Whether a string is a PHP function or class name, namespaced or not, and nothing more, so that
+ * it can go on phpdbg's command line. The name PHP gives an anonymous class, which holds a NUL
+ * byte, is not one, nor is a closure's.
+ */
+export function isPhpName(name)
+{
+	return typeof name === 'string' && phpName.test(name);
+}
+
+/*
+ * phpdbg's print command, read into functions and their ops.
+ *
+ * From PHP 8.1 it hands each function to PHP's own dumper, which writes to standard error:
+ *
+ *     total:
+ *          ; (lines=17, args=1, vars=3, tmps=6)
+ *          ; /main.php:2-8
+ *     L0005 0007 T5 = FETCH_DIM_R CV2($item) string("price")
+ *
+ * PHP 8.0's phpdbg prints them itself, the opcode padded to 23 columns and op1, op2 and the
+ * result to 20 each, after the address of the function's first op:
+ *
+ *     L2-8 total() /main.php - 0x23492f0 + 17 ops
+ *      L5    #7     FETCH_DIM_R             $item                "price"              ~5
+ */
+
+/** The width of a zend_op in a 32-bit WebAssembly build, from one op's address to the next. */
+const opSize = 28;
+
+/** One op in the dumper's words: the result, if there is one, then the opcode and operands. */
+function dumpedOp(line, index, text)
+{
+	const [, result = '', opcode = text, operands = ''] = text.match(
+		/^(?:(\S+) = )?([A-Z][A-Z0-9_]*)(?: (.*))?$/s
+	) ?? [];
+
+	return {line, index, result, opcode, operands};
+}
+
+/**
+ * Where a column that began at `start` ends. printf pads a column to a width in bytes, so a
+ * variable named in other than ASCII fills its column in fewer characters.
+ */
+function columnEnd(text, start, width)
+{
+	let at = start;
+
+	for(let bytes = 0; at < text.length && bytes < width; at++)
+	{
+		const code = text.codePointAt(at);
+
+		bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+		at += code > 0xFFFF ? 1 : 0;
+	}
+
+	return at;
+}
+
+/**
+ * One op in PHP 8.0's columns: the opcode padded to 23 and op1, op2 and the result to 20 each,
+ * a space between them. phpdbg cuts a string or a variable's name to fit its column but not an
+ * opcode, so a long one, "INIT_STATIC_METHOD_CALL<1>", moves the columns after it along.
+ */
+function paddedOp(line, index, text)
+{
+	const opcode = text.match(/^\S*/)[0];
+	const first = Math.max(opcode.length, 23) + 1;
+	const second = columnEnd(text, first, 20) + 1;
+	const third = columnEnd(text, second, 20) + 1;
+
+	const [op1, op2, result] = [[first, second], [second, third], [third]].map(
+		([start, end]) => text.slice(start, end).trim()
+	);
+
+	return {line, index, result, opcode, operands: [op1, op2].filter(Boolean).join(' ')};
+}
+
+/**
+ * Whether the dumper is inside a string once it has written `text`. It writes a string as
+ * string("…"), its quotes and backslashes escaped and its line breaks as they are, so a string
+ * with a line break in it carries its op onto the lines that follow.
+ *
+ * `keyed` is for an op that jumps by a table of keys, SWITCH_STRING and MATCH: the keys are
+ * written in quotes with nothing escaped, each quote opening or closing one.
+ */
+function insideString(text, inside = false, keyed = false)
+{
+	for(let at = 0; at < text.length; at++)
+	{
+		if(keyed)
+		{
+			inside = text[at] === '"' ? !inside : inside;
+
+			continue;
+		}
+
+		if(!inside)
+		{
+			inside = text.startsWith('string("', at);
+			at += inside ? 7 : 0;
+
+			continue;
+		}
+
+		// A backslash takes the character after it with it; a bare quote ends the string.
+		if(text[at] === '\\')
+		{
+			at++;
+		}
+		else if(text[at] === '"')
+		{
+			inside = false;
+		}
+	}
+
+	return inside;
+}
+
+/** Whether an op jumps by a table of keys, which the dumper writes as they are. */
+const keyed = op => ['SWITCH_STRING', 'MATCH'].includes(op.opcode);
+
+/** A function the listing begins, named as phpdbg's frames name it: the script is {main}. */
+function listedFunction(name, fields = {})
+{
+	return {
+		name: name === '$_main' ? '{main}' : name
+		, file: null
+		, start: null
+		, end: null
+
+		, info: null
+		, address: null
+		, ops: []
+		, ...fields
+	};
+}
+
+/**
+ * The functions in what a print command wrote, each with its ops in order. Lines that are not a
+ * function, an op or a detail of one, such as phpdbg's own "Stack in total() (17 ops)" and the
+ * internal methods it names after a class, are passed over.
+ *
+ * A string may hold anything, a line that reads as a function or an op included, so a line is
+ * read for what it is only outside a string, a function begins only where the dumper's count of
+ * its lines follows, and an op must be the next in number.
+ */
+export function parseOpcodes(text)
+{
+	const functions = [];
+
+	// A carriage return in a string is dumped as it is; it is shown as PHP writes it.
+	const lines = text.replaceAll('\r', '\\r').split('\n');
+	let current = null;
+
+	// The dumped op whose string is still open: the lines that follow are the rest of it.
+	let unfinished = null;
+
+	lines.forEach((line, at) => {
+		if(unfinished)
+		{
+			unfinished.operands += '\\n' + line;
+			unfinished = insideString(line, true, keyed(unfinished)) ? unfinished : null;
+
+			return;
+		}
+
+		const dumped = line.match(/^L(\d+) (\d+) (.*)$/s);
+		const padded = line.match(/^\s*L(\d+)\s+#(\d+)\s+(.*)$/s);
+		const [, number, index, rest] = dumped || padded || [];
+		const expected = current?.ops.length ? current.ops.at(-1).index + 1 : null;
+
+		if(rest !== undefined && (expected === null || Number(index) === expected))
+		{
+			if(!current)
+			{
+				functions.push(current = listedFunction('?'));
+			}
+
+			const op = (dumped ? dumpedOp : paddedOp)(Number(number), Number(index), rest);
+
+			current.ops.push(op);
+			unfinished = dumped && insideString(op.operands, false, keyed(op)) ? op : null;
+
+			return;
+		}
+
+		const heading = line.match(/^L(\d+)-(\d+) (.+)\(\) (.*) - (0x[0-9a-f]+) \+ \d+ ops$/);
+
+		if(heading)
+		{
+			const [, start, end, name, file, address] = heading;
+
+			functions.push(current = listedFunction(name, {
+				file
+				, start: Number(start)
+				, end: Number(end)
+				, address: parseInt(address, 16)
+			}));
+
+			return;
+		}
+
+		// The dumper names a function on a line of its own, then counts its lines.
+		if(/^[^\s;].*:$/.test(line) && /^\s+; \(lines=\d+/.test(lines[at + 1] ?? ''))
+		{
+			functions.push(current = listedFunction(line.slice(0, -1)));
+
+			return;
+		}
+
+		const detail = line.match(/^\s+; (?:\((.+)\)|(.+):(\d+)-(\d+))$/);
+
+		// A function's details come before its first op.
+		if(detail && current && !current.ops.length)
+		{
+			const [, info, file, start, end] = detail;
+			const range = {file, start: Number(start), end: Number(end)};
+
+			Object.assign(current, info ? {info} : range);
+		}
+	});
+
+	// Which ops each op can jump to, once its operands are whole.
+	for(const listed of functions)
+	{
+		for(const op of listed.ops)
+		{
+			op.jumps = operandParts(op, listed.ops.length).flatMap(part => part.jump ?? []);
+		}
+	}
+
+	return functions;
+}
+
+/**
+ * An op's operands in pieces: text, and the jumps to other ops of its function, as {text, jump}.
+ * The dumper writes a target as four digits or more ("0005"), PHP 8.0 as "J5". A number inside
+ * a quoted string, an INIT_ op's sizes, and a number past the function's last op are text.
+ */
+export function operandParts({opcode, operands}, count = Infinity)
+{
+	const quoted = [...operands.matchAll(/"(?:[^"\\]|\\.)*"/g)].map(
+		match => [match.index, match.index + match[0].length]
+	);
+
+	const parts = [];
+	let from = 0;
+
+	for(const match of operands.matchAll(/(?<![\w$(.\\])(?:J(\d+)|(\d{4,}))(?![\w(])/g))
+	{
+		const jump = Number(match[1] ?? match[2]);
+		const inQuotes = quoted.some(([start, end]) => match.index > start && match.index < end);
+
+		if(inQuotes || jump >= count || opcode.startsWith('INIT_'))
+		{
+			continue;
+		}
+
+		parts.push({text: operands.slice(from, match.index)}, {text: match[0], jump});
+		from = match.index + match[0].length;
+	}
+
+	parts.push({text: operands.slice(from)});
+
+	return parts.filter(part => part.text);
+}
+
+// The ops that hand execution to other code, from which it comes back into the statement.
+const callOp = /^(?:DO_FCALL|DO_ICALL|DO_UCALL|DO_FCALL_BY_NAME|INCLUDE_OR_EVAL|YIELD|YIELD_FROM)$/;
+
+/**
+ * Whether the op at `index` is where execution arrives at its line, and not where it comes back
+ * to it. phpdbg reports a line reached whenever execution comes to it from another: also when a
+ * call made on it returns, and when a statement written over several lines comes round to its
+ * first line again. A statement's ops begin at an EXT_STMT; the op is an arrival when no earlier
+ * op of its statement is on its line.
+ */
+export function arrivesAt(ops, index)
+{
+	let start = index;
+
+	while(start > 0 && ops[start].opcode !== 'EXT_STMT')
+	{
+		start--;
+	}
+
+	return !ops.slice(start, index).some(op => op.line === ops[index].line);
+}
+
+/**
+ * Whether a line of a function can only be arrived at, never come back to: in each statement
+ * with ops on it, those ops stand together, with no op of another line and no call among them.
+ */
+export function plainLine(ops, line)
+{
+	const statements = [];
+
+	for(const op of ops)
+	{
+		if(op.opcode === 'EXT_STMT' || !statements.length)
+		{
+			statements.push([]);
+		}
+
+		statements.at(-1).push(op);
+	}
+
+	return statements.every(statement => {
+		const on = statement.flatMap((op, at) => op.line === line ? [at] : []);
+		const together = on.length ? statement.slice(on[0], on.at(-1) + 1) : [];
+
+		// PHP 8.0 writes a number after some opcodes: "DO_FCALL<1>".
+		return together.every(
+			op => op.line === line && !callOp.test(op.opcode.replace(/<.*$/, ''))
+		);
+	});
+}
+
+/**
+ * The op a print opline names, found among the listed functions' ops: {line, index}, with the
+ * index null when only the line is known. PHP 8.0 gives its address, not its number.
+ *
+ * A number names an op of any function. It is taken for a listed function's only where that
+ * function has the same op there: the line, the opcode and what the result goes to.
+ */
+export function parseOpline(text, functions)
+{
+	const dumped = text.match(/^L(\d+) (\d+) (.*)$/m);
+
+	if(dumped)
+	{
+		const line = Number(dumped[1]);
+		const index = Number(dumped[2]);
+		const {result, opcode} = dumpedOp(line, index, dumped[3]);
+
+		const listed = functions.some(({ops}) => {
+			const op = ops[index];
+
+			return op?.line === line && op.opcode === opcode && op.result === result;
+		});
+
+		return {line, index: listed ? index : null};
+	}
+
+	const padded = text.match(/^\s*L(\d+)\s+(0x[0-9a-f]+) (\S+)/m);
+
+	if(!padded)
+	{
+		return null;
+	}
+
+	const line = Number(padded[1]);
+	const address = parseInt(padded[2], 16);
+
+	// The address names an op only where it lands on one with the same line and opcode.
+	for(const listed of functions.filter(listed => listed.address !== null))
+	{
+		const index = (address - listed.address) / opSize;
+		const op = listed.ops[index];
+
+		if(op && op.line === line && op.opcode === padded[3])
+		{
+			return {line, index};
+		}
+	}
+
+	return {line, index: null};
 }
 

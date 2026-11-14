@@ -7,7 +7,19 @@ export type DebuggerState = 'idle' | 'loading' | 'ready' | 'running' | 'paused' 
 export type InspectionScope =
 	'variables' | 'globals' | 'constants' | 'functions' | 'classes' | 'files' | 'frames';
 
-export interface Breakpoint { line: number; file?: string; enabled?: boolean; id?: string }
+export interface Breakpoint {
+	line: number;
+	file?: string;
+	enabled?: boolean;
+	id?: string;
+	/** PHP that must be true, in the frame that reached the line, for the breakpoint to act. */
+	condition?: string;
+	/** PHP whose value is logged instead of pausing: a string as it is, anything else exported. */
+	log?: string;
+}
+
+/** What a logpoint printed. `error` marks the reason its expression or condition failed. */
+export interface LogEntry { file: string; line: number; message: string; error?: true }
 export interface Location { file: string; line: number; frame?: number; pauseId?: number }
 
 export interface Pause {
@@ -52,6 +64,45 @@ export interface Frame {
 	className?: string;
 }
 
+/** One op of a function as phpdbg's print lists it. `index` is its number in the function. */
+export interface Opcode {
+	line: number;
+	index: number;
+	result: string;
+	opcode: string;
+	operands: string;
+
+	/** The ops of the same function this op can jump to, by their index. */
+	jumps: number[];
+}
+
+/** A function and its ops. The main script is named "{main}". */
+export interface OpcodeFunction {
+	name: string;
+	file: string | null;
+	start: number | null;
+	end: number | null;
+
+	/** The dumper's summary, such as "lines=17, args=1, vars=3, tmps=6". Null on PHP 8.0. */
+	info: string | null;
+	ops: Opcode[];
+}
+
+/** What opcodes() answers. `current` is set for the selected frame's function only. */
+export interface OpcodeListing {
+	functions: OpcodeFunction[];
+	current: {line: number; index: number | null} | null;
+}
+
+/**
+ * The selected frame's function, the main script, a function, or every method of a class. A
+ * target names one of them.
+ */
+export type OpcodeTarget = {script?: never; function?: never; class?: never}
+	| {script: true; function?: never; class?: never}
+	| {function: string; script?: never; class?: never}
+	| {class: string; script?: never; function?: never};
+
 export interface Diagnostic {
 	name?: string;
 	message: string;
@@ -73,6 +124,8 @@ export interface RunResult {
 
 	stdout: string;
 	stderr: string;
+	/** What logpoints printed, in order. They act in test runs, which skip other breakpoints. */
+	logs: LogEntry[];
 	diagnostics: Diagnostic[];
 	durationMs: number;
 	test: TestResult;
@@ -83,6 +136,8 @@ export interface Expectations {
 	stderr?: string | RegExp;
 	exitCode?: number;
 	error?: string | RegExp;
+	/** One string or pattern for each logged message, in order. */
+	logs?: Array<string | RegExp>;
 }
 
 export interface RunOptions {
@@ -97,6 +152,10 @@ export interface RunOptions {
 }
 
 export interface EditorAdapter {
+	/** The editor's outermost element. Inside the mount point, it moves into the interface. */
+	element?: Element;
+	/** Measure the editor again after it has moved. */
+	layout?(): void;
 	getCode(): string | Promise<string>;
 	setCode?(code: string): void;
 	setReadOnly?(readOnly: boolean): void;
@@ -188,6 +247,7 @@ export interface DebuggerEvents {
 	complete: RunResult;
 	testresult: TestResult;
 	diagnostic: Diagnostic;
+	log: LogEntry;
 
 	locationchange: Location | null;
 	framechange: {frame: number};
@@ -259,6 +319,8 @@ export class PhpDebugger extends EventTarget
 	evaluate(expression: string, options?: {frame?: number}): Promise<Variable>;
 
 	setVariable(reference: string, expression: string): Promise<Variable>;
+
+	opcodes(target?: OpcodeTarget): Promise<OpcodeListing>;
 
 	selectFrame(frame: number):
 	Promise<{frame: number}>;

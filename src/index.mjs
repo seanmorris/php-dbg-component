@@ -303,6 +303,7 @@ export class PhpDebugger extends EventTarget
 
 			, stdout: ''
 			, stderr: ''
+			, logs: []
 
 			, version: this.options.version
 			, expectations: options.expect ?? this.options.expect
@@ -387,6 +388,10 @@ export class PhpDebugger extends EventTarget
 				this.handleOutput(event);
 				break;
 
+			case 'log':
+				this.handleLog(event);
+				break;
+
 			case 'paused':
 				this.handlePause(event);
 				break;
@@ -418,19 +423,44 @@ export class PhpDebugger extends EventTarget
 	/** Output from the program or from phpdbg. A run that writes too much is ended. */
 	handleOutput(event)
 	{
-		const limit = this.options.outputLimit ?? 10_000_000;
-
 		if(this.active && (event.channel === 'stdout' || event.channel === 'stderr'))
 		{
 			this.active[event.channel] += event.text;
-
-			if(this.active.stdout.length + this.active.stderr.length > limit)
-			{
-				void this.finish('error', {error: new Error('Execution output limit exceeded')});
-			}
+			this.checkOutputLimit();
 		}
 
 		this.emit('output', event);
+	}
+
+	/** End a run whose program output and logs have passed the output limit. */
+	checkOutputLimit()
+	{
+		const {stdout, stderr, logged = 0} = this.active;
+
+		if(stdout.length + stderr.length + logged > (this.options.outputLimit ?? 10_000_000))
+		{
+			void this.finish('error', {error: new Error('Execution output limit exceeded')});
+		}
+	}
+
+	/**
+	 * A logpoint printed a value. The run keeps it for its result, and its text counts toward the
+	 * output limit.
+	 */
+	handleLog({file, line, message: said, error})
+	{
+		// A message is text, whatever the engine made of the expression.
+		const message = String(said ?? '');
+		const entry = {file, line, message, ...error && {error: true}};
+
+		if(this.active)
+		{
+			this.active.logs.push(entry);
+			this.active.logged = (this.active.logged ?? 0) + message.length;
+			this.checkOutputLimit();
+		}
+
+		this.emit('log', entry);
 	}
 
 	/** The program has paused: record where, and answer everyone waiting for a pause. */
@@ -471,6 +501,7 @@ export class PhpDebugger extends EventTarget
 
 			, stdout: active.stdout
 			, stderr: active.stderr
+			, logs: active.logs
 			, diagnostics: details.diagnostics || (details.error
 				? [errorRecord(details.error)]
 				: []
@@ -496,7 +527,14 @@ export class PhpDebugger extends EventTarget
 			result.status = 'error';
 		}
 
-		result.test = await checkExpectations(result, active.expectations, active.assertion);
+		// Whatever checking the expectations throws, the run still ends, as a failed test.
+		result.test = await checkExpectations(result, active.expectations, active.assertion).catch(
+			error => ({
+				status: 'failed'
+				, failures: [{field: 'expect', message: error.message || String(error)}]
+			})
+		);
+
 		this.active = null;
 		this.result = result;
 		this.testStatus = result.test.status;
@@ -607,6 +645,12 @@ export class PhpDebugger extends EventTarget
 
 	setVariable(reference, expression) {return this.command('setVariable', reference, expression);}
 
+	/**
+	 * The ops phpdbg's print lists: the selected frame's function, or {script: true}, {function}
+	 * or {class}.
+	 */
+	opcodes(target) {return this.command('opcodes', target);}
+
 	async selectFrame(frame)
 	{
 		const result = await this.command('selectFrame', frame);
@@ -667,9 +711,11 @@ export class PhpDebugger extends EventTarget
 			return;
 		}
 
-		await this.stop();
+		// The view goes first, before anything is awaited: what it borrowed from the page, a
+		// textarea or an editor, is back at once, for whatever mounts there next.
 		this.view?.destroy();
 		this.view = null;
+		await this.stop();
 		this.transition('destroyed');
 	}
 }

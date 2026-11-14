@@ -16,7 +16,18 @@ export async function checkExpectations(result, expectations, assertion)
 	}
 
 	const failures = [];
-	const expect = expectations || {};
+
+	// Expectations that are not an object of fields check nothing, and the test says so. A
+	// pattern or a list is an object too, with none of the fields.
+	const usable = expectations == null
+		|| Object.prototype.toString.call(expectations) === '[object Object]';
+
+	const expect = usable && expectations || {};
+
+	if(!usable)
+	{
+		failures.push({field: 'expect', message: 'Expectations must be an object'});
+	}
 
 	if(result.status !== 'completed')
 	{
@@ -28,6 +39,28 @@ export async function checkExpectations(result, expectations, assertion)
 		if(field in expect && !matches(result[field], expect[field]))
 		{
 			failures.push({field, expected: String(expect[field]), actual: result[field]});
+		}
+	}
+
+	// What the logpoints printed, in order: each entry is a string or a pattern for one message.
+	if('logs' in expect && !Array.isArray(expect.logs))
+	{
+		const message = 'expect.logs must be an array of strings or patterns';
+
+		failures.push({field: 'logs', message});
+	}
+	else if('logs' in expect)
+	{
+		const actual = result.logs.map(entry => entry.message);
+
+		const same = actual.length === expect.logs.length
+			&& expect.logs.every((expected, index) => matches(actual[index], expected));
+
+		if(!same)
+		{
+			const expected = expect.logs.map(String).join('\n');
+
+			failures.push({field: 'logs', expected, actual: actual.join('\n')});
 		}
 	}
 
@@ -56,7 +89,9 @@ export async function checkExpectations(result, expectations, assertion)
 		}
 		catch(error)
 		{
-			message = error.message || String(error);
+			// Whatever was thrown is the reason, and an assertion may reject with nothing at all.
+			message = error?.message
+				|| (error == null ? 'Assertion rejected without a reason' : String(error));
 		}
 
 		if(message !== null)

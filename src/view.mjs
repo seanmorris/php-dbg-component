@@ -1,4 +1,11 @@
-import {versions, phpClassLabel, typeLabel} from './model.mjs';
+import {
+	versions
+	, phpClassLabel
+	, typeLabel
+	, operandParts
+	, isPhpName
+	, phpLiteral
+} from './model.mjs';
 
 let views = 0;
 
@@ -25,6 +32,14 @@ function panelTitle(scope)
 	return scope[0].toUpperCase() + scope.slice(1);
 }
 
+/** What the Opcodes panel's choice asks opcodes() for: "function:total" is {function: 'total'}. */
+function opcodeTarget(choice)
+{
+	const [kind, name] = choice.split(/:(.*)/);
+
+	return kind === 'frame' ? {} : kind === 'script' ? {script: true} : {[kind]: name};
+}
+
 export class DebuggerView
 {
 
@@ -40,7 +55,14 @@ export class DebuggerView
 		this.id = `php-debugger-${++views}`;
 		this.abort = new AbortController();
 		this.panel = 'variables';
+
+		// What the Opcodes panel lists: "frame", "script", "function:name" or "class:name".
+		this.opcodeChoice = 'frame';
 		this.refreshNumber = 0;
+
+		// The value edit forms that are open, by their value's path: a refresh builds the list
+		// again and puts each one back as it is.
+		this.editForms = new Map();
 		this.watches = [];
 		// Which values are open, by their path of names from the panel down, so the tree comes back
 		// as it was after an edit or a step.
@@ -237,9 +259,16 @@ export class DebuggerView
 
 			this.textarea.spellcheck = false;
 
+			// Typing changes the line numbers only, and only when a line comes or goes; the
+			// breakpoints and their list are as they were.
 			this.textarea.addEventListener(
 				'input'
-				, () => this.gutterUpdate()
+				, () => {
+					if(this.textarea.value.split('\n').length !== this.gutter.children.length)
+					{
+						this.drawGutter();
+					}
+				}
 				, {signal: this.abort.signal}
 			);
 
@@ -299,6 +328,10 @@ export class DebuggerView
 
 			editor.append(this.gutter, this.textarea);
 			this.root.append(editor);
+		}
+		else if(dbg.source?.element && host.contains(dbg.source.element))
+		{
+			this.hostEditor(dbg.source);
 		}
 
 		// The Breakpoints panel, one of the inspector's: the box to add one, then the list. It is
@@ -397,7 +430,7 @@ export class DebuggerView
 		this.counts = {};
 
 		for(const [group, scopes] of [
-			['pause', ['variables', 'frames', 'watches', 'breakpoints']]
+			['pause', ['variables', 'frames', 'opcodes', 'watches', 'breakpoints']]
 			, ['program', ['globals', 'constants', 'functions', 'classes', 'files']]
 		]){
 			if(group === 'program')
@@ -540,6 +573,14 @@ export class DebuggerView
 		on('statechange', () => this.update());
 		on('testresult', () => this.update());
 		on('output', event => this.appendOutput(event));
+
+		// What a logpoint printed, after where it is.
+		on('log', entry => this.appendOutput({
+			channel: 'log'
+			, kind: entry.error ? 'error' : undefined
+			, text: `${this.breakpointPlace(entry)}: ${entry.message}\n`
+		}));
+
 		on('progress', progress => this.showProgress(progress));
 
 		on(
@@ -551,8 +592,14 @@ export class DebuggerView
 			}
 		);
 
-		on('framechange', () => void this.refresh());
-		on('variablechange', () => void this.refresh());
+		// Another frame has variables of its own, some by the same names: what was being typed
+		// for a value of the last one goes.
+		on('framechange', () => {
+			this.editForms.clear();
+			void this.refresh();
+		});
+
+		on('variablechange', () => this.applying || void this.refresh());
 		on('breakpointchange', () => this.gutterUpdate());
 
 		on(
@@ -571,9 +618,11 @@ export class DebuggerView
 			, result => {
 				if(result.test.status === 'failed')
 				{
+					// A failure is a value that differed, or a message alone.
 					this.message.textContent = result.test.failures.map(
-						f => `${f.field}: expected ${f.expected ?? f.message}, received ${f.actual
-							?? ''}`
+						f => 'message' in f
+							? `${f.field}: ${f.message}`
+							: `${f.field}: expected ${f.expected}, received ${f.actual ?? ''}`
 					).join('\n');
 				}
 
@@ -585,19 +634,34 @@ export class DebuggerView
 		);
 
 		this.adapterUnsubscribe = dbg.source?.onBreakpointChange?.(
-			lines => this.act(() => dbg.setBreakpoints([
-				...dbg.breakpoints.filter(
-					bp => bp.file !== dbg.options.entrypoint || (!bp.enabled
-			&& !lines.some(line => (typeof line === 'number' ? line : line.line) === bp.line)
-					)
-				)
-				, ...lines
-			]))
+			lines => this.act(() => dbg.setBreakpoints(this.fromEditor(lines)))
 		);
 
 		this.fitTabs();
 		this.gutterUpdate();
 		this.update();
+	}
+
+	/**
+	 * The breakpoints once an editor's gutter has changed the entrypoint's to `lines`. A line that
+	 * already had a breakpoint keeps its condition and its log; a disabled one the gutter does not
+	 * show stays as it is.
+	 */
+	fromEditor(lines)
+	{
+		const dbg = this.dbg;
+		const entrypoint = dbg.options.entrypoint;
+		const numbers = lines.map(line => typeof line === 'number' ? line : line.line);
+
+		/** The entrypoint's breakpoint on a line, if it has one. */
+		const here = line => dbg.breakpoints.find(bp => bp.file === entrypoint && bp.line === line);
+
+		return [
+			...dbg.breakpoints.filter(
+				bp => bp.file !== entrypoint || (!bp.enabled && !numbers.includes(bp.line))
+			)
+			, ...numbers.map(line => ({...here(line), line, enabled: true}))
+		];
 	}
 
 	showPanel(panel)
@@ -657,6 +721,10 @@ export class DebuggerView
 	{
 		const foldable = this.tabList.filter(tab => tab.dataset.panel !== 'variables');
 
+		// A tab with focus that folds away would leave focus on the page, out of the debugger's
+		// reach; More, which then holds it, takes the focus.
+		const focused = this.tabList.find(tab => tab === this.root.getRootNode().activeElement);
+
 		/** Whether the row is wider than its place. */
 		const overflows = () => this.tabBar.scrollWidth > this.tabBar.clientWidth;
 
@@ -690,6 +758,11 @@ export class DebuggerView
 		}
 
 		this.markTabs();
+
+		if(focused?.hidden)
+		{
+			this.more.focus();
+		}
 	}
 
 	/** Make More as wide as the name it shows. */
@@ -741,6 +814,289 @@ export class DebuggerView
 		}
 
 		this.fitTabs();
+	}
+
+	/**
+	 * The Opcodes panel: what to list, the paused frame's function by default, then a table of
+	 * ops for each function phpdbg's print lists. The op the frame stands on is kept in view.
+	 *
+	 * A listing that is the one last shown keeps its tables, and only the mark of the op the
+	 * frame stands on moves: the panel stays where it was scrolled to, and a step within a
+	 * function builds nothing.
+	 */
+	async showOpcodes(generation)
+	{
+
+		/** Whether this refresh is still the one to show. */
+		const wanted = () => generation === this.refreshNumber && this.dbg.state === 'paused';
+
+		/** A choice's listing, or an empty one and why phpdbg has none. */
+		const listed = choice => this.dbg.opcodes(opcodeTarget(choice)).then(
+			listing => ({listing})
+			, error => ({listing: {functions: [], current: null}, problem: error.message})
+		);
+
+		let {listing, problem} = await listed(this.opcodeChoice);
+
+		if(!wanted())
+		{
+			return;
+		}
+
+		// A choice phpdbg cannot list is given up for the paused frame, and the reason is shown.
+		if(problem && this.opcodeChoice !== 'frame')
+		{
+			this.opcodeChoice = 'frame';
+			({listing} = await listed('frame'));
+		}
+
+		/** The names in a list of symbols, keyed by name or names alone, that can be asked for. */
+		const names = list => (Array.isArray(list) ? list : Object.values(list)).map(
+			entry => typeof entry === 'string' ? entry : entry.name
+		).filter(isPhpName);
+
+		const functions = names(await this.dbg.inspect('functions'));
+		const classes = names(await this.dbg.inspect('classes'));
+
+		if(!wanted())
+		{
+			return;
+		}
+
+		const signature = JSON.stringify(
+			[this.opcodeChoice, listing.functions, functions, classes]
+		);
+
+		const kept = this.opcodesShown?.signature === signature;
+
+		const shown = kept
+			? this.opcodesShown
+			: {signature, ...this.opcodeParts(listing, functions, classes)};
+
+		const attached = kept && this.content.contains(shown.bar);
+		const stands = JSON.stringify(listing.current);
+		const moved = shown.stands !== stands;
+
+		this.opcodesShown = Object.assign(shown, {stands});
+		shown.picker.value = this.opcodeChoice;
+
+		if(!attached)
+		{
+			const held = this.holdFocus();
+
+			// What a jump marked belongs to the listing as it was last looked at.
+			for(const marked of shown.tables.flatMap(table => [...table.rows]))
+			{
+				marked.removeAttribute('data-jumped');
+			}
+
+			this.rows = shown.rows;
+			this.content.replaceChildren(shown.bar, ...shown.tables, ...shown.empty);
+			this.returnFocus(held);
+		}
+
+		if(shown.tables.length)
+		{
+			this.markCurrentOp(shown.tables[0], listing.functions[0].ops, listing.current);
+		}
+
+		const here = this.content.querySelector('tr[aria-current]');
+
+		// Put back after a step, the listing follows the op the frame stands on; one with no
+		// such op, another function's, is where it was scrolled to.
+		if(here && (!attached || moved))
+		{
+			this.keepInView(here);
+		}
+		else if(!attached)
+		{
+			this.content.scrollTop = this.scrolled();
+		}
+
+		this.place = null;
+
+		if(problem)
+		{
+			throw new Error(problem);
+		}
+	}
+
+	/**
+	 * The Opcodes panel's parts for a listing: the bar that chooses what is listed, a table for
+	 * each function, and words in their place when there is none.
+	 */
+	opcodeParts(listing, functions, classes)
+	{
+		const rows = new Map();
+		const bar = node('div', 'php-debugger-opcodes-bar');
+		const label = node('label', 'php-debugger-opcodes-label', 'Opcodes of ');
+		const picker = node('select', 'php-debugger-opcodes-scope');
+
+		const choices = [
+			['frame', 'the paused frame']
+			, ['script', 'the main script']
+			, ...functions.map(name => [`function:${name}`, `${name}()`])
+			, ...classes.map(name => [`class:${name}`, `class ${name}`])
+		];
+
+		for(const [value, text] of choices)
+		{
+			const option = node('option', '', text);
+
+			option.value = value;
+			picker.append(option);
+		}
+
+		picker.value = this.opcodeChoice;
+
+		picker.addEventListener('change', () => {
+			this.opcodeChoice = picker.value;
+			void this.refresh();
+		});
+
+		this.control(rows, 'opcodes of', picker);
+		label.append(picker);
+		bar.append(label);
+
+		const tables = listing.functions.map((listed, at) => this.opcodeTable(listed, at));
+		const chosen = picker.selectedOptions[0]?.textContent ?? 'this';
+
+		// A class may have no PHP of its own: an interface, or one whose methods are inherited.
+		const empty = tables.length
+			? []
+			: [node('p', 'php-debugger-empty', `No opcodes to list for ${chosen}.`)];
+
+		return {rows, bar, picker, tables, empty};
+	}
+
+	/**
+	 * Mark the op the paused frame stands on among a function's rows, which are in the order of
+	 * its ops. Where PHP 8.0 gives only the line, every op on it is marked.
+	 */
+	markCurrentOp(table, ops, current)
+	{
+		[...table.tBodies[0].rows].forEach((row, at) => {
+			const {line, index} = ops[at];
+			const here = current?.line === line && [null, index].includes(current.index);
+
+			row.toggleAttribute('aria-current', here);
+
+			if(here)
+			{
+				row.setAttribute('aria-current', 'step');
+			}
+		});
+	}
+
+	/** Scroll the panel so a row of it is a third of the way down. */
+	keepInView(row)
+	{
+		const top = row.getBoundingClientRect().top - this.content.getBoundingClientRect().top;
+
+		this.content.scrollTop += top - this.content.clientHeight / 3;
+	}
+
+	/**
+	 * One function's ops as a table, numbered first, as jumps name them. A jump target is a link
+	 * to its op.
+	 */
+	opcodeTable(listed, at)
+	{
+		const table = node('table', 'php-debugger-opcodes');
+		const name = listed.name === '{main}' ? '{main}' : `${listed.name}()`;
+		const caption = node('caption', '', name);
+		const where = listed.file ? ` · ${listed.file}:${listed.start}–${listed.end}` : '';
+		const summary = `${listed.ops.length} ops${where}`;
+		const head = node('tr');
+		const body = node('tbody');
+
+		/** An op's number as the dumper writes it, and its row's id. */
+		const number = index => String(index).padStart(4, '0');
+
+		const id = index => `${this.id}-op-${at}-${index}`;
+
+		caption.append(node('span', 'php-debugger-opcodes-where', summary));
+
+		for(const title of ['Op', 'Line', 'Result', 'Opcode', 'Operands'])
+		{
+			const cell = node('th', '', title);
+
+			cell.scope = 'col';
+			head.append(cell);
+		}
+
+		for(const op of listed.ops)
+		{
+			const row = node('tr');
+			const operands = node('td', 'php-debugger-opcode-operands');
+
+			row.id = id(op.index);
+
+			for(const part of operandParts(op, listed.ops.length))
+			{
+				if(part.jump === undefined)
+				{
+					operands.append(part.text);
+
+					continue;
+				}
+
+				operands.append(this.jumpLink(number(part.jump), id(part.jump)));
+			}
+
+			row.append(
+				node('td', 'php-debugger-opcode-index', number(op.index))
+				, node('td', 'php-debugger-opcode-line', String(op.line))
+				, node('td', 'php-debugger-opcode-result', op.result)
+				, node('td', 'php-debugger-opcode', op.opcode)
+				, operands
+			);
+
+			body.append(row);
+		}
+
+		table.append(caption, node('thead'), body);
+		table.tHead.append(head);
+
+		return table;
+	}
+
+	/**
+	 * A link to the op a jump names. It brings that op into view and marks it, with focus on its
+	 * number, without touching the page's address.
+	 */
+	jumpLink(text, target)
+	{
+		const link = node('a', 'php-debugger-opcode-jump', text);
+
+		link.href = `#${target}`;
+		link.setAttribute('aria-label', `Go to op ${Number(text)}`);
+
+		link.addEventListener('click', event => {
+			event.preventDefault();
+
+			const row = this.content.querySelector(`#${CSS.escape(target)}`);
+
+			// A target that is not listed leaves everything as it is.
+			if(!row)
+			{
+				return;
+			}
+
+			const cell = row.cells[0];
+
+			for(const marked of this.content.querySelectorAll('tr[data-jumped]'))
+			{
+				marked.removeAttribute('data-jumped');
+			}
+
+			row.dataset.jumped = 'true';
+			cell.tabIndex = -1;
+			cell.focus({preventScroll: true});
+			this.keepInView(row);
+		});
+
+		return link;
 	}
 
 	/** With no pause there is nothing to inspect, so the panel says when there will be. */
@@ -965,10 +1321,11 @@ export class DebuggerView
 	{
 		const {state, testStatus} = this.dbg;
 
-		// Each run's output stands alone.
+		// Each run's output stands alone, and its opcodes start from the paused frame.
 		if(this.dbg.runNumber !== this.run)
 		{
 			this.run = this.dbg.runNumber;
+			this.opcodeChoice = 'frame';
 			this.clearConsole();
 		}
 
@@ -982,7 +1339,13 @@ export class DebuggerView
 			this.pauseReason = null;
 		}
 
-		// A step keeps the counts until the next pause replaces them; the end of a run drops them.
+		// A step keeps the counts until the next pause replaces them; the end of a run drops them,
+		// and where the inspector was scrolled to.
+		if(!['paused', 'running'].includes(state))
+		{
+			this.place = null;
+		}
+
 		if(!['paused', 'running'].includes(state) && Object.keys(this.counts).length)
 		{
 			this.showCounts({});
@@ -1009,7 +1372,8 @@ export class DebuggerView
 
 		if(this.textarea)
 		{
-			this.textarea.readOnly = !!this.dbg.active;
+			// A textarea the page made read-only stays so; any other is while PHP runs.
+			this.textarea.readOnly = !!this.dbg.active || !!this.adopted?.readOnly;
 		}
 
 		this.dbg.source?.setReadOnly?.(!!this.dbg.active);
@@ -1021,11 +1385,43 @@ export class DebuggerView
 
 		if(state !== 'paused')
 		{
+			// A step empties the panel for as long as PHP runs. Where the panel was scrolled to
+			// is kept for the pause that follows, and what was typed in a value's box goes.
+			if(this.shown === 'paused')
+			{
+				this.place = {panel: this.panel, top: this.content.scrollTop};
+			}
+
+			this.editForms.clear();
 			this.refreshNumber++;
 			this.holdFocus();
 
 			this.showIdle();
 		}
+
+		this.shown = state;
+	}
+
+	/** The box being typed in, when it is in a value's edit form, which a refresh puts back. */
+	typingIn()
+	{
+		const active = this.root.getRootNode().activeElement;
+		const forms = [...this.editForms.values()];
+
+		return forms.some(open => open.form.contains(active)) ? active : null;
+	}
+
+	/**
+	 * Where a panel being filled again is scrolled to: where it is now or, after a step, where it
+	 * was when PHP ran on.
+	 */
+	scrolled()
+	{
+		const kept = this.place?.panel === this.panel ? this.place.top : 0;
+
+		this.place = null;
+
+		return this.content.scrollTop || kept;
 	}
 
 	/**
@@ -1105,7 +1501,7 @@ export class DebuggerView
 		return {
 			idle: 'Ready.'
 			, loading: `Loading PHP ${this.dbg.options.version}…`
-			, ready: 'Starting…'
+			, ready: this.dbg.active ? 'Starting…' : 'Ready.'
 			, running: 'Running…'
 			, paused: 'Paused.'
 			, error: 'Failed.' + test
@@ -1132,109 +1528,168 @@ export class DebuggerView
 		}
 	}
 
-	frameLabel(frame)
+	/**
+	 * Frames, functions, classes or files, a row each across the panel. The list is one tab stop:
+	 * the arrow keys move along it, and Enter, Space or a click chooses a row. The chosen frame
+	 * is the selected one; a function, class or file stays selected while its place is shown.
+	 */
+	symbolList(values, rows)
 	{
-		// Only an API 2 runtime names the function; an empty name there means top-level code.
-		const callee = frame.functionName === undefined
-			? ''
-			: ` · ${frame.functionName
-				? `${frame.className
-					? phpClassLabel(frame.className) + '::'
-					: ''}${frame.functionName}()`
-				: '{main}'}`;
+		const list = node('div', 'php-debugger-symbols');
+		const frames = this.panel === 'frames';
+		// Only an API 2 runtime names a frame's function.
+		const named = frames && values.some(frame => frame.functionName !== undefined);
+		const layout = frames || this.panel === 'files' ? this.panel : 'symbols';
 
-		return `Frame ${frame.frame}${callee} — ${frame.filename
-			? `${frame.filename}:${frame.lineNo}`
-			: 'internal'}`;
+		list.setAttribute('role', 'listbox');
+		list.setAttribute('aria-label', panelTitle(this.panel));
+		list.dataset.layout = named ? 'named-frames' : layout;
+
+		for(const value of values)
+		{
+			const item = node('div', 'php-debugger-symbol');
+
+			item.setAttribute('role', 'option');
+			item.setAttribute('aria-selected', String(!!(frames && value.selected)));
+			item.tabIndex = -1;
+			item.append(...this.symbolCells(value, named));
+			item.addEventListener('click', () => this.chooseSymbol(rows, item, value));
+
+			this.control(rows, `symbol ${rows.size}`, item);
+			list.append(item);
+		}
+
+		const options = [...rows.values()];
+		const stop = options.find(option => option.getAttribute('aria-selected') === 'true')
+			?? options[0];
+
+		if(stop)
+		{
+			stop.tabIndex = 0;
+		}
+
+		list.addEventListener('focusin', event => {
+			for(const option of options)
+			{
+				option.tabIndex = option === event.target ? 0 : -1;
+			}
+		});
+
+		list.addEventListener('keydown', event => this.symbolKey(event, options));
+
+		return list;
+	}
+
+	/** Move along a list of symbols, or choose the row in focus. */
+	symbolKey(event, options)
+	{
+		const at = options.indexOf(event.target);
+
+		if(at < 0 || event.ctrlKey || event.altKey || event.metaKey)
+		{
+			return;
+		}
+
+		if(event.key === 'Enter' || event.key === ' ')
+		{
+			event.preventDefault();
+			event.target.click();
+
+			return;
+		}
+
+		const to = {
+			ArrowDown: Math.min(at + 1, options.length - 1)
+			, ArrowUp: Math.max(at - 1, 0)
+			, Home: 0
+			, End: options.length - 1
+		}[event.key];
+
+		if(to !== undefined)
+		{
+			event.preventDefault();
+			options[to].focus();
+		}
+	}
+
+	/** Select a row's frame or show where its symbol is, then mark the row selected. */
+	chooseSymbol(rows, item, value)
+	{
+		return this.act(async() => {
+			await this.openSymbol(value);
+
+			for(const option of rows.values())
+			{
+				option.setAttribute('aria-selected', String(option === item));
+			}
+		});
+	}
+
+	/**
+	 * The cells of one row: a frame's number, function and place; a function's or class's name
+	 * and place; a file's path. Unseen words between them read the row as one phrase: "Frame 1 ·
+	 * total() — /main.php:4".
+	 */
+	symbolCells(value, named)
+	{
+
+		/** A cell, after any words only a screen reader says. */
+		const cell = (className, text, spoken) => {
+			const element = node('span', `php-debugger-symbol-${className}`);
+
+			if(spoken)
+			{
+				element.append(node('span', 'php-debugger-symbol-spoken', spoken));
+			}
+
+			element.append(text);
+
+			return element;
+		};
+
+		if(typeof value === 'string')
+		{
+			return [cell(this.panel === 'files' ? 'place' : 'name', value)];
+		}
+
+		const where = value.filename ? `${value.filename}:${value.lineNo}` : 'internal';
+
+		if(this.panel !== 'frames')
+		{
+			return [cell('name', value.name), cell('place', where, ' — ')];
+		}
+
+		const owner = value.className ? phpClassLabel(value.className) + '::' : '';
+		// An empty function name is top-level code.
+		const callee = value.functionName ? `${owner}${value.functionName}()` : '{main}';
+
+		return [
+			cell('index', String(value.frame), 'Frame ')
+			, ...named ? [cell('name', callee, ' · ')] : []
+			, cell('place', where, ' — ')
+		];
 	}
 
 	gutterUpdate()
 	{
 		const dbg = this.dbg;
-		// Rebuilt whole; focus goes back to the neighbour of a removed breakpoint, or to the box.
-		const active = this.root.getRootNode().activeElement;
-		const focused = this.breakpointList.contains(active)
-			? [...this.breakpointList.querySelectorAll('input, button')].indexOf(active)
-			: -1;
 
-		this.breakpointList.replaceChildren();
-
-		// In reading order: the file on screen first, then by line.
-		const listed = [...dbg.breakpoints].sort(
-			(a, b) => (a.file !== dbg.options.entrypoint) - (b.file !== dbg.options.entrypoint)
-				|| a.file.localeCompare(b.file)
-				|| a.line - b.line
-		);
-
-		for(const bp of listed)
-		{
-			// The file is named only when it is not the one on screen.
-			const where = bp.file === dbg.options.entrypoint
-				? `Line ${bp.line}`
-				: `${bp.file}:${bp.line}`;
-
-			const item = node('li', 'php-debugger-breakpoint');
-			const label = node('label', 'php-debugger-breakpoint-toggle');
-			const toggle = node('input');
-			const remove = node('button', 'php-debugger-breakpoint-remove', '\u00d7');
-
-			item.dataset.enabled = String(bp.enabled);
-			toggle.type = 'checkbox';
-			toggle.checked = bp.enabled;
-			toggle.title = 'Untick to keep this breakpoint but not stop at it';
-			label.append(toggle, where);
-
-			toggle.addEventListener(
-				'change'
-				, () => this.act(
-					() => dbg.setBreakpoints(
-						dbg.breakpoints.map(
-							b => b.id === bp.id ? {...b, enabled: toggle.checked} : b
-						)
-					)
-				)
-			);
-
-			remove.type = 'button';
-			remove.title = 'Remove';
-			remove.setAttribute('aria-label', `Remove breakpoint, ${where.toLowerCase()}`);
-
-			remove.addEventListener(
-				'click'
-				, () => this.act(
-					() => dbg.setBreakpoints(dbg.breakpoints.filter(b => b.id !== bp.id))
-				)
-			);
-
-			item.append(label, remove);
-			this.breakpointList.append(item);
-		}
-
-		if(!dbg.breakpoints.length)
-		{
-			this.breakpointList.append(
-				node('li', 'php-debugger-empty', 'No breakpoints. Click a line number to set one.')
-			);
-		}
-
-		// The Breakpoints tab counts them.
-		this.showCounts(this.counts);
-
-		if(focused >= 0)
-		{
-			const controls = [...this.breakpointList.querySelectorAll('input, button')];
-
-			(controls[Math.min(focused, controls.length - 1)] || this.breakpointLine).focus();
-		}
+		this.listBreakpoints();
 
 		dbg.source?.setBreakpoints?.(
 			dbg.breakpoints.filter(bp => bp.file === dbg.options.entrypoint)
 		);
 
-		if(!this.gutter)
+		if(this.gutter)
 		{
-			return;
+			this.drawGutter();
 		}
+	}
+
+	/** The built-in editor's line numbers, one for each line, with the breakpoints on them. */
+	drawGutter()
+	{
+		const dbg = this.dbg;
 
 		// The numbers are rebuilt whole; a breakpoint set from the keyboard must keep its place.
 		const held = this.gutter.contains(this.root.getRootNode().activeElement);
@@ -1255,15 +1710,24 @@ export class DebuggerView
 		{
 			const b = node('button', 'php-debugger-line', String(line));
 
-			const enabled = dbg.breakpoints.some(
+			const bp = dbg.breakpoints.find(
 				bp => bp.file === dbg.options.entrypoint && bp.line === line && bp.enabled
 			);
 
 			b.type = 'button';
 			b.tabIndex = line === this.gutterLine ? 0 : -1;
 			b.setAttribute('aria-label', `Breakpoint on line ${line}`);
-			b.setAttribute('aria-pressed', String(enabled));
-			b.dataset.breakpoint = String(enabled);
+			b.setAttribute('aria-pressed', String(!!bp));
+			b.dataset.breakpoint = String(!!bp);
+
+			// A logpoint's mark is a diamond, and a conditional one's is hollow; the title says
+			// what either does.
+			if(bp?.log || bp?.condition)
+			{
+				b.dataset.log = String(!!bp.log);
+				b.dataset.condition = String(!!bp.condition);
+				b.title = this.breakpointDoes(bp).flat().join('');
+			}
 
 			b.addEventListener('click', () => this.act(() => this.toggleBreakpoint(line)));
 
@@ -1274,6 +1738,335 @@ export class DebuggerView
 		{
 			this.gutter.children[this.gutterLine - 1].focus();
 		}
+	}
+
+	/**
+	 * The Breakpoints panel's list, rebuilt whole. Focus goes back to the control asked for, or to
+	 * the neighbour of a removed breakpoint, or to the box.
+	 */
+	listBreakpoints()
+	{
+		const dbg = this.dbg;
+		const active = this.root.getRootNode().activeElement;
+		const focused = this.breakpointList.contains(active)
+			? [...this.breakpointList.querySelectorAll('input, button')].indexOf(active)
+			: -1;
+
+		// A form open on a breakpoint that is gone goes with it, and the form kept from the last
+		// list is this one's only while it is still the one open.
+		if(!dbg.breakpoints.some(bp => bp.id === this.editingBreakpoint))
+		{
+			this.editingBreakpoint = null;
+		}
+
+		if(this.breakpointForm?.id !== this.editingBreakpoint)
+		{
+			this.breakpointForm = null;
+		}
+
+		// Whether what is being typed in is the form: it is put back as it is, with its focus.
+		const typing = !!this.breakpointForm?.form.contains(active);
+
+		this.breakpointList.replaceChildren();
+
+		// In reading order: the file on screen first, then by line.
+		const listed = [...dbg.breakpoints].sort(
+			(a, b) => (a.file !== dbg.options.entrypoint) - (b.file !== dbg.options.entrypoint)
+				|| a.file.localeCompare(b.file)
+				|| a.line - b.line
+		);
+
+		for(const bp of listed)
+		{
+			this.breakpointList.append(this.breakpointRow(bp));
+		}
+
+		if(!dbg.breakpoints.length)
+		{
+			this.breakpointList.append(
+				node('li', 'php-debugger-empty', 'No breakpoints. Click a line number to set one.')
+			);
+		}
+
+		// The Breakpoints tab counts them.
+		this.showCounts(this.counts);
+
+		const asked = this.breakpointFocus;
+
+		this.breakpointFocus = null;
+
+		if(asked)
+		{
+			const rows = [...this.breakpointList.children];
+
+			rows.find(item => item.dataset.id === asked.id)?.querySelector(asked.part).focus();
+		}
+		else if(typing)
+		{
+			active.focus();
+		}
+		else if(focused >= 0)
+		{
+			const controls = [...this.breakpointList.querySelectorAll('input, button')];
+
+			(controls[Math.min(focused, controls.length - 1)] || this.breakpointLine).focus();
+		}
+	}
+
+	/** What a breakpoint does besides pausing, as words and the PHP they name. */
+	breakpointDoes(bp)
+	{
+		return [
+			...bp.log ? [['logs ', bp.log]] : []
+			, ...bp.condition ? [[bp.log ? ' when ' : 'when ', bp.condition]] : []
+		];
+	}
+
+	/** Where a breakpoint is: the file is named only when it is not the one on screen. */
+	breakpointPlace(bp)
+	{
+		const {file, line} = bp;
+
+		return file === this.dbg.options.entrypoint ? `Line ${line}` : `${file}:${line}`;
+	}
+
+	/**
+	 * One breakpoint in the Breakpoints panel: whether it is on, where it is, what it checks and
+	 * logs, then Edit and Remove. Edit opens the form for its condition and its log.
+	 */
+	breakpointRow(bp)
+	{
+		const dbg = this.dbg;
+		const where = this.breakpointPlace(bp);
+		const editing = this.editingBreakpoint === bp.id;
+
+		const item = node('li', 'php-debugger-breakpoint');
+		const label = node('label', 'php-debugger-breakpoint-toggle');
+		const toggle = node('input');
+		const detail = node('span', 'php-debugger-breakpoint-detail');
+		const edit = node('button', 'php-debugger-breakpoint-edit', 'Edit');
+		const remove = node('button', 'php-debugger-breakpoint-remove', '×');
+
+		item.dataset.id = bp.id;
+		item.dataset.enabled = String(bp.enabled);
+		toggle.type = 'checkbox';
+		toggle.checked = bp.enabled;
+		toggle.title = 'Untick to keep this breakpoint but not stop at it';
+		label.append(toggle, where);
+
+		for(const [words, php] of this.breakpointDoes(bp))
+		{
+			detail.append(words, node('code', '', php));
+		}
+
+		/** The breakpoints with this one switched on or off as its box says. */
+		const switched = () => dbg.breakpoints.map(
+			b => b.id === bp.id ? {...b, enabled: toggle.checked} : b
+		);
+
+		toggle.addEventListener('change', () => this.act(() => dbg.setBreakpoints(switched())));
+
+		edit.type = 'button';
+		edit.setAttribute('aria-label', `Edit breakpoint, ${where.toLowerCase()}`);
+		edit.setAttribute('aria-expanded', String(editing));
+
+		edit.addEventListener('click', () => {
+			this.editingBreakpoint = editing ? null : bp.id;
+
+			const part = editing ? 'edit' : 'start';
+
+			this.breakpointFocus = {id: bp.id, part: `.php-debugger-breakpoint-${part}`};
+
+			this.listBreakpoints();
+
+			// The panel scrolls; the whole form comes into view, its buttons included.
+			this.breakpointList.querySelector('.php-debugger-breakpoint-settings')
+				?.scrollIntoView({block: 'nearest'});
+		});
+
+		remove.type = 'button';
+		remove.title = 'Remove';
+		remove.setAttribute('aria-label', `Remove breakpoint, ${where.toLowerCase()}`);
+
+		/** The breakpoints without this one. */
+		const others = () => dbg.breakpoints.filter(b => b.id !== bp.id);
+
+		remove.addEventListener('click', () => this.act(() => dbg.setBreakpoints(others())));
+
+		item.append(label, detail, edit, remove);
+
+		// The form is built when it opens and kept while it stays open, so what has been ticked
+		// and typed in it but not applied outlives the list being built again around it.
+		if(editing)
+		{
+			this.breakpointForm ??= {id: bp.id, form: this.breakpointSettings(bp)};
+			item.append(this.breakpointForm.form);
+		}
+
+		return item;
+	}
+
+	/**
+	 * The form under a breakpoint for its condition and its log, each explained under its box. A
+	 * sentence under both says what the breakpoint will do with what is typed, as it is typed.
+	 * Enter applies, Escape cancels.
+	 */
+	breakpointSettings(bp)
+	{
+		const form = node('form', 'php-debugger-breakpoint-settings');
+
+		const condition = this.breakpointField(
+			form
+			, 'condition'
+			, 'Condition'
+			, bp.condition
+			, 'PHP expression that must be true for the breakpoint to stop.'
+		);
+
+		const log = this.breakpointField(
+			form
+			, 'log'
+			, 'Log message'
+			, bp.log
+			, 'PHP expression whose value is printed instead of stopping.'
+		);
+
+		const outcome = node('p', 'php-debugger-breakpoint-outcome');
+		const actions = node('div', 'php-debugger-breakpoint-actions');
+		const apply = node('button', 'php-debugger-button', 'Apply');
+		const cancel = node('button', 'php-debugger-button', 'Cancel');
+
+		/** Say what the breakpoint will do with what is ticked and typed now. */
+		const describe = () => outcome.replaceChildren(
+			...this.breakpointOutcome(bp, condition.value(), log.value())
+		);
+
+		/** Close the form, and go back to the row's Edit button. */
+		const close = () => {
+			this.editingBreakpoint = null;
+			this.breakpointFocus = {id: bp.id, part: '.php-debugger-breakpoint-edit'};
+		};
+
+		apply.type = 'submit';
+		cancel.type = 'button';
+		form.addEventListener('input', describe);
+		describe();
+
+		// The form stays open when the change is refused, as it is while PHP runs.
+		form.addEventListener('submit', event => {
+			event.preventDefault();
+
+			const changed = this.dbg.breakpoints.map(
+				b => b.id === bp.id ? {...b, condition: condition.value(), log: log.value()} : b
+			);
+
+			void this.act(async() => {
+				await this.dbg.setBreakpoints(changed);
+				close();
+				this.listBreakpoints();
+			});
+		});
+
+		cancel.addEventListener('click', () => {
+			close();
+			this.listBreakpoints();
+		});
+
+		form.addEventListener('keydown', event => {
+			if(event.key === 'Escape')
+			{
+				event.preventDefault();
+				cancel.click();
+			}
+		});
+
+		actions.append(apply, cancel);
+		form.append(outcome, actions);
+
+		// The form opens on the first PHP it holds, or on the Condition checkbox.
+		const ticked = [condition, log].find(field => field.toggle.checked);
+		const start = ticked?.input ?? condition.toggle;
+
+		start.classList.add('php-debugger-breakpoint-start');
+
+		return form;
+	}
+
+	/**
+	 * What a breakpoint will do, as a sentence with its PHP in code: "Prints $total when $i > 2
+	 * is true at line 6, without stopping."
+	 */
+	breakpointOutcome(bp, condition, log)
+	{
+		const where = this.breakpointPlace(bp).replace(/^Line/, 'line');
+
+		/** A piece of PHP, set as code. */
+		const php = text => node('code', '', text);
+
+		if(log && condition)
+		{
+			const rest = ` is true at ${where}, without stopping.`;
+
+			return ['Prints ', php(log), ' when ', php(condition), rest];
+		}
+
+		if(log)
+		{
+			return ['Prints ', php(log), ` each time ${where} runs, without stopping.`];
+		}
+
+		return condition
+			? [`Stops at ${where} when `, php(condition), ' is true.']
+			: [`Stops each time ${where} runs.`];
+	}
+
+	/**
+	 * One part of the breakpoint form: a checkbox that turns it on, what it does, and, while it is
+	 * on, the box for its PHP. Turned off, what was typed stays in the box but does not count.
+	 */
+	breakpointField(form, key, name, value, help)
+	{
+		const id = `${this.id}-breakpoint-${key}`;
+		const field = node('div', 'php-debugger-breakpoint-field');
+		const toggle = node('input', 'php-debugger-breakpoint-on');
+		const label = node('label', 'php-debugger-breakpoint-label', name);
+		const hint = node('span', 'php-debugger-breakpoint-hint', help);
+		const input = node('input', 'php-debugger-breakpoint-expression');
+
+		toggle.type = 'checkbox';
+		toggle.id = `${id}-on`;
+		toggle.checked = !!value;
+		label.htmlFor = toggle.id;
+		hint.id = `${id}-hint`;
+
+		input.id = id;
+		input.value = value ?? '';
+		input.hidden = !toggle.checked;
+		input.spellcheck = false;
+		input.autocomplete = 'off';
+		input.setAttribute('aria-label', name);
+
+		for(const control of [toggle, input])
+		{
+			control.setAttribute('aria-describedby', hint.id);
+		}
+
+		// Ticked, the box appears and takes the typing, and the form, now taller, stays in view;
+		// unticked, the box goes.
+		toggle.addEventListener('change', () => {
+			input.hidden = !toggle.checked;
+
+			if(toggle.checked)
+			{
+				input.focus();
+				form.scrollIntoView({block: 'nearest'});
+			}
+		});
+
+		field.append(toggle, label, hint, input);
+		form.append(field);
+
+		return {toggle, input, value: () => toggle.checked ? input.value.trim() : ''};
 	}
 
 	/** Make one line number the gutter's tab stop. */
@@ -1404,9 +2197,15 @@ export class DebuggerView
 
 		this.markTabs();
 
-		// The breakpoints are the view's own, there at any time: nothing is loaded for them.
+		// The breakpoints are the view's own, there at any time: nothing is loaded for them. The
+		// counts on the other tabs still follow the pause.
 		if(this.panel === 'breakpoints')
 		{
+			if(this.dbg.state === 'paused')
+			{
+				await this.recount(generation, {});
+			}
+
 			return;
 		}
 
@@ -1420,7 +2219,20 @@ export class DebuggerView
 		// What this panel held, for the count on its tab.
 		const loaded = {};
 
-		await this.act(async() => {
+		/** Whether this refresh is still the one to show: not overtaken, and its run not ending. */
+		const wanted = () => generation === this.refreshNumber
+			&& this.dbg.state === 'paused'
+			&& !this.dbg.active?.finishing;
+
+		/** Load the panel and show it. */
+		const load = async() => {
+			if(this.panel === 'opcodes')
+			{
+				await this.showOpcodes(generation);
+
+				return;
+			}
+
 			let values = this.panel === 'watches'
 				? await Promise.all(this.watches.map(expression => this.watchValue(expression)))
 				: await this.dbg.inspect(this.panel);
@@ -1448,6 +2260,10 @@ export class DebuggerView
 				const rows = new Map();
 				const nodes = [];
 
+				// An open edit form goes into the new list as that is built, and the caret
+				// leaves its box then; it is given back once the list is on show.
+				const typing = this.typingIn();
+
 				for(const value of values)
 				{
 					nodes.push(await this.valueNode(value, [this.panel, value.name], rows));
@@ -1458,7 +2274,8 @@ export class DebuggerView
 					return;
 				}
 
-				const scrolled = this.content.scrollTop;
+				const scrolled = this.scrolled();
+
 				const held = this.holdFocus();
 
 				this.rows = rows;
@@ -1479,53 +2296,42 @@ export class DebuggerView
 				}
 
 				this.returnFocus(held);
+
+				if(this.content.contains(typing))
+				{
+					typing.focus();
+				}
 			}
 			else
 			{
 				const rows = new Map();
+				const listed = Array.isArray(values) ? values : Object.values(values);
+				const list = this.symbolList(listed, rows);
+
+				const scrolled = this.scrolled();
 				const held = this.holdFocus();
 
 				this.rows = rows;
-				this.content.replaceChildren();
-
-				for(const value of Array.isArray(values) ? values : Object.values(values))
-				{
-					const item = node(
-						'button'
-						, 'php-debugger-symbol'
-						, typeof value === 'string'
-							? value
-							: this.panel === 'frames'
-								? this.frameLabel(value)
-								: `${value.name} — ${value.filename}:${value.lineNo}`
-					);
-
-					item.type = 'button';
-
-					if(this.panel === 'frames' && value.selected)
-					{
-						item.setAttribute('aria-current', 'true');
-					}
-
-					item.addEventListener('click', () => this.act(() => this.openSymbol(value)));
-
-					this.control(rows, `symbol ${rows.size}`, item);
-					this.content.append(item);
-				}
 
 				// An empty panel says so rather than showing nothing.
-				if(!rows.size)
-				{
-					const empty = `No ${this.panel} here yet.`;
+				this.content.replaceChildren(
+					rows.size ? list : node('p', 'php-debugger-empty', `No ${this.panel} here yet.`)
+				);
 
-					this.content.append(node('p', 'php-debugger-empty', empty));
-				}
-
+				this.content.scrollTop = scrolled;
 				this.returnFocus(held);
 			}
-		});
+		};
 
-		if(generation === this.refreshNumber && this.dbg.state === 'paused')
+		// A run stopped while its values were on their way has nothing wrong to report.
+		await this.act(() => load().catch(error => {
+			if(wanted())
+			{
+				throw error;
+			}
+		}));
+
+		if(wanted())
 		{
 			await this.recount(generation, loaded);
 		}
@@ -1665,6 +2471,16 @@ export class DebuggerView
 			this.control(rows, `edit ${key}`, edit);
 			line.append(edit);
 			edit.addEventListener('click', () => this.editValue(value, key, line, edit));
+
+			// A form left open on this value goes where its button now is.
+			const open = this.editForms.get(key);
+
+			if(open)
+			{
+				open.edit = edit;
+				edit.hidden = true;
+				line.append(open.form);
+			}
 		}
 
 		return row;
@@ -1681,12 +2497,16 @@ export class DebuggerView
 
 		input.setAttribute('aria-label', `New PHP expression for ${value.name}`);
 		input.spellcheck = false;
+		// The box starts with the value as PHP would write it, so that applying it unchanged
+		// changes nothing.
 		input.value = value.type === 'string'
-			? "'" + String(value.value).replaceAll('\\', '\\\\').replaceAll("'", "\\'")
-				+ "'"
+			? phpLiteral(value.value)
 			: value.type === 'unset' || value.expandable || value.circular
 				? ''
 				: value.displayValue;
+
+		// The form, and the Edit button it stands in for, which a refresh replaces.
+		const open = {form, edit};
 
 		save.type = 'submit';
 		cancel.type = 'button';
@@ -1694,13 +2514,15 @@ export class DebuggerView
 		form.append(input, save, cancel, problem);
 		line.append(form);
 		edit.hidden = true;
+		this.editForms.set(key, open);
 		input.focus();
 		input.select();
 
 		const close = () => {
+			this.editForms.delete(key);
 			form.remove();
-			edit.hidden = false;
-			edit.focus();
+			open.edit.hidden = false;
+			open.edit.focus();
 		};
 
 		cancel.addEventListener('click', close);
@@ -1717,6 +2539,10 @@ export class DebuggerView
 			event.preventDefault();
 			problem.textContent = '';
 			input.removeAttribute('aria-invalid');
+
+			// The list is built again here, once, with focus on this value's button; the change
+			// the debugger announces meanwhile needs no refresh of its own.
+			this.applying = true;
 
 			try
 			{
@@ -1736,11 +2562,34 @@ export class DebuggerView
 
 				return;
 			}
+			finally
+			{
+				this.applying = false;
+			}
 
 			// The form goes with the old list; focus belongs back on the button that opened it.
+			this.editForms.delete(key);
 			this.focusKey = `edit ${key}`;
 			await this.refresh();
 		});
+	}
+
+	/**
+	 * An adapter's editor inside the mount point moves into the interface, where the textarea
+	 * would be, as a textarea there does. It keeps its own look and size, and destroy() hands it
+	 * back.
+	 */
+	hostEditor(adapter)
+	{
+		const {element} = adapter;
+
+		this.hosted = {adapter, element, parent: element.parentNode, next: element.nextSibling};
+		this.hostedSlot = node('div', 'php-debugger-hosted-editor');
+		this.hostedSlot.append(element);
+		this.root.append(this.hostedSlot);
+
+		// Ace and CodeMirror measure themselves against their container.
+		adapter.layout?.();
 	}
 
 	destroy()
@@ -1765,15 +2614,27 @@ export class DebuggerView
 			restore('spellcheck', spellcheck);
 			restore('aria-label', label);
 
-			if(parent.isConnected)
-			{
-				parent.insertBefore(this.textarea, next?.parentNode === parent ? next : null);
-			}
+			// Back where it was, on the page or off it: a mount point taken off the page and put
+			// back later must find its textarea in it.
+			parent.insertBefore(this.textarea, next?.parentNode === parent ? next : null);
 		}
 		else if(this.dbg.source === this.textarea)
 		{
 			this.dbg.options.code = this.textarea.value;
 			this.dbg.source = null;
+		}
+
+		if(this.hosted)
+		{
+			const {adapter, element, parent, next} = this.hosted;
+
+			parent.insertBefore(element, next?.parentNode === parent ? next : null);
+
+			// An editor measures itself against the page; off it there is nothing to measure.
+			if(parent.isConnected)
+			{
+				adapter.layout?.();
+			}
 		}
 
 		this.root.remove();

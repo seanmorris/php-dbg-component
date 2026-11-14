@@ -1,5 +1,6 @@
 import {Compartment, StateEffect, StateField, RangeSet, EditorState} from '@codemirror/state';
 import {gutter, GutterMarker, Decoration, EditorView} from '@codemirror/view';
+import {breakpointMark} from './marks.mjs';
 
 /** Optional CodeMirror 6 integration; these peer imports never enter the core. */
 export function createCodeMirror6Adapter(view, {file = '/main.php'} = {})
@@ -15,11 +16,25 @@ export function createCodeMirror6Adapter(view, {file = '/main.php'} = {})
 	class Marker extends GutterMarker
 	{
 
+		constructor(bp)
+		{
+			super();
+			this.mark = breakpointMark(bp);
+		}
+
+		eq(other)
+		{
+			// The gutter draws a line's marker again only when it is not the one it has.
+			return ['className', 'title'].every(key => other.mark[key] === this.mark[key]);
+		}
+
 		toDOM()
 		{
 			const n = document.createElement('span');
-			n.className = 'php-debugger-breakpoint-marker';
-			n.textContent = '●';
+
+			n.className = this.mark.className;
+			n.textContent = this.mark.glyph;
+			n.title = this.mark.title;
 
 			return n;
 		}
@@ -38,7 +53,10 @@ export function createCodeMirror6Adapter(view, {file = '/main.php'} = {})
 				{
 					if(effect.is(change))
 					{
-						value = RangeSet.of(effect.value.map(from => marker.range(from)), true);
+						value = RangeSet.of(
+							effect.value.map(([from, bp]) => new Marker(bp).range(from))
+							, true
+						);
 					}
 				}
 
@@ -112,7 +130,9 @@ export function createCodeMirror6Adapter(view, {file = '/main.php'} = {})
 	);
 
 	return {
-		getCode: () => view.state.doc.toString()
+		element: view.dom
+		, layout: () => view.requestMeasure()
+		, getCode: () => view.state.doc.toString()
 		, setCode: code => view.dispatch(
 			{changes: {from: 0, to: view.state.doc.length, insert: code}}
 		)
@@ -138,7 +158,7 @@ export function createCodeMirror6Adapter(view, {file = '/main.php'} = {})
 				{
 					effects: change.of(
 						lines.filter(bp => bp.line <= view.state.doc.lines).map(
-							bp => view.state.doc.line(bp.line).from
+							bp => [view.state.doc.line(bp.line).from, bp]
 						)
 					)
 				}
@@ -150,11 +170,27 @@ export function createCodeMirror6Adapter(view, {file = '/main.php'} = {})
 				? view.state.doc.line(location.line).from
 				: null;
 
-			view.dispatch(
+			view.dispatch({effects: position.of(from)});
+
+			if(from === null)
+			{
+				return;
+			}
+
+			// A line out of view is put in the middle of the editor's own box. CodeMirror's
+			// scrollIntoView would move every box around the editor as well, the page included.
+			view.requestMeasure(
 				{
-					effects: [position.of(from)
-						, ...(from === null ? [] : [EditorView.scrollIntoView(from, {y: 'center'})])
-					]
+					read: () => view.lineBlockAt(from)
+					, write: block => {
+						const box = view.scrollDOM;
+						const top = view.documentTop + block.top - box.getBoundingClientRect().top;
+
+						if(top < 0 || top + block.height > box.clientHeight)
+						{
+							box.scrollTop += top - (box.clientHeight - block.height) / 2;
+						}
+					}
 				}
 			);
 		}

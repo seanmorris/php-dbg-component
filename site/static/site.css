@@ -136,43 +136,58 @@ a:hover { text-decoration-thickness: 2px; }
 .btn:disabled { opacity: .5; cursor: default; }
 .btn-primary { color: var(--paper); background: var(--link); border-color: var(--link); }
 .field { display: grid; gap: .2rem; font-size: .8rem; color: var(--ink-2); }
+/* A name under its box ends where the box does. */
+.field > select + label { justify-self: end; }
 
+/* The arrow is drawn, so it sits as far inside the right edge as the text does inside the left. */
 .field-select {
 	min-height: 2.5rem;
-	padding: .35rem .6rem;
+	padding: .35rem 1.9rem .35rem .6rem;
 	font: inherit;
 	font-size: .9rem;
 	color: var(--ink);
-	background: var(--paper);
+	background-color: var(--paper);
+	/* One triangle: two halves side by side leave a pale line where they meet. */
+	background-image: conic-gradient(from -45deg at 50% 100%, currentColor 90deg, transparent 0);
+	background-position: calc(100% - .6rem) 55%;
+	background-size: .6rem .3rem;
+	background-repeat: no-repeat;
 	border: 1px solid var(--rule-2);
 	border-radius: 4px;
+	appearance: none;
 }
 
-/* Landing page: wide bands, the debugger at working size. */
+/*
+ * Landing page: the hero spans the page, with the debugger at working size and what to try under
+ * it; the rest follows in the documentation pages' frame.
+ */
 
-.landing { padding-block: 0 3rem; }
-.hero { padding-block: 3.5rem 2.5rem; }
+.hero { padding-block: 3.5rem 2.5rem; border-bottom: 1px solid var(--rule); }
 .hero h1 { max-width: 20ch; margin: 0 0 1rem; font-size: clamp(2.1rem, 4.4vw, 3.2rem); line-height: 1.08; letter-spacing: -.025em; }
-.hero p { max-width: 40rem; margin: 0 0 1.5rem; font-size: 1.15rem; color: var(--ink-2); }
-.hero p:last-child { display: flex; flex-wrap: wrap; gap: .75rem; margin: 0; }
-.band { padding-block: 2.5rem; border-top: 1px solid var(--rule); scroll-margin-top: 1rem; }
-.band h2 { margin: 0 0 .5rem; font-size: 1.45rem; line-height: 1.25; }
-.band > p { max-width: var(--measure); margin: .5rem 0; }
-.band .note { font-size: .85rem; color: var(--ink-2); }
-.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 1rem 2.5rem; align-items: start; }
-.split > * { min-width: 0; }
-.split-text p { margin: .5rem 0; }
+.lede p { max-width: 40rem; margin: 0; font-size: 1.15rem; color: var(--ink-2); }
+/* The steps to try on the left; the example's controls opposite, at the right. */
+.try { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 2rem; align-items: start; margin-top: 1.5rem; }
+.try > :not(.demo-bar) { grid-column: 1; }
+.try .demo-bar { grid-column: 2; grid-row: 1 / span 2; justify-content: flex-end; align-items: start; gap: .5rem .6rem; margin: 0; }
+.try h2 { margin: 0 0 .5rem; font-size: 1.25rem; line-height: 1.25; }
+.try p { max-width: var(--measure); margin: .5rem 0; }
+/* An article that opens on a section, as the landing page's does, needs no rule above it. */
+.prose > h2:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .demo { margin-top: 1.25rem; }
 .demo-bar { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem 1.25rem; margin-bottom: .75rem; }
 /* Pandoc wraps inline HTML in a paragraph; the bar lays out its controls, not that paragraph. */
 .demo-bar > p, .try-result > p { display: contents; }
 .demo-problem { flex-basis: 100%; color: var(--stop); }
 .demo-problem:empty { display: none; }
-.try-result { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-top: 1rem; }
-.try-result output { font-family: var(--mono); font-size: .85rem; }
+/* The outcome beside its button; what a run logged goes under both, a line each. */
+.try-result { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin-top: 1rem; }
+.try-result output, .try-logs { font-family: var(--mono); font-size: .85rem; }
+/* A plain list of lines, not the article's spaced one. */
+.try-result .try-logs { flex-basis: 100%; margin: 0; padding: 0; list-style: none; line-height: 1.6; }
+.try-result .try-logs li { margin: 0; }
 .try-result output[data-status=failed] { color: var(--stop); }
-#editor-host:not(:empty) { height: 17rem; margin-bottom: .75rem; overflow: hidden; border: 1px solid var(--rule-2); border-radius: 4px; }
-#editor-host > .CodeMirror, #editor-host > .cm-editor, #editor-host > .ace_editor { height: 100%; }
+/* An editor in the debugger is as tall as its textarea. */
+.php-debugger .php-debugger-hosted-editor > :is(.CodeMirror, .cm-editor, .ace_editor) { height: 17rem; }
 
 /* The debugger takes the page's inks, and the paused line gets the amber. */
 
@@ -195,7 +210,7 @@ a:hover { text-decoration-thickness: 2px; }
 .php-debugger .php-debugger-console { background: var(--paper-2); }
 
 /* The markers the adapters put inside Ace and CodeMirror take the same amber and red. */
-#editor-host {
+.php-debugger .php-debugger-hosted-editor > * {
 	--php-debugger-active: color-mix(in srgb, var(--paused) 26%, transparent);
 	--php-debugger-paused: var(--paused);
 	--php-debugger-error: var(--stop);
@@ -203,10 +218,11 @@ a:hover { text-decoration-thickness: 2px; }
 
 /* Documentation pages: contents, article, outline. */
 
-.frame { display: grid; grid-template-columns: 14rem minmax(0, 1fr) 13rem; gap: 3rem; align-items: start; padding-block: 2.5rem 4rem; }
+.frame { display: grid; grid-template-columns: 11rem minmax(0, 1fr) 13rem; gap: 2.5rem; align-items: start; padding-block: 2.5rem 4rem; }
 .contents, .outline { position: sticky; top: 1.5rem; max-height: calc(100vh - 3rem); overflow: auto; font-size: .9rem; }
 .sheet { min-width: 0; }
-.contents-panel > summary { margin-bottom: .6rem; font-size: .75rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); cursor: pointer; }
+/* The button that folds the contents away on a phone; wider, the list is always shown. */
+.contents-toggle { display: none; }
 .contents ul, .outline ul { margin: 0; padding: 0; list-style: none; }
 .menu > ul > details, .menu > ul > li { margin-bottom: .9rem; }
 .menu summary { padding: .2rem 0; font-weight: 600; color: var(--ink); cursor: pointer; }
@@ -237,6 +253,13 @@ a:hover { text-decoration-thickness: 2px; }
 .prose table { display: block; width: 100%; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: .9rem; }
 .prose th, .prose td { padding: .55rem .7rem; border: 1px solid var(--rule); text-align: left; vertical-align: top; }
 .prose th { background: var(--paper-2); font-weight: 600; }
+/*
+ * Pandoc fixes a wide table's column widths from the dashes in its source; the browser sizes them
+ * from what they hold instead. Code in the first column stays on one line; on a phone it may
+ * wrap at a space or a hyphen, never inside a word.
+ */
+.prose col { width: auto !important; }
+.prose td:first-child code { overflow-wrap: normal; white-space: nowrap; }
 
 /* Code: ink, grey comments, blue keywords. */
 
@@ -255,17 +278,22 @@ code.sourceCode span:is(.co, .do, .in, .an, .cv) { color: var(--ink-2); font-sty
 code.sourceCode span:is(.al, .er) { color: var(--stop); }
 
 @media (max-width: 1100px) {
-	.frame { grid-template-columns: 13rem minmax(0, 1fr); gap: 2rem; }
+	.frame { grid-template-columns: 11rem minmax(0, 1fr); gap: 2rem; }
 	.outline { display: none; }
 }
 
 @media (max-width: 760px) {
+	.prose td:first-child code { white-space: normal; }
 	.wrap { padding-inline: 1rem; }
 	.frame { display: block; padding-block: 1.25rem 2.5rem; }
 	.contents { position: static; max-height: none; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--rule); }
+	.contents-toggle:not([hidden]) { display: inline-flex; align-items: center; gap: .5rem; min-height: 2.75rem; padding: 0 .9rem; font: inherit; font-weight: 600; color: var(--ink); background: none; border: 1px solid var(--rule-2); border-radius: 4px; cursor: pointer; }
+	.contents-toggle:hover { border-color: var(--ink-2); }
+	.contents-toggle:not([hidden])[aria-expanded="false"] ~ .contents-nav { display: none; }
+	.contents-toggle[aria-expanded="true"] ~ .contents-nav { margin-top: 1rem; }
 	.hero { padding-block: 2rem 1.5rem; }
-	.band { padding-block: 1.75rem; }
-	.split { grid-template-columns: minmax(0, 1fr); }
+	.try { grid-template-columns: minmax(0, 1fr); }
+	.try .demo-bar { grid-column: 1; grid-row: auto; justify-content: flex-start; margin-top: .75rem; }
 	.prose h1 { font-size: 1.6rem; }
 	pre { padding: .7rem .8rem; font-size: .8rem; }
 }

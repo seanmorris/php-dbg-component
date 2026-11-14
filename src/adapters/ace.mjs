@@ -1,3 +1,5 @@
+import {breakpointMark} from './marks.mjs';
+
 /** Bind an existing Ace instance without importing Ace or replacing its session. */
 export function createAceAdapter(editor, {file = '/main.php'} = {})
 {
@@ -50,7 +52,9 @@ export function createAceAdapter(editor, {file = '/main.php'} = {})
 	editor.on('guttermousedown', gutter);
 
 	return {
-		getCode: () => session.getValue()
+		element: editor.container
+		, layout: () => editor.resize(true)
+		, getCode: () => session.getValue()
 		, setCode: code => session.setValue(code)
 		, setReadOnly: readOnly => editor.setReadOnly(readOnly || originalReadOnly)
 
@@ -81,7 +85,7 @@ export function createAceAdapter(editor, {file = '/main.php'} = {})
 
 				session.setBreakpoint(
 					row
-					, [previous, 'php-debugger-breakpoint-marker'].filter(Boolean).join(' ')
+					, [previous, breakpointMark(bp).className].filter(Boolean).join(' ')
 				);
 			}
 		}

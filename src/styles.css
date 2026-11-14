@@ -8,7 +8,9 @@
  *    from anywhere and yours wins.
  * 2. Isolation. Everything inside .php-debugger starts from the browser's own
  *    styles, so page rules for bare elements (button, pre, ul), resets (*) and
- *    wrappers (.prose pre) do not restyle the debugger by accident.
+ *    wrappers (.prose pre) do not restyle the debugger by accident. An Ace or
+ *    CodeMirror editor moved into the debugger is left as it is, and so are
+ *    its own styles: no rule here for bare elements reaches into it.
  * 3. Appearance. Override the root with a .php-debugger rule, and a part by
  *    selecting it inside the root (.php-debugger .php-debugger-button), in a
  *    stylesheet loaded after this one.
@@ -59,7 +61,7 @@
 
 /* 2. Isolation. Two classes outrank a wrapper class with an element. */
 
-.php-debugger.php-debugger * {
+.php-debugger.php-debugger :where(:not(.php-debugger-hosted-editor *)) {
 	all: revert;
 	box-sizing: border-box;
 }
@@ -79,7 +81,9 @@
 	border-radius: var(--php-debugger-radius);
 }
 
-.php-debugger.php-debugger :where(button, select, textarea, input:not([type=checkbox])) {
+.php-debugger.php-debugger :where(
+	button, select, textarea, input:not([type=checkbox])
+):where(:not(.php-debugger-hosted-editor *)) {
 	padding: .3em .5em;
 	font: inherit;
 	color: inherit;
@@ -88,16 +92,25 @@
 	border-radius: var(--php-debugger-radius);
 }
 
-.php-debugger.php-debugger :where(button) {
+/*
+ * The browser draws a select's list from the select's colours. More is a tab, with no background
+ * of its own, so on a dark page its list would be the browser's white under light text.
+ */
+.php-debugger.php-debugger :where(option):where(:not(.php-debugger-hosted-editor *)) {
+	color: var(--php-debugger-fg);
+	background-color: var(--php-debugger-bg);
+}
+
+.php-debugger.php-debugger :where(button):where(:not(.php-debugger-hosted-editor *)) {
 	cursor: pointer;
 }
 
-.php-debugger.php-debugger :where(button:disabled) {
+.php-debugger.php-debugger :where(button:disabled):where(:not(.php-debugger-hosted-editor *)) {
 	opacity: .45;
 	cursor: default;
 }
 
-.php-debugger.php-debugger :where(:focus-visible) {
+.php-debugger.php-debugger :where(:focus-visible):where(:not(.php-debugger-hosted-editor *)) {
 	outline: 2px solid var(--php-debugger-accent);
 	outline-offset: 2px;
 }
@@ -132,6 +145,28 @@
 	color: var(--php-debugger-muted);
 }
 
+/*
+ * A box's arrow is drawn, so it sits as far inside the right edge as the text does inside the
+ * left; the browser's own sits against the border. It is one triangle in the text's colour: two
+ * halves drawn side by side leave a pale line where they meet.
+ */
+:where(.php-debugger) {
+	--php-debugger-arrow: conic-gradient(
+		from -45deg at 50% 100%, currentColor 90deg, transparent 0
+	);
+}
+
+.php-debugger .php-debugger-version,
+.php-debugger .php-debugger-opcodes-scope {
+	appearance: none;
+	padding-right: 1.6em;
+	cursor: pointer;
+	background-image: var(--php-debugger-arrow);
+	background-position: calc(100% - .5em) 55%;
+	background-size: .6em .3em;
+	background-repeat: no-repeat;
+}
+
 /* The status line is the foot of the box: edge to edge, under a rule of its own. */
 .php-debugger .php-debugger-status {
 	margin: 0 -1em -.4em;
@@ -151,6 +186,20 @@
 	overflow: hidden;
 	font-family: var(--php-debugger-font);
 	background: var(--php-debugger-bg);
+	border: 1px solid var(--php-debugger-border);
+}
+
+/*
+ * An Ace or CodeMirror editor moved in from the page sits where the textarea would, in the same
+ * frame, at the size the page gives it. Its markers keep the colours they have outside: their
+ * fallbacks, which show on any editor theme, or the variables set on the editor itself.
+ */
+.php-debugger .php-debugger-hosted-editor {
+	--php-debugger-active: initial;
+	--php-debugger-paused: initial;
+	--php-debugger-error: initial;
+	min-width: 0;
+	overflow: hidden;
 	border: 1px solid var(--php-debugger-border);
 }
 
@@ -181,6 +230,17 @@
 	background: currentColor;
 	transform: translate(-50%, -50%);
 	pointer-events: none;
+}
+
+/* A logpoint is a diamond; a breakpoint with a condition, either kind, is hollow. */
+.php-debugger .php-debugger-line[data-breakpoint=true][data-log=true]::before {
+	border-radius: 0;
+	transform: translate(-50%, -50%) rotate(45deg) scale(.9);
+}
+
+.php-debugger .php-debugger-line[data-breakpoint=true][data-condition=true]::before {
+	background: transparent;
+	box-shadow: inset 0 0 0 .13em currentColor;
 }
 
 /*
@@ -240,8 +300,168 @@
 }
 
 /* What is not a table row keeps off the box's edges. */
-.php-debugger .php-debugger-values > :is(.php-debugger-symbol, .php-debugger-empty) {
+.php-debugger .php-debugger-values > .php-debugger-empty {
 	margin: .4em;
+}
+
+/*
+ * Frames, functions, classes and files: a row each, across the panel, chosen with a click or
+ * with Enter. The rows share their columns, so the places line up down the list.
+ */
+.php-debugger .php-debugger-symbols {
+	display: grid;
+	grid-template-columns: minmax(8em, 30%) minmax(0, 1fr);
+	column-gap: .75em;
+}
+
+.php-debugger .php-debugger-symbols[data-layout=frames] {
+	grid-template-columns: auto minmax(0, 1fr);
+}
+
+.php-debugger .php-debugger-symbols[data-layout=named-frames] {
+	grid-template-columns: auto minmax(8em, 30%) minmax(0, 1fr);
+}
+
+.php-debugger .php-debugger-symbols[data-layout=files] {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+.php-debugger .php-debugger-symbol {
+	position: relative;
+	display: grid;
+	grid-column: 1 / -1;
+	grid-template-columns: subgrid;
+	align-items: center;
+	padding: .25em .4em;
+	cursor: pointer;
+	border-bottom: 1px solid var(--php-debugger-border);
+}
+
+.php-debugger .php-debugger-symbol:hover {
+	background: color-mix(in srgb, var(--php-debugger-fg) 5%, transparent);
+}
+
+/* The chosen row has the accent's tint and a bar at its start. */
+.php-debugger .php-debugger-symbol[aria-selected=true] {
+	background: color-mix(in srgb, var(--php-debugger-accent) 14%, transparent);
+	box-shadow: inset 3px 0 var(--php-debugger-accent);
+}
+
+/* The panel scrolls, so a ring outside a row would be cut off. */
+.php-debugger.php-debugger .php-debugger-symbol:focus-visible {
+	outline-offset: -2px;
+}
+
+.php-debugger .php-debugger-symbol > * {
+	min-width: 0;
+}
+
+/* A function listed by its name alone has the whole row. */
+.php-debugger .php-debugger-symbol > :only-child {
+	grid-column: 1 / -1;
+}
+
+.php-debugger .php-debugger-symbol-index {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+	color: var(--php-debugger-muted);
+}
+
+.php-debugger .php-debugger-symbol-name {
+	font-weight: 600;
+}
+
+/*
+ * The Opcodes panel: what to list, then a table for each function. The op the paused frame
+ * stands on has the paused line's band and bar.
+ */
+.php-debugger .php-debugger-opcodes-bar {
+	padding: .4em;
+	font-family: inherit;
+	border-bottom: 1px solid var(--php-debugger-border);
+}
+
+.php-debugger .php-debugger-opcodes-label {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .35em;
+	align-items: center;
+	color: var(--php-debugger-muted);
+}
+
+.php-debugger .php-debugger-opcodes {
+	width: 100%;
+	font-size: .9em;
+	border-collapse: collapse;
+}
+
+.php-debugger .php-debugger-opcodes caption {
+	padding: .6em .4em .3em;
+	font-weight: 600;
+	text-align: left;
+}
+
+.php-debugger .php-debugger-opcodes-where {
+	margin-left: .6em;
+	font-weight: 400;
+	color: var(--php-debugger-muted);
+}
+
+.php-debugger .php-debugger-opcodes :is(th, td) {
+	padding: .2em .4em;
+	text-align: left;
+	vertical-align: baseline;
+	white-space: nowrap;
+	border-bottom: 1px solid var(--php-debugger-border);
+}
+
+/* The column names stay at the top while the ops scroll under them. */
+.php-debugger .php-debugger-opcodes th {
+	position: sticky;
+	top: 0;
+	font-size: .85em;
+	font-weight: 600;
+	color: var(--php-debugger-muted);
+	background: var(--php-debugger-bg);
+}
+
+.php-debugger .php-debugger-opcodes :is(.php-debugger-opcode-line, .php-debugger-opcode-index) {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+	color: var(--php-debugger-muted);
+}
+
+.php-debugger .php-debugger-opcode {
+	font-weight: 600;
+}
+
+/*
+ * The operands take the room that is left and wrap between them, never inside one: where even
+ * that is too narrow, the panel scrolls sideways.
+ */
+.php-debugger .php-debugger-opcodes .php-debugger-opcode-operands {
+	width: 100%;
+	white-space: normal;
+	overflow-wrap: normal;
+}
+
+/* A jump target is a link to its op, and the op last jumped to is tinted until the next jump. */
+.php-debugger .php-debugger-opcodes .php-debugger-opcode-jump {
+	color: var(--php-debugger-accent);
+	text-decoration: underline;
+	text-underline-offset: .15em;
+}
+
+.php-debugger .php-debugger-opcodes tr[data-jumped] td {
+	background: color-mix(in srgb, var(--php-debugger-accent) 14%, transparent);
+}
+
+.php-debugger .php-debugger-opcodes tr[aria-current] td {
+	background: var(--php-debugger-active);
+}
+
+.php-debugger .php-debugger-opcodes tr[aria-current] td:first-child {
+	box-shadow: inset 3px 0 var(--php-debugger-paused);
 }
 
 /* Each bar's rule is the top of its box. */
@@ -294,9 +514,9 @@
 	color: var(--php-debugger-muted);
 }
 
-/* Room for a scrollbar is kept, so a list that grows long enough to scroll does not narrow. */
-.php-debugger .php-debugger-values {
-	scrollbar-gutter: stable;
+/* What a logpoint printed: the user's own instrument, in the accent, not program output. */
+.php-debugger .php-debugger-output-log {
+	color: var(--php-debugger-accent);
 }
 
 /*
@@ -368,16 +588,14 @@
 	background: var(--php-debugger-border);
 }
 
-/* A select drawn as a tab, with a chevron in its text colour. */
+/* A select drawn as a tab, with an arrow in its text colour. */
 .php-debugger .php-debugger-tab-more {
 	appearance: none;
 	padding-right: 1.6em;
 	cursor: pointer;
-	background-image:
-		linear-gradient(45deg, transparent 50%, currentColor 50%),
-		linear-gradient(135deg, currentColor 50%, transparent 50%);
-	background-position: calc(100% - .95em) 55%, calc(100% - .65em) 55%;
-	background-size: .3em .3em;
+	background-image: var(--php-debugger-arrow);
+	background-position: calc(100% - .65em) 55%;
+	background-size: .6em .3em;
 	background-repeat: no-repeat;
 }
 
@@ -422,7 +640,7 @@
 	font-weight: 600;
 }
 
-.php-debugger .php-debugger-value-colon {
+.php-debugger :is(.php-debugger-value-colon, .php-debugger-symbol-spoken) {
 	position: absolute;
 	width: 1px;
 	height: 1px;
@@ -536,17 +754,6 @@
 	color: var(--php-debugger-muted);
 }
 
-.php-debugger .php-debugger-symbol {
-	display: block;
-	margin: .3em 0;
-	text-align: left;
-}
-
-.php-debugger .php-debugger-symbol[aria-current=true] {
-	color: var(--php-debugger-accent);
-	border-color: currentColor;
-}
-
 .php-debugger .php-debugger-expression {
 	flex: 1;
 	min-width: 10em;
@@ -597,17 +804,97 @@
 	list-style: none;
 }
 
+/* Its place, what it checks and logs, then Edit and Remove; the form for those opens below. */
 .php-debugger .php-debugger-breakpoint {
-	display: flex;
-	gap: .5em;
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto auto;
+	gap: .3em .5em;
 	align-items: center;
-	justify-content: space-between;
 	padding: .25em .4em;
 	border-bottom: 1px solid var(--php-debugger-border);
 }
 
-.php-debugger .php-debugger-breakpoint:hover {
-	background: color-mix(in srgb, var(--php-debugger-fg) 5%, transparent);
+.php-debugger .php-debugger-breakpoint-detail {
+	font-size: .9em;
+	color: var(--php-debugger-muted);
+	overflow-wrap: anywhere;
+}
+
+.php-debugger .php-debugger-breakpoint-detail code {
+	font-family: var(--php-debugger-font);
+	color: var(--php-debugger-fg);
+}
+
+.php-debugger .php-debugger-breakpoint-edit {
+	padding: .1em .45em;
+	font-size: .8em;
+}
+
+.php-debugger .php-debugger-breakpoint-settings {
+	display: grid;
+	grid-column: 1 / -1;
+	gap: .6em;
+	margin: .3em 0 .2em;
+	padding: .6em;
+	background: color-mix(in srgb, var(--php-debugger-fg) 4%, var(--php-debugger-bg));
+	border: 1px solid var(--php-debugger-border);
+	border-radius: var(--php-debugger-radius);
+}
+
+/*
+ * A checkbox and its name, what it does in small type under the name, and, while it is ticked,
+ * the box for its PHP, all in line with the name.
+ */
+.php-debugger .php-debugger-breakpoint-field {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	gap: .25em .45em;
+	align-items: center;
+}
+
+.php-debugger .php-debugger-breakpoint-field > :not(.php-debugger-breakpoint-on) {
+	grid-column: 2;
+}
+
+.php-debugger .php-debugger-breakpoint-on {
+	margin: 0;
+}
+
+.php-debugger .php-debugger-breakpoint-label {
+	font-size: .9em;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.php-debugger .php-debugger-breakpoint-expression {
+	min-width: 0;
+	font-family: var(--php-debugger-font);
+}
+
+.php-debugger .php-debugger-breakpoint-hint {
+	font-size: .82em;
+	color: var(--php-debugger-muted);
+}
+
+/* What the breakpoint will do, then Apply and Cancel. */
+.php-debugger .php-debugger-breakpoint-outcome {
+	margin: 0;
+	padding-top: .5em;
+	font-size: .9em;
+	overflow-wrap: anywhere;
+	border-top: 1px solid var(--php-debugger-border);
+}
+
+.php-debugger .php-debugger-breakpoint-outcome code {
+	padding: 0 .2em;
+	font-family: var(--php-debugger-font);
+	background: color-mix(in srgb, var(--php-debugger-fg) 8%, transparent);
+	border-radius: .2em;
+}
+
+.php-debugger .php-debugger-breakpoint-actions {
+	display: flex;
+	gap: .35em;
 }
 
 .php-debugger .php-debugger-breakpoint-list > .php-debugger-empty {
@@ -697,22 +984,29 @@
  * pitch; the Line box adds a breakpoint with a full-size target.
  */
 @media (pointer: coarse) {
-	.php-debugger.php-debugger :where(button, select, input:not([type=checkbox])) {
+	.php-debugger.php-debugger :where(
+		button, select, input:not([type=checkbox])
+	):where(:not(.php-debugger-hosted-editor *)) {
 		min-width: 44px;
 		min-height: 44px;
 	}
 
-	.php-debugger.php-debugger :where(select, input:not([type=checkbox])),
+	.php-debugger.php-debugger :where(
+		select, input:not([type=checkbox])
+	):where(:not(.php-debugger-hosted-editor *)),
 	.php-debugger .php-debugger-editor {
 		font-size: max(1em, 16px);
 	}
 
 	.php-debugger .php-debugger-log-toggle,
-	.php-debugger .php-debugger-breakpoint-toggle {
+	.php-debugger .php-debugger-breakpoint-toggle,
+	.php-debugger .php-debugger-symbol {
 		min-height: 44px;
 	}
 
-	.php-debugger.php-debugger :where(input[type=checkbox]) {
+	.php-debugger.php-debugger :where(
+		input[type=checkbox]
+	):where(:not(.php-debugger-hosted-editor *)) {
 		width: 1.4em;
 		height: 1.4em;
 	}
@@ -796,10 +1090,10 @@
 }
 
 /*
- * Markers the adapters place inside Ace and CodeMirror. Those editors sit
- * outside .php-debugger with themes of their own, so the fallback colours are
- * ones that show on a light theme and on a dark one. To change them, set the
- * variables on the editor's container.
+ * Markers the adapters place inside Ace and CodeMirror. Those editors have
+ * themes of their own, beside the debugger or moved into it, so the fallback
+ * colours are ones that show on a light theme and on a dark one. To change
+ * them, set the variables on the editor's container.
  */
 
 .php-debugger-active-line {
@@ -817,17 +1111,107 @@
 	color: var(--php-debugger-error, #e5484d);
 }
 
-/* Ace puts the class on the line number's cell: a dot beside the number, which keeps its colour. */
+/*
+ * Ace puts the classes on the line number's cell: the mark is drawn beside the number, which
+ * keeps its colour. As in the debugger's own gutter, a logpoint is a diamond and a breakpoint
+ * with a condition, either kind, is hollow; CodeMirror's markers are characters of those shapes.
+ */
 .ace_gutter-cell.php-debugger-breakpoint-marker {
 	color: inherit;
-	background-image: radial-gradient(
-		circle at .75em 50%,
-		var(--php-debugger-error, #e5484d) 0 .3em,
-		transparent calc(.3em + 1px)
-	);
+}
+
+.ace_gutter-cell.php-debugger-breakpoint-marker::before {
+	content: '';
+	position: absolute;
+	left: .75em;
+	top: 50%;
+	width: .6em;
+	height: .6em;
+	border-radius: 50%;
+	background: var(--php-debugger-error, #e5484d);
+	transform: translate(-50%, -50%);
+}
+
+.ace_gutter-cell.php-debugger-breakpoint-log::before {
+	border-radius: 0;
+	transform: translate(-50%, -50%) rotate(45deg) scale(.85);
+}
+
+.ace_gutter-cell.php-debugger-breakpoint-condition::before {
+	background: transparent;
+	box-shadow: inset 0 0 0 .13em var(--php-debugger-error, #e5484d);
 }
 
 .php-debugger-cm5-gutter,
 .php-debugger-cm6-gutter {
 	min-width: 1.2rem;
+}
+
+/*
+ * The code-block adapter: a number before each line of code already on the page, to click for a
+ * breakpoint, and a band across the line where execution pauses. The numbers are drawn, not text,
+ * so copying the code copies the code alone.
+ */
+.php-debugger-code-line {
+	display: inline-block;
+	min-width: 100%;
+}
+
+/* Two classes outrank a page's own rule for its code lines, such as Pandoc's or a site's. */
+.php-debugger-code-line.php-debugger-active-line {
+	background: var(--php-debugger-active, color-mix(in srgb, #f5a524 30%, transparent));
+}
+
+.php-debugger-code-gutter {
+	all: unset;
+	box-sizing: border-box;
+	position: relative;
+	display: inline-block;
+	width: calc(var(--php-debugger-code-digits, 2) * 1ch + 1.9em);
+	padding-right: .9em;
+	text-align: right;
+	color: var(--php-debugger-muted, #8a919c);
+	cursor: pointer;
+	user-select: none;
+}
+
+.php-debugger-code-gutter::before {
+	content: attr(data-line);
+}
+
+.php-debugger-code-gutter:hover {
+	color: var(--php-debugger-error, #e5484d);
+}
+
+.php-debugger-code-gutter:focus-visible {
+	outline: 2px solid var(--php-debugger-accent, #3b82f6);
+	outline-offset: -2px;
+}
+
+.php-debugger-code-gutter[aria-pressed=true] {
+	font-weight: bold;
+	color: var(--php-debugger-error, #e5484d);
+}
+
+/* The dot left of the number; a logpoint's is a diamond, and a conditional one's hollow. */
+.php-debugger-code-gutter[aria-pressed=true]::after {
+	content: '';
+	position: absolute;
+	left: .5em;
+	top: 50%;
+	width: .5em;
+	height: .5em;
+	border-radius: 50%;
+	background: currentColor;
+	transform: translate(-50%, -50%);
+}
+
+.php-debugger-code-gutter[aria-pressed=true][data-log=true]::after {
+	border-radius: 0;
+	transform: translate(-50%, -50%) rotate(45deg) scale(.9);
+}
+
+.php-debugger-code-gutter[aria-pressed=true][data-condition=true]::after {
+	background: transparent;
+	box-shadow: inset 0 0 0 .13em currentColor;
 }

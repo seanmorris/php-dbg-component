@@ -98,10 +98,151 @@ test('declarative autorun, CSS overrides, and generic element/variable sources',
 	);
 });
 
+// The editor at the top of a tall page and the debugger at the bottom, in view: a pause on a line
+// far down a short editor scrolls the editor to it, and nothing else.
+for(const kind of ['ace', 'codemirror5', 'codemirror6', 'code-block'])
+{
+	test(`a pause scrolls ${kind} to its line and leaves the page where it is`, async({page}) => {
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		if(kind === 'ace')
+		{
+			await page.addScriptTag({url: '/node_modules/ace-builds/src-noconflict/ace.js'});
+		}
+
+		if(kind === 'codemirror5')
+		{
+			await page.addScriptTag({url: '/node_modules/codemirror/lib/codemirror.js'});
+			await page.addStyleTag({url: '/node_modules/codemirror/lib/codemirror.css'});
+		}
+
+		const result = await page.evaluate(async kind => {
+			const mountPoint = document.querySelector('#host');
+			const host = document.createElement('div');
+			const spacer = document.createElement('div');
+			const lines = Array.from({length: 58}, (_, i) => `$n${i} = ${i};`);
+			const code = ['<?php', ...lines, 'echo "done";'].join('\n');
+			let adapter;
+
+			/** Whether the paused line is inside the editor's own box. */
+			let shown = () => {
+				const box = adapter.element.getBoundingClientRect();
+
+				const line = host.querySelector(
+					'.php-debugger-active-line'
+				).getBoundingClientRect();
+
+				return line.top >= box.top - 1 && line.bottom <= box.bottom + 1;
+			};
+
+			spacer.style.height = '3000px';
+			document.body.prepend(host, spacer);
+
+			if(kind === 'ace')
+			{
+				const container = document.createElement('div');
+
+				container.style.height = '120px';
+				host.append(container);
+
+				const editor = ace.edit(container);
+
+				editor.setValue(code, -1);
+				adapter = (await import('/src/adapters/ace.mjs')).createAceAdapter(editor);
+			}
+			else if(kind === 'codemirror5')
+			{
+				const editor = CodeMirror(host, {value: code, lineNumbers: true});
+
+				editor.setSize(null, 120);
+
+				adapter = (await import('/src/adapters/codemirror5.mjs'))
+					.createCodeMirror5Adapter(editor);
+			}
+			else if(kind === 'codemirror6')
+			{
+				const {EditorState, EditorView, lineNumbers, createCodeMirror6Adapter}
+					= await import('/editors.mjs');
+
+				const state = EditorState.create({doc: code, extensions: [lineNumbers()]});
+				const editor = new EditorView({state, parent: host});
+
+				editor.dom.style.height = '120px';
+				adapter = createCodeMirror6Adapter(editor);
+
+				// Out of sight, CodeMirror 6 draws no lines; where line 50 is says the same.
+
+				shown = () => {
+					const {top, bottom} = editor.lineBlockAt(editor.state.doc.line(50).from);
+					const {scrollTop, clientHeight} = editor.scrollDOM;
+
+					return top >= scrollTop - 1 && bottom <= scrollTop + clientHeight + 1;
+				};
+			}
+			else
+			{
+				const pre = document.createElement('pre');
+				const block = document.createElement('code');
+
+				pre.style.cssText = 'max-height: 120px; overflow: auto; margin: 0';
+				block.textContent = code;
+				pre.append(block);
+				host.append(pre);
+
+				adapter = (await import('/src/adapters/code-block.mjs'))
+					.createCodeBlockAdapter(pre);
+			}
+
+			const dbg = new PhpDebugger(
+				{
+					source: adapter
+					, version: window.phpVersionUnderTest
+					, runtimeBaseUrl: '/runtime/'
+					, breakpoints: [50]
+				}
+			);
+
+			// Room under the debugger too, so the page is not held at its end, where a change
+			// in the debugger's height would move it by itself.
+			const tail = spacer.cloneNode();
+
+			document.body.append(tail);
+			dbg.mount(mountPoint);
+			mountPoint.scrollIntoView();
+			await new Promise(resolve => setTimeout(resolve, 100));
+
+			const before = window.scrollY;
+			const done = dbg.run();
+
+			await dbg.whenPaused();
+			await new Promise(resolve => setTimeout(resolve, 300));
+
+			// Going to the editor would move the page by thousands of pixels; a browser may
+			// round where it stands by one.
+			const result = {
+				stayed: Math.abs(window.scrollY - before) <= 2
+				, shown: shown()
+				, scrolled: before > 2000
+			};
+
+			await dbg.continue();
+			await done;
+			await dbg.destroy();
+
+			return result;
+		}, kind
+		);
+
+		expect(result).toEqual({stayed: true, shown: true, scrolled: true});
+	});
+}
+
+// A logpoint and a breakpoint with a condition are told apart in an editor's gutter too.
 for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 {
 	test(
-		`${kind}: existing editor, breakpoints, edits, highlighting and cleanup`
+		`${kind} marks logpoints and conditions as the debugger's own gutter does`
 		, async({page}) => {
 			await page.goto('/test/harness.html');
 			await page.waitForFunction(() => window.PhpDebugger);
@@ -117,17 +258,172 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 				await page.addStyleTag({url: '/node_modules/codemirror/lib/codemirror.css'});
 			}
 
-			const result = await page.evaluate(async kind => {
+			const marks = await page.evaluate(async kind => {
 				const host = document.createElement('div');
-				host.style.height = '200px';
+				const code = '<?php\n$n = 2;\n$n += 3;\n$n += 4;\necho $n;';
+				let adapter;
+
 				document.body.append(host);
+
+				if(kind === 'ace')
+				{
+					const container = document.createElement('div');
+
+					container.style.height = '200px';
+					host.append(container);
+
+					const editor = ace.edit(container);
+
+					editor.setValue(code, -1);
+					adapter = (await import('/src/adapters/ace.mjs')).createAceAdapter(editor);
+				}
+				else if(kind === 'codemirror5')
+				{
+					const editor = CodeMirror(host, {value: code, lineNumbers: true});
+
+					adapter = (await import('/src/adapters/codemirror5.mjs'))
+					.createCodeMirror5Adapter(editor);
+				}
+				else
+				{
+					const {EditorState, EditorView, lineNumbers, createCodeMirror6Adapter}
+					= await import('/editors.mjs');
+
+					const state = EditorState.create({doc: code, extensions: [lineNumbers()]});
+
+					adapter = createCodeMirror6Adapter(new EditorView({state, parent: host}));
+				}
+
+				const breakpoints = [
+					2
+					, {line: 3, log: '$n'}
+					, {line: 4, condition: '$n > 1'}
+					, {line: 5, log: '$n', condition: '$n > 1'}
+				];
+
+				const dbg = new PhpDebugger(
+					{
+						source: adapter
+						, version: window.phpVersionUnderTest
+						, runtimeBaseUrl: '/runtime/'
+						, breakpoints
+					}
+				);
+
+				dbg.mount(document.querySelector('#host'));
+
+				/** The marks on show, top to bottom, once the editor has drawn them. */
+				const drawn = async() => {
+					await new Promise(
+						resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))
+					);
+
+					// CodeMirror 6 keeps an invisible marker in its gutter to reserve the width.
+					const marks = [...host.querySelectorAll(
+						'.php-debugger-breakpoint-marker'
+					)].filter(
+						mark => mark.getClientRects().length
+						&& getComputedStyle(mark).visibility === 'visible'
+					);
+
+					return marks.map(mark => {
+						const shape = getComputedStyle(mark, '::before');
+
+						const kinds = ['log', 'condition'].filter(
+							name => mark.classList.contains(`php-debugger-breakpoint-${name}`)
+						);
+
+						// Ace's mark is drawn on the number's cell; CodeMirror's is a character.
+						return kind === 'ace'
+							? [kinds.join('+'), shape.borderRadius, shape.backgroundColor].join(' ')
+							: [kinds.join('+'), mark.textContent, mark.title].join(' ');
+					});
+				};
+
+				const first = await drawn();
+
+				await dbg.setBreakpoints([{line: 2, log: '"x"'}]);
+
+				const changed = await drawn();
+
+				await dbg.destroy();
+
+				return {first, changed};
+			}, kind
+			);
+
+			const hollow = 'rgba(0, 0, 0, 0)';
+
+			// Ace: the shape drawn on the number's cell, round or square, filled or hollow.
+			const drawn = {
+				first: [
+					expect.stringMatching(/^ 50% rgb\(/)
+					, expect.stringMatching(/^log 0px rgb\(/)
+					, `condition 50% ${hollow}`
+					, `log+condition 0px ${hollow}`
+				]
+				, changed: [expect.stringMatching(/^log 0px rgb\(/)]
+			};
+
+			// CodeMirror: a character of that shape, and what the breakpoint does as its tooltip.
+			const written = {
+				first: [
+					' ● '
+					, 'log ◆ logs $n'
+					, 'condition ○ when $n > 1'
+					, 'log+condition ◇ logs $n when $n > 1'
+				]
+				, changed: ['log ◆ logs "x"']
+			};
+
+			expect(marks).toEqual(kind === 'ace' ? drawn : written);
+		}
+	);
+}
+
+// Each editor beside the debugger, where it stays, and inside the element the debugger is mounted
+// on, where it moves into the interface until the debugger is destroyed.
+for(const kind of ['ace', 'codemirror5', 'codemirror6'])
+{
+	for(const placed of ['beside', 'inside'])
+	{
+		const title = `${kind} ${placed} the debugger: breakpoints, edits, markers and cleanup`;
+
+		test(title, async({page}) => {
+			await page.goto('/test/harness.html');
+			await page.waitForFunction(() => window.PhpDebugger);
+
+			if(kind === 'ace')
+			{
+				await page.addScriptTag({url: '/node_modules/ace-builds/src-noconflict/ace.js'});
+			}
+
+			if(kind === 'codemirror5')
+			{
+				await page.addScriptTag({url: '/node_modules/codemirror/lib/codemirror.js'});
+				await page.addStyleTag({url: '/node_modules/codemirror/lib/codemirror.css'});
+			}
+
+			const result = await page.evaluate(async([kind, placed]) => {
+				const mountPoint = document.querySelector('#host');
+				// The editor is made in a box of its own after the debugger, or in the mount point.
+				const host = placed === 'inside' ? mountPoint : document.createElement('div');
 				const code = '<?php\n$n = 2;\n$n += 3;\necho $n;';
 				let editor;
 				let adapter;
 
+				if(placed === 'beside')
+				{
+					document.body.append(host);
+				}
+
 				if(kind === 'ace')
 				{
-					editor = ace.edit(host);
+					const container = document.createElement('div');
+
+					container.style.height = '200px';
+					host.append(container);
+					editor = ace.edit(container);
 					editor.setValue(code);
 					adapter = (await import('/src/adapters/ace.mjs')).createAceAdapter(editor);
 				}
@@ -155,6 +451,8 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 					adapter = createCodeMirror6Adapter(editor);
 				}
 
+				const frame = adapter.element;
+
 				const dbg = new PhpDebugger(
 					{
 						source: adapter
@@ -166,7 +464,7 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 					}
 				);
 
-				dbg.mount(document.querySelector('#host'));
+				dbg.mount(mountPoint);
 				const done = dbg.run();
 				await dbg.whenPaused();
 
@@ -175,25 +473,35 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 					resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))
 				);
 
+				// Where the editor is while mounted, and whether it kept its own styles: Ace and
+				// CodeMirror place their parts themselves.
+				const slot = frame.parentElement;
+
+				const where = {
+					slot: slot.matches('.php-debugger > .php-debugger-hosted-editor')
+					, after: slot.previousElementSibling?.className
+					, position: getComputedStyle(frame).position
+				};
+
 				// CodeMirror 6 keeps an invisible marker in its gutter to reserve the width.
 
-				const box = selector => [...host.querySelectorAll(selector)].find(
+				const box = selector => [...frame.querySelectorAll(selector)].find(
 					element => element.getClientRects().length
 						&& getComputedStyle(element).visibility === 'visible'
 				).getBoundingClientRect();
 
-				const line = [...host.querySelectorAll('.ace_line,.CodeMirror-line,.cm-line')].find(
-					element => element.textContent === '$n += 3;'
-				).getBoundingClientRect();
+				const lines = [...frame.querySelectorAll('.ace_line,.CodeMirror-line,.cm-line')];
+				const line = lines.find(element => element.textContent === '$n += 3;');
+				const lineBox = line.getBoundingClientRect();
 
 				const paused = box('.php-debugger-active-line');
 				const dot = box('.php-debugger-breakpoint-marker');
 
 				const marks = {
-					paused: Math.abs(paused.top - line.top)
+					paused: Math.abs(paused.top - lineBox.top)
 					, pausedHeight: paused.height
-					, dot: Math.abs(dot.top + dot.height / 2 - line.top - line.height / 2)
-					, lineHeight: line.height
+					, dot: Math.abs(dot.top + dot.height / 2 - lineBox.top - lineBox.height / 2)
+					, lineHeight: lineBox.height
 				};
 
 				const values = await dbg.inspect('variables');
@@ -201,6 +509,11 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 				await dbg.continue();
 				const result = await done;
 				await dbg.destroy();
+
+				// Destroyed, the debugger hands the editor back where it was.
+				const returned = frame.parentElement === host
+					&& !document.querySelector('.php-debugger-hosted-editor');
+
 				adapter.dispose();
 				const text = adapter.getCode();
 
@@ -213,8 +526,10 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 					result
 					, text
 					, marks
+					, where
+					, returned
 				};
-			}, kind
+			}, [kind, placed]
 			);
 
 			expect(result.result.stdout).toBe('13');
@@ -223,9 +538,172 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 			expect(result.marks.paused).toBeLessThan(2);
 			expect(result.marks.pausedHeight).toBeGreaterThan(result.marks.lineHeight / 2);
 			expect(result.marks.dot).toBeLessThan(result.marks.lineHeight / 2);
-		}
-	);
+
+			// Inside the mount point, the editor is where the textarea would be: under the toolbar.
+			expect(result.where.slot).toBe(placed === 'inside');
+
+			if(placed === 'inside')
+			{
+				expect(result.where.after).toBe('php-debugger-toolbar');
+			}
+
+			expect(result.where.position).toBe('relative');
+			expect(result.returned).toBe(true);
+		});
+	}
 }
+
+// Code already on the page: what Pandoc writes (SMGen's code blocks), what highlight.js leaves,
+// and a plain block. The PHP has a comment over two lines, which highlight.js gives one token.
+const pandocBlock = `<div class="sourceCode" id="cb1"><pre
+class="sourceCode php"><code class="sourceCode php"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">&lt;?php</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="co">/* Two</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co">   lines */</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="va">$n</span> <span class="op">=</span> <span class="dv">2</span><span class="ot">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="va">$n</span> <span class="op">+=</span> <span class="dv">3</span><span class="ot">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">echo</span> <span class="va">$n</span><span class="ot">;</span></span></code></pre></div>`;
+
+for(const kind of ['pandoc', 'highlight.js', 'plain'])
+{
+	const title = `a ${kind} code block takes breakpoints, shows the pause and is given back`;
+
+	test(title, async({page}) => {
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		const report = await page.evaluate(async([kind, pandocBlock]) => {
+			const source = '<?php\n/* Two\n   lines */\n$n = 2;\n$n += 3;\necho $n;';
+			const holder = document.createElement('div');
+
+			document.body.prepend(holder);
+
+			if(kind === 'pandoc')
+			{
+				holder.innerHTML = pandocBlock;
+			}
+			else
+			{
+				holder.innerHTML = '<pre><code class="language-php"></code></pre>';
+				holder.querySelector('code').textContent = source + '\n';
+			}
+
+			if(kind === 'highlight.js')
+			{
+				const {hljs, hljsPhp} = await import('/editors.mjs');
+
+				hljs.registerLanguage('php', hljsPhp);
+				hljs.highlightElement(holder.querySelector('code'));
+			}
+
+			const before = holder.innerHTML;
+			const {createCodeBlockAdapter} = await import('/src/adapters/code-block.mjs');
+			const adapter = createCodeBlockAdapter(holder.firstElementChild);
+			const code = holder.querySelector('code');
+			const numbers = [...code.querySelectorAll('.php-debugger-code-gutter')];
+			const lines = [...code.querySelectorAll('.php-debugger-code-line')];
+
+			const report = {
+				numbers: numbers.map(number => number.dataset.line)
+				, code: adapter.getCode()
+				, same: adapter.getCode() === (kind === 'pandoc' ? source : source + '\n')
+				// The comment's two lines keep the comment's colour on both.
+				, comment: lines.slice(1, 3).map(
+					line => [...line.children].filter(token => token.localName !== 'button').at(-1)
+						?.className ?? ''
+				)
+			};
+
+			window.dbg = new PhpDebugger(
+				{source: adapter, version: window.phpVersionUnderTest, runtimeBaseUrl: '/runtime/'}
+			);
+
+			dbg.mount(document.querySelector('#host'));
+
+			// A click on line 5's number sets a breakpoint there; the run pauses on it, marked.
+			numbers[4].click();
+			await new Promise(resolve => setTimeout(resolve, 0));
+			report.breakpoints = dbg.breakpoints.map(bp => bp.line);
+			report.pressed = numbers.map(number => number.getAttribute('aria-pressed'));
+
+			const done = dbg.run();
+
+			await dbg.whenPaused();
+
+			report.paused = lines.findIndex(
+				line => line.classList.contains('php-debugger-active-line')
+			);
+
+			await dbg.continue();
+			report.stdout = (await done).stdout;
+			await dbg.destroy();
+			adapter.dispose();
+			report.restored = holder.innerHTML === before;
+			holder.remove();
+
+			return report;
+		}, [kind, pandocBlock]);
+
+		expect(report.numbers).toEqual(['1', '2', '3', '4', '5', '6']);
+		expect(report.same).toBe(true);
+
+		const comment = {pandoc: 'co', 'highlight.js': 'hljs-comment', plain: ''}[kind];
+
+		expect(report.comment).toEqual([comment, comment]);
+
+		expect(report.breakpoints).toEqual([5]);
+		expect(report.pressed).toEqual(['false', 'false', 'false', 'false', 'true', 'false']);
+		expect(report.paused).toBe(4);
+		expect(report.stdout).toBe('5');
+		expect(report.restored).toBe(true);
+	});
+}
+
+test('a code block takes new code, coloured again by the page\'s highlighter', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	const report = await page.evaluate(async() => {
+		const {hljs, hljsPhp} = await import('/editors.mjs');
+		const {createCodeBlockAdapter} = await import('/src/adapters/code-block.mjs');
+		const holder = document.createElement('div');
+
+		hljs.registerLanguage('php', hljsPhp);
+		holder.innerHTML = '<pre><code class="language-php">&lt;?php\necho 1;</code></pre>';
+		document.body.prepend(holder);
+		hljs.highlightElement(holder.querySelector('code'));
+
+		const adapter = createCodeBlockAdapter(
+			holder.querySelector('pre')
+			, {highlight: code => hljs.highlightElement(code)}
+		);
+
+		window.dbg = new PhpDebugger(
+			{source: adapter, version: window.phpVersionUnderTest, runtimeBaseUrl: '/runtime/'}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+		dbg.setCode('<?php\n$n = 6 * 7;\necho $n;');
+
+		const code = holder.querySelector('code');
+
+		const report = {
+			numbers: [...code.querySelectorAll('.php-debugger-code-gutter')].length
+			, coloured: !!code.querySelector('.hljs-variable')
+			, stdout: (await dbg.run()).stdout
+		};
+
+		await dbg.destroy();
+		adapter.dispose();
+		report.left = code.textContent;
+		holder.remove();
+
+		return report;
+	});
+
+	expect(report).toEqual(
+		{numbers: 3, coloured: true, stdout: '42', left: '<?php\n$n = 6 * 7;\necho $n;'}
+	);
+});
 
 test('GUI edits a live value and exposes symbols, globals, constants and frames', async({page}) => {
 	await page.goto('/test/harness.html');
@@ -256,6 +734,14 @@ test('GUI edits a live value and exposes symbols, globals, constants and frames'
 
 	await openPanel(page, 'Functions');
 	await expect(page.locator('.php-debugger-values')).toContainText('example');
+
+	// A function's row is chosen with a click and stays selected while its place is shown.
+	const example = page.getByRole('listbox', {name: 'Functions', exact: true})
+		.getByRole('option', {name: /^example\b/});
+
+	await expect(example).toHaveAttribute('aria-selected', 'false');
+	await example.click();
+	await expect(example).toHaveAttribute('aria-selected', 'true');
 	await openPanel(page, 'Classes');
 	await expect(page.locator('.php-debugger-values')).toContainText('Example');
 	await openPanel(page, 'Files');
@@ -264,17 +750,37 @@ test('GUI edits a live value and exposes symbols, globals, constants and frames'
 	await expect(page.locator('.php-debugger-values')).toContainText('Frame 0');
 	// Selecting the caller keeps the whole stack listed, marks the selection and moves the
 	// highlight to the call site.
-	const frames = page.locator('.php-debugger-symbol');
+	const frames = page.getByRole('listbox', {name: 'Frames', exact: true}).getByRole('option');
 	await expect(frames).toHaveCount(2);
-	await expect(frames.nth(0)).toHaveAttribute('aria-current', 'true');
+	await expect(frames.nth(0)).toHaveAttribute('aria-selected', 'true');
 
 	await frames.nth(1).click();
-	await expect(frames.nth(1)).toHaveAttribute('aria-current', 'true');
+	await expect(frames.nth(1)).toHaveAttribute('aria-selected', 'true');
 	await expect(frames).toHaveCount(2);
-	await expect(frames.nth(0)).toHaveText(/^Frame 0( · example\(\))? — \/main\.php:7$/);
-	await expect(frames.nth(0)).not.toHaveAttribute('aria-current', 'true');
+	await expect(frames.nth(0)).toHaveAccessibleName(/^Frame 0( · example\(\))? — \/main\.php:7$/);
+	await expect(frames.nth(0)).toHaveAttribute('aria-selected', 'false');
 
 	await expect(page.locator('.php-debugger-line[data-active=true]')).toHaveText('9');
+
+	// Each frame is a row across the panel, not a button the width of its words.
+	const values = page.locator('.php-debugger-values');
+	const box = await values.evaluate(element => element.clientWidth);
+	const row = await frames.nth(0).boundingBox();
+
+	expect(Math.abs(row.width - box)).toBeLessThan(1);
+
+	// The list is one tab stop. The arrows move along it and Enter chooses the row in focus.
+	await expect(frames.nth(1)).toBeFocused();
+	await expect(frames.nth(0)).toHaveAttribute('tabindex', '-1');
+	await page.keyboard.press('ArrowUp');
+	await expect(frames.nth(0)).toBeFocused();
+	await expect(frames.nth(0)).toHaveAttribute('tabindex', '0');
+	await expect(frames.nth(1)).toHaveAttribute('tabindex', '-1');
+
+	await page.keyboard.press('Enter');
+	await expect(frames.nth(0)).toHaveAttribute('aria-selected', 'true');
+	await expect(page.locator('.php-debugger-line[data-active=true]')).toHaveText('7');
+	await expect(frames.nth(0)).toBeFocused();
 	await page.getByRole('button', {name: 'Continue', exact: true}).click();
 	await expect(page.getByRole('status')).toContainText('Finished');
 	expect(await page.evaluate(() => dbg.result.stdout)).toBe('42');
@@ -330,6 +836,340 @@ test('editing an array starts from an empty expression, a number from its value'
 
 	expect(await page.evaluate(() => dbg.result.stdout)).toBe('a,b');
 });
+
+test(
+	'a value is edited as PHP writes it, and applying it unchanged changes nothing'
+	, async({page}) => {
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		await page.evaluate(() => {
+			window.dbg = new PhpDebugger(
+				{
+					version: window.phpVersionUnderTest
+					, runtimeBaseUrl: '/runtime/'
+					, code: '<?php\n$text = "line one\\nline two, \\$5";\n$limit = INF;\n'
+					+ 'echo strlen($text), is_infinite($limit) ? " infinite" : " finite";'
+					, breakpoints: [4]
+				}
+			);
+
+			dbg.mount(document.querySelector('#host'));
+		});
+
+		const text = page.getByRole('textbox', {name: 'New PHP expression for text', exact: true});
+
+		const limit = page.getByRole(
+			'textbox'
+			, {name: 'New PHP expression for limit', exact: true}
+		);
+
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Paused');
+
+		// A line break cannot stand in a box of one line: it is written as PHP's escape for it, in
+		// double quotes, where a dollar sign is escaped too.
+		await page.getByRole('button', {name: 'Edit text', exact: true}).click();
+		await expect(text).toHaveValue('"line one\\nline two, \\$5"');
+		await text.press('Enter');
+		await expect(text).toHaveCount(0);
+
+		// PHP's word for infinity, not JavaScript's.
+		await page.getByRole('button', {name: 'Edit limit', exact: true}).click();
+		await expect(limit).toHaveValue('INF');
+		await limit.press('Enter');
+		await expect(limit).toHaveCount(0);
+
+		await page.getByRole('button', {name: 'Continue', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Finished');
+		expect(await page.evaluate(() => dbg.result.stdout)).toBe('21 infinite');
+		await page.evaluate(() => dbg.destroy());
+	}
+);
+
+test(
+	'a step keeps the inspector where it was scrolled, and counts follow any pause'
+	, async({page}) => {
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		await page.evaluate(() => {
+			window.dbg = new PhpDebugger(
+				{
+					version: window.phpVersionUnderTest
+					, runtimeBaseUrl: '/runtime/'
+					, code: [
+						'<?php'
+						, 'function inner($a) {'
+						, '    $b = $a + 1;'
+						, '    return $b;'
+						, '}'
+
+						// With argv, argc and $r, which is not set yet, that is 45 variables.
+						, Array.from({length: 42}, (_, i) => `$v${i} = ${i};`).join(' ')
+						, '$r = inner(1);'
+						, 'echo $r;'
+					].join('\n')
+					, breakpoints: [7]
+				}
+			);
+
+			dbg.mount(document.querySelector('#host'));
+		});
+
+		const status = page.getByRole('status');
+		const values = page.getByRole('tabpanel', {name: 'Variables', exact: true});
+
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(status).toContainText('Paused at line 7');
+		await expect(tabNamed(page, 'Variables')).toHaveText('Variables 45');
+
+		// Scrolled down the list, a step over leaves the list where it was.
+		await values.evaluate(panel => {panel.scrollTop = 300;});
+
+		await page.getByRole('button', {name: 'Step over', exact: true}).click();
+		await expect(status).toContainText('Paused at line 8');
+		await expect(values.getByRole('button', {name: 'Edit v41', exact: true})).toBeVisible();
+		expect(await values.evaluate(panel => panel.scrollTop)).toBe(300);
+		await page.getByRole('button', {name: 'Stop', exact: true}).click();
+		await expect(status).toHaveText('Stopped.');
+
+		// With Breakpoints showing, the other tabs' counts are still those of the pause.
+		await openPanel(page, 'Breakpoints');
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(status).toContainText('Paused at line 7');
+
+		await expect(tabNamed(page, 'Variables')).toHaveText('Variables 45');
+		await expect(tabNamed(page, 'Frames')).toHaveText('Frames 1');
+		await page.getByRole('button', {name: 'Step into', exact: true}).click();
+		await expect(status).toContainText('Paused at line 3');
+		await expect(tabNamed(page, 'Variables')).toHaveText('Variables 2');
+		await expect(tabNamed(page, 'Frames')).toHaveText('Frames 2');
+
+		// Where the list was scrolled to is kept for the next pause of a run, not for the
+		// next run: left far down when one ends, it opens at the top in the next.
+		await page.getByRole('button', {name: 'Stop', exact: true}).click();
+		await openPanel(page, 'Variables');
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(status).toContainText('Paused at line 7');
+		await values.evaluate(panel => {panel.scrollTop = 300;});
+
+		await page.getByRole('button', {name: 'Stop', exact: true}).click();
+		await expect(status).toHaveText('Stopped.');
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(status).toContainText('Paused at line 7');
+		await expect(values.getByRole('button', {name: 'Edit v0', exact: true})).toBeVisible();
+		expect(await values.evaluate(panel => panel.scrollTop)).toBe(0);
+		await page.evaluate(() => dbg.destroy());
+	}
+);
+
+test('a value\'s edit form keeps what was typed while the list is built again', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	await page.evaluate(() => {
+		window.dbg = new PhpDebugger(
+			{
+				version: window.phpVersionUnderTest
+				, runtimeBaseUrl: '/runtime/'
+				, code: '<?php\n$a = 1;\n$b = 2;\necho $a + $b;'
+				, breakpoints: [4]
+			}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+		window.refreshes = 0;
+	});
+
+	const a = page.getByRole('textbox', {name: 'New PHP expression for a', exact: true});
+	const b = page.getByRole('textbox', {name: 'New PHP expression for b', exact: true});
+	const expression = page.getByRole('textbox', {name: 'PHP expression', exact: true});
+
+	await page.getByRole('button', {name: 'Run', exact: true}).click();
+	await expect(page.getByRole('status')).toContainText('Paused');
+	await page.getByRole('button', {name: 'Edit a', exact: true}).click();
+	await a.fill('10');
+	await page.getByRole('button', {name: 'Edit b', exact: true}).click();
+	await b.fill('20');
+
+	// Applying one closes its own form and leaves the other with what was typed in it.
+	await a.press('Enter');
+	await expect(a).toHaveCount(0);
+	await expect(page.getByRole('button', {name: 'Edit a', exact: true})).toBeFocused();
+	await expect(b).toHaveValue('20');
+
+	// So does an evaluation, and a change made from a script while the box has the caret.
+	await expression.fill('$a + 1');
+	await expression.press('Enter');
+	await expect(page.locator('.php-debugger-console')).toContainText('11');
+	await expect(b).toHaveValue('20');
+	await b.focus();
+
+	await page.evaluate(async() => {
+		const [a] = (await dbg.inspect('variables')).filter(value => value.name === 'a');
+
+		await dbg.setVariable(a.reference, '11');
+	});
+
+	await expect(page.getByRole('tabpanel', {name: 'Variables', exact: true})).toContainText('11');
+	await expect(b).toBeFocused();
+	await page.keyboard.type('0');
+	await b.press('Enter');
+	await expect(b).toHaveCount(0);
+
+	await page.getByRole('button', {name: 'Continue', exact: true}).click();
+	await expect(page.getByRole('status')).toContainText('Finished');
+	expect(await page.evaluate(() => dbg.result.stdout)).toBe('211');
+	await page.evaluate(() => dbg.destroy());
+});
+
+test('a value\'s edit form goes with the frame it was opened in', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	await page.evaluate(() => {
+		window.dbg = new PhpDebugger(
+			{
+				version: window.phpVersionUnderTest
+				, runtimeBaseUrl: '/runtime/'
+				, code: '<?php\nfunction inner($n) {\n    return $n;\n}\n'
+					+ 'function outer($n) {\n    return inner($n + 10);\n}\necho outer(1);'
+				, breakpoints: [3]
+			}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+	});
+
+	const box = page.getByRole('textbox', {name: 'New PHP expression for n', exact: true});
+	const values = page.getByRole('tabpanel', {name: 'Variables', exact: true});
+
+	await page.getByRole('button', {name: 'Run', exact: true}).click();
+	await expect(page.getByRole('status')).toContainText('Paused at line 3');
+	await page.getByRole('button', {name: 'Edit n', exact: true}).click();
+	await box.fill('99');
+
+	// The caller has an $n of its own. The form was for the inner one, and is not put on it.
+	await openPanel(page, 'Frames');
+	await page.locator('.php-debugger-symbol').nth(1).click();
+	await expect(page.getByRole('status')).toContainText('Showing frame 1');
+	await openPanel(page, 'Variables');
+	await expect(values).toContainText('1');
+	await expect(box).toHaveCount(0);
+	await expect(page.getByRole('button', {name: 'Edit n', exact: true})).toBeVisible();
+
+	await page.getByRole('button', {name: 'Continue', exact: true}).click();
+	await expect(page.getByRole('status')).toContainText('Finished');
+	expect(await page.evaluate(() => dbg.result.stdout)).toBe('11');
+	await page.evaluate(() => dbg.destroy());
+});
+
+test(
+	'the status is Ready once prepared; a run stopped mid-load reports nothing wrong'
+	, async({page}) => {
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		await page.evaluate(async() => {
+			window.dbg = new PhpDebugger(
+				{
+					version: window.phpVersionUnderTest
+					, runtimeBaseUrl: '/runtime/'
+					, code: '<?php\n$a = 1;\necho $a;'
+					, breakpoints: [3]
+				}
+			);
+
+			dbg.mount(document.querySelector('#host'));
+			await dbg.prepare();
+		});
+
+		const status = page.getByRole('status');
+		const message = page.locator('.php-debugger-message');
+
+		// Prepared and waiting, nothing is starting.
+		await expect(status).toHaveText('Ready.');
+
+		// Stopped the moment it pauses, while the inspector is still asking for its values.
+		await page.evaluate(async() => {
+			const done = dbg.run();
+
+			await dbg.whenPaused();
+			await dbg.stop();
+			await done;
+		});
+
+		await expect(status).toHaveText('Stopped.');
+		await expect(message).toHaveText('');
+		await page.evaluate(() => dbg.destroy());
+	}
+);
+
+test(
+	'typing in the source leaves the breakpoint list alone; a tab that folds hands its focus on'
+	, async({page}) => {
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		await page.evaluate(() => {
+			window.dbg = new PhpDebugger(
+				{
+					version: window.phpVersionUnderTest
+					, runtimeBaseUrl: '/runtime/'
+					, code: '<?php\n$a = 1;\necho $a;'
+					, breakpoints: [2]
+				}
+			);
+
+			dbg.mount(document.querySelector('#host'));
+		});
+
+		const source = page.getByRole('textbox', {name: 'PHP source', exact: true});
+		const lines = page.locator('.php-debugger-line');
+		const row = page.locator('.php-debugger-breakpoint');
+
+		// A row of the list is marked; while it is the same row, the list was not built again.
+		await openPanel(page, 'Breakpoints');
+		await row.evaluate(item => {item.dataset.same = 'yes';});
+
+		await source.press('End');
+		await source.pressSequentially(' // more');
+		await expect(lines).toHaveCount(3);
+		await expect(row).toHaveAttribute('data-same', 'yes');
+
+		// A new line gets its number, and the breakpoint keeps its mark.
+		await source.press('Enter');
+		await expect(lines).toHaveCount(4);
+		await expect(lines.nth(1)).toHaveAttribute('data-breakpoint', 'true');
+		await expect(row).toHaveAttribute('data-same', 'yes');
+
+		// Narrowed until the tab with focus folds into More, focus goes to More with it.
+		const folded = await page.evaluate(async() => {
+			const host = document.querySelector('#host');
+
+			const shown = () => [...host.querySelectorAll('[role=tab]')].filter(tab => !tab.hidden);
+
+			host.style.width = '520px';
+			await new Promise(resolve => setTimeout(resolve, 100));
+
+			const last = shown().at(-1);
+
+			last.focus();
+
+			for(let width = 500; width >= 200 && !last.hidden; width -= 20)
+			{
+				host.style.width = `${width}px`;
+				await new Promise(resolve => setTimeout(resolve, 60));
+			}
+
+			return {hidden: last.hidden, focus: document.activeElement?.getAttribute('aria-label')};
+		});
+
+		expect(folded).toEqual({hidden: true, focus: 'More panels'});
+		await page.evaluate(() => dbg.destroy());
+	}
+);
 
 test('bare-element page rules cannot move line numbers or reveal hidden lines', async({page}) => {
 	await page.goto('/test/harness.html');
@@ -499,6 +1339,20 @@ test('the breakpoint dot clears long line numbers; colours follow a dark page', 
 	await expect(root).toHaveCSS('background-color', 'rgb(21, 27, 35)');
 	await expect(root).toHaveCSS('color', 'rgb(230, 237, 243)');
 	await expect(breakpoint).toHaveCSS('color', 'rgb(255, 142, 142)');
+
+	// The list More opens is dark too, although More itself is a tab with no background.
+	const more = page.getByRole('combobox', {name: 'More panels'}).locator('option');
+
+	const colours = await more.evaluateAll(
+		options => options.map(option => {
+			const style = getComputedStyle(option);
+
+			return `${style.color} on ${style.backgroundColor}`;
+		})
+	);
+
+	expect(colours.length).toBeGreaterThan(1);
+	expect(new Set(colours)).toEqual(new Set(['rgb(230, 237, 243) on rgb(21, 27, 35)']));
 	await page.evaluate(() => dbg.destroy());
 });
 
@@ -566,6 +1420,152 @@ test('Evaluate answers beside its box and keeps the exchange in the console', as
 	expect(await page.evaluate(() => dbg.result.exitCode)).toBe(0);
 	await page.evaluate(() => dbg.destroy());
 });
+
+test('the custom element dispatches the debugger\'s events and has its methods', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	const report = await page.evaluate(async() => {
+		const element = document.createElement('php-debugger');
+		const seen = [];
+
+		element.setAttribute('runtime-base-url', '/runtime/');
+		element.setAttribute('version', window.phpVersionUnderTest);
+		element.code = '<?php\nfunction twice($n) {\n    return $n * 2;\n}\necho twice(4);';
+
+		element.setAttribute(
+			'breakpoints'
+			, JSON.stringify([{line: 3, log: '"n=$n"', enabled: true}, {line: 5, enabled: true}])
+		);
+
+		for(const name of ['log', 'framechange', 'sourcechange', 'versionchange', 'pause'])
+		{
+			element.addEventListener(
+				`phpdbg-${name}`
+				, event => seen.push(name === 'log' ? `log ${event.detail.message}` : name)
+			);
+		}
+
+		document.querySelector('#host').replaceChildren(element);
+
+		const done = element.run();
+
+		await element.whenPaused();
+
+		const listed = (await element.opcodes({function: 'twice'})).functions.map(f => f.name);
+
+		await element.selectFrame(0);
+
+		// On to the end of the run, whatever else pauses it.
+		while(element.state === 'paused')
+		{
+			await element.continue();
+		}
+
+		await done;
+		element.code = '<?php echo 1;';
+
+		return {seen, listed};
+	});
+
+	expect(report.listed).toEqual(['twice']);
+	// One pause: line 5's breakpoint is not met again when the call made on it returns.
+	expect(report.seen).toEqual(['pause', 'framechange', 'log n=4', 'sourcechange']);
+});
+
+test(
+	'an element taken off the page and put back has its textarea or its editor again'
+	, async({page}) => {
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		await page.evaluate(() => {
+			document.querySelector('#host').innerHTML = `<php-debugger runtime-base-url="/runtime/"
+			version="${window.phpVersionUnderTest}" id="with-textarea">
+  <textarea readonly><?php
+echo "kept";
+</textarea>
+</php-debugger>`;
+		});
+
+		const source = page.getByRole('textbox', {name: 'PHP source', exact: true});
+
+		// The page's own read-only stays, mounted and after a run.
+		await expect(source).toHaveJSProperty('readOnly', true);
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Finished');
+		await expect(source).toHaveJSProperty('readOnly', true);
+
+		// Off the page, the debugger is destroyed; put back, a new one finds the textarea.
+		const textarea = await page.evaluate(async() => {
+			const element = document.querySelector('#with-textarea');
+			const parent = element.parentNode;
+
+			element.remove();
+			await new Promise(resolve => setTimeout(resolve, 50));
+
+			const off = element.querySelector(':scope > textarea')?.value;
+
+			parent.append(element);
+			await new Promise(resolve => setTimeout(resolve, 50));
+
+			return {off, on: element.querySelector('.php-debugger-editor > textarea')?.value};
+		});
+
+		expect(textarea).toEqual({off: '<?php\necho "kept";\n', on: '<?php\necho "kept";\n'});
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Finished');
+
+		expect(
+			await page.evaluate(() => document.querySelector('#with-textarea').result.stdout)
+		).toBe('kept');
+
+		// The same for an editor of the page's that an adapter speaks for, made inside the element.
+		const editor = await page.evaluate(async() => {
+			const host = document.querySelector('#host');
+			const element = document.createElement('php-debugger');
+			const box = document.createElement('div');
+
+			box.className = 'my-editor';
+			box.textContent = '<?php echo "mine";';
+			element.setAttribute('runtime-base-url', '/runtime/');
+			element.setAttribute('version', window.phpVersionUnderTest);
+			element.append(box);
+
+			element.source = {
+				element: box
+				, getCode: () => box.textContent
+				, setCode: code => {box.textContent = code;}
+				, onBreakpointChange: () => () => {}
+
+				, setBreakpoints() {}
+
+				, showLocation() {}
+			};
+
+			host.replaceChildren(element);
+
+			const hosted = !!element.querySelector('.php-debugger-hosted-editor > .my-editor');
+
+			element.remove();
+			await new Promise(resolve => setTimeout(resolve, 50));
+
+			const off = box.parentNode === element;
+
+			host.append(element);
+			await new Promise(resolve => setTimeout(resolve, 50));
+
+			return {
+				hosted
+				, off
+				, on: !!element.querySelector('.php-debugger-hosted-editor > .my-editor')
+				, stdout: (await element.run()).stdout
+			};
+		});
+
+		expect(editor).toEqual({hosted: true, off: true, on: true, stdout: 'mine'});
+	}
+);
 
 test('a textarea inside the custom element is the editor, and is handed back', async({page}) => {
 	await page.goto('/test/harness.html');
@@ -730,6 +1730,209 @@ test(
 	}
 );
 
+test('the Opcodes panel lists the paused function and anything else asked for', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	await page.evaluate(() => {
+		window.dbg = new PhpDebugger(
+			{
+				version: window.phpVersionUnderTest
+				, runtimeBaseUrl: '/runtime/'
+				, code: [
+					'<?php'
+					, 'function twice($n) {'
+					, '    return $n * 2;'
+					, '}'
+
+					, 'function count_up($n) {'
+					, '    while($n < 8) {'
+					, '        $n++;'
+					, '    }'
+					, '    return $n;'
+					, '}'
+
+					, 'echo twice(count_up(1));'
+				].join('\n')
+				, breakpoints: [3]
+			}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+	});
+
+	const panel = page.getByRole('tabpanel', {name: 'Opcodes', exact: true});
+	const scope = page.getByRole('combobox', {name: 'Opcodes of', exact: true});
+
+	await page.getByRole('button', {name: 'Run', exact: true}).click();
+	await expect(page.getByRole('status')).toContainText('Paused at line 3');
+	await openPanel(page, 'Opcodes');
+
+	// The paused function, with the statement the frame stands on marked.
+	await expect(panel.getByRole('table')).toHaveCount(1);
+	await expect(panel.locator('caption')).toContainText('twice()');
+	await expect(panel.locator('tr[aria-current] .php-debugger-opcode')).toHaveText(['EXT_STMT']);
+	await expect(panel.locator('tr[aria-current] .php-debugger-opcode-line')).toHaveText(['3']);
+
+	// The script instead, and back; the choice keeps focus as the panel is rebuilt.
+	await scope.focus();
+	await scope.selectOption('script');
+	await expect(panel.locator('caption')).toContainText('{main}');
+	await expect(panel.locator('tr[aria-current]')).toHaveCount(0);
+	await expect(scope).toBeFocused();
+	await scope.selectOption('function:twice');
+	await expect(panel.locator('caption')).toContainText('twice()');
+
+	// Ops are numbered first. A jump's target is a link: following it marks that op and puts
+	// focus on its number, and the page's address stays as it was.
+	await scope.selectOption('function:count_up');
+	await expect(panel.getByRole('columnheader').first()).toHaveText('Op');
+
+	const jump = panel.getByRole('link').first();
+	const target = await jump.textContent();
+	const landed = panel.locator('tr[data-jumped] td').first();
+
+	await expect(jump).toHaveAccessibleName(`Go to op ${Number(target)}`);
+	await jump.click();
+	await expect(landed).toHaveText(target);
+	await expect(landed).toBeFocused();
+	expect(page.url()).not.toContain('#');
+
+	// Before the next run's pause there is nothing to list.
+	await page.getByRole('button', {name: 'Continue', exact: true}).click();
+	await expect(page.getByRole('status')).toContainText('Finished');
+	await expect(panel).toHaveText('Opcodes appear here when the program pauses.');
+	await page.evaluate(() => dbg.destroy());
+});
+
+test(
+	'the Opcodes panel keeps its place, gives up what it cannot list, and says when it is empty'
+	, async({page}) => {
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		await page.evaluate(() => {
+			window.dbg = new PhpDebugger(
+				{
+					version: window.phpVersionUnderTest
+					, runtimeBaseUrl: '/runtime/'
+					, code: [
+						'<?php'
+						, 'class Plain {}'
+						, '$anonymous = new class { function hi() { return 1; } };'
+						, 'function long($n) {'
+						, '    $n += 1;'
+						, ...Array.from({length: 40}, (_, i) => `    $n += ${i};`)
+
+						, '    while($n < 2000) {'
+						, '        $n++;'
+						, '    }'
+						, '    return $n;'
+						, '}'
+						, 'echo long(1);'
+					].join('\n')
+					, breakpoints: [5]
+				}
+			);
+
+			dbg.mount(document.querySelector('#host'));
+		});
+
+		const panel = page.getByRole('tabpanel', {name: 'Opcodes', exact: true});
+		const scope = page.getByRole('combobox', {name: 'Opcodes of', exact: true});
+		const message = page.locator('.php-debugger-message');
+		const current = panel.locator('tr[aria-current] .php-debugger-opcode-line');
+
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Paused at line 5');
+		await openPanel(page, 'Opcodes');
+		await expect(panel.locator('caption')).toContainText('long()');
+
+		// Only what phpdbg can be asked for is offered: an anonymous class's name is not.
+		const offered = await scope.locator('option').allTextContents();
+
+		expect(offered).toEqual(expect.arrayContaining(['long()', 'class Plain']));
+		expect(offered.filter(text => text.includes('anonymous'))).toEqual([]);
+
+		// A class with no PHP of its own lists nothing, and the panel says so under the choice.
+		await scope.selectOption('class:Plain');
+
+		await expect(panel.locator('.php-debugger-empty')).toHaveText(
+			'No opcodes to list for class Plain.'
+		);
+
+		await expect(panel.getByRole('table')).toHaveCount(0);
+		await expect(scope).toHaveValue('class:Plain');
+
+		// A choice phpdbg cannot list: the reason is shown, and the paused frame is listed again.
+		await scope.evaluate(select => {
+			select.append(new Option('gone()', 'function:gone'));
+			select.value = 'function:gone';
+			select.dispatchEvent(new Event('change', {bubbles: true}));
+		});
+
+		await expect(message).toHaveText('The function gone could not be found');
+		await expect(scope).toHaveValue('frame');
+		await expect(panel.locator('caption')).toContainText('long()');
+
+		// Scrolled down a long listing, with a jump followed: a refresh of the same listing leaves
+		// the tables, the place and the mark as they were.
+		const jump = panel.getByRole('link').first();
+
+		await jump.click();
+		await panel.getByRole('table').evaluate(table => {table.dataset.kept = 'yes';});
+
+		const place = await panel.evaluate(content => {
+			content.scrollTop = 300;
+
+			return content.scrollTop;
+		});
+
+		expect(place).toBe(300);
+
+		await page.evaluate(async() => {
+			const [n] = await dbg.inspect('variables');
+
+			await dbg.setVariable(n.reference, '5');
+		});
+
+		await expect(panel.getByRole('table')).toHaveAttribute('data-kept', 'yes');
+		await expect(panel.locator('tr[data-jumped]')).toHaveCount(1);
+		expect(await panel.evaluate(content => content.scrollTop)).toBe(300);
+		await expect(message).toHaveText('');
+
+		// A step within the function shows the same tables, with the mark on the next line and
+		// the jump's mark gone.
+		await page.getByRole('button', {name: 'Step over', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Paused at line 6');
+		await expect(current).toHaveText(['6']);
+		await expect(panel.getByRole('table')).toHaveAttribute('data-kept', 'yes');
+		await expect(panel.locator('tr[data-jumped]')).toHaveCount(0);
+
+		// Refused while the frame's own listing is the one on show, a choice is not left in
+		// the picker.
+		await scope.evaluate(select => {
+			select.append(new Option('lost()', 'function:lost'));
+			select.value = 'function:lost';
+			select.dispatchEvent(new Event('change', {bubbles: true}));
+		});
+
+		await expect(message).toHaveText('The function lost could not be found');
+		await expect(scope).toHaveValue('frame');
+
+		// A function's own listing, with no op to follow, is where it was after a step.
+		await scope.selectOption('function:long');
+		await expect(panel.locator('tr[aria-current]')).toHaveCount(0);
+		await panel.evaluate(content => {content.scrollTop = 400;});
+
+		await page.getByRole('button', {name: 'Step over', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Paused at line 7');
+		await expect(panel.locator('caption')).toContainText('long()');
+		expect(await panel.evaluate(content => content.scrollTop)).toBe(400);
+		await page.evaluate(() => dbg.destroy());
+	}
+);
+
 test('side by side, the output and every inspector panel are one height', async({page}) => {
 	await page.goto('/test/harness.html');
 	await page.waitForFunction(() => window.PhpDebugger);
@@ -879,7 +2082,7 @@ test('status says where execution is; keys drive it; a version change owns up', 
 				version: window.phpVersionUnderTest
 				, runtimeBaseUrl: '/runtime/'
 				, code: '<?php\nfunction add($a) {\n\treturn $a + 1;\n}\n$n = add(1);\nexit(3);'
-				, breakpoints: [5]
+				, breakpoints: [5, 6]
 			}
 		);
 
@@ -896,6 +2099,11 @@ test('status says where execution is; keys drive it; a version change owns up', 
 	await expect(button('Until')).toHaveAttribute('title', /finish the loop/);
 	await expect(button('Step out')).toHaveAttribute('title', /\(Shift\+F11\)$/);
 	await expect(version).toHaveValue(await page.evaluate(() => window.phpVersionUnderTest));
+
+	// The box draws its own arrow, as far inside its right edge as the text is inside its left.
+	await expect(version).toHaveCSS('appearance', 'none');
+	await expect(version).toHaveCSS('background-position', /calc\(100% - 8px\) 55%$/);
+	await expect(version).toHaveCSS('padding-left', '8px');
 
 	// F8 starts the run from anywhere in the debugger, the source included.
 	await page.getByRole('textbox', {name: 'PHP source', exact: true}).focus();
@@ -914,10 +2122,11 @@ test('status says where execution is; keys drive it; a version change owns up', 
 	await expect(status).toHaveText('Paused. Showing frame 1, at line 5 of /main.php.');
 	await expect(page.locator('.php-debugger-symbol').nth(1)).toBeFocused();
 
-	// The same key carries on from a pause. Returning to line 5 meets its breakpoint again; the
-	// frame that had focus is gone by then, and the keys still work.
+	// The same key carries on from a pause. Returning to line 5 is not reaching it, and its
+	// breakpoint is passed. At the next one the frame that had focus is gone, and the keys
+	// still work.
 	await page.keyboard.press('F8');
-	await expect(status).toHaveText('Paused at line 5 of /main.php, on a breakpoint.');
+	await expect(status).toHaveText('Paused at line 6 of /main.php, on a breakpoint.');
 	await expect(page.locator('.php-debugger-symbol')).toHaveCount(1);
 	await page.keyboard.press('F8');
 	await expect(status).toHaveText('Finished with exit code 3.');
@@ -937,6 +2146,170 @@ test('status says where execution is; keys drive it; a version change owns up', 
 		`Stopped: the PHP version is now ${other}. Run starts again with it.`
 	);
 
+	await page.evaluate(() => dbg.destroy());
+});
+
+test('a breakpoint takes a condition or a log from its row; a logpoint runs on', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	await page.evaluate(() => {
+		window.dbg = new PhpDebugger(
+			{
+				version: window.phpVersionUnderTest
+				, runtimeBaseUrl: '/runtime/'
+				, code: '<?php\n$sum = 0;\nfor($i = 0; $i < 5; $i++) {\n    $sum += $i;\n}\n'
+					+ 'echo $sum;'
+				, breakpoints: [4]
+			}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+	});
+
+	const edit = page.getByRole('button', {name: 'Edit breakpoint, line 4', exact: true});
+	const conditionOn = page.getByRole('checkbox', {name: 'Condition', exact: true});
+	const logOn = page.getByRole('checkbox', {name: 'Log message', exact: true});
+	const condition = page.getByRole('textbox', {name: 'Condition', exact: true});
+	const log = page.getByRole('textbox', {name: 'Log message', exact: true});
+	const outcome = page.locator('.php-debugger-breakpoint-outcome');
+	const row = page.locator('.php-debugger-breakpoint').filter({hasText: 'Line 4'});
+	const mark = page.locator('.php-debugger-line').nth(3);
+	const both = 'Prints $i when $i === 3 is true at line 4, without stopping.';
+	const stops = /must be true for the breakpoint to stop/;
+
+	// The form opens on its first checkbox. Each says what it turns on; its box shows once ticked.
+	await openPanel(page, 'Breakpoints');
+	await edit.click();
+	await expect(edit).toHaveAttribute('aria-expanded', 'true');
+	await expect(conditionOn).toBeFocused();
+	await expect(conditionOn).toHaveAccessibleDescription(stops);
+	await expect(logOn).toHaveAccessibleDescription(/printed instead of stopping/);
+	await expect(condition).toBeHidden();
+	await expect(log).toBeHidden();
+
+	// The form says what the breakpoint will do as it is ticked and typed.
+	await expect(outcome).toHaveText('Stops each time line 4 runs.');
+	await conditionOn.check();
+	await expect(condition).toBeFocused();
+	await page.keyboard.type('$i === 3');
+	await expect(outcome).toHaveText('Stops at line 4 when $i === 3 is true.');
+
+	await logOn.check();
+	await expect(log).toBeFocused();
+	await page.keyboard.type('$i');
+	await expect(outcome).toHaveText(both);
+	await logOn.uncheck();
+	await expect(log).toBeHidden();
+	await expect(outcome).toHaveText('Stops at line 4 when $i === 3 is true.');
+
+	// Enter applies; the row says what the breakpoint checks, and focus goes back to Edit.
+	await condition.press('Enter');
+	await expect(row.locator('.php-debugger-breakpoint-detail')).toHaveText('when $i === 3');
+	await expect(edit).toBeFocused();
+	await expect(mark).toHaveAttribute('data-condition', 'true');
+	await expect(mark).toHaveAttribute('title', 'when $i === 3');
+	expect(await page.evaluate(() => dbg.breakpoints[0].log)).toBeUndefined();
+
+	// Reopened, it starts in the condition's box. Escape leaves the breakpoint as it was.
+	await edit.click();
+	await expect(condition).toBeFocused();
+	await page.keyboard.type(' && false');
+	await page.keyboard.press('Escape');
+	await expect(condition).toHaveCount(0);
+	await expect(edit).toBeFocused();
+	expect(await page.evaluate(() => dbg.breakpoints[0].condition)).toBe('$i === 3');
+
+	// Its condition off and a log on, it is a logpoint: a diamond, and no pause.
+	await edit.click();
+	await conditionOn.uncheck();
+	await logOn.check();
+	await log.fill('"sum=$sum"');
+	await log.press('Enter');
+	await expect(row.locator('.php-debugger-breakpoint-detail')).toHaveText('logs "sum=$sum"');
+	await expect(mark).toHaveAttribute('data-log', 'true');
+	await expect(mark).toHaveAttribute('data-condition', 'false');
+
+	await page.getByRole('button', {name: 'Run', exact: true}).click();
+	await expect(page.getByRole('status')).toHaveText('Finished with exit code 0.');
+
+	await expect(page.locator('.php-debugger-output-log')).toHaveText(
+		[0, 0, 1, 3, 6].map(sum => `Line 4: sum=${sum}\n`)
+	);
+
+	expect(await page.evaluate(() => dbg.result.stdout)).toBe('10');
+	await page.evaluate(() => dbg.destroy());
+});
+
+test('what is typed in a breakpoint\'s form outlives the list being built again', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	await page.evaluate(() => {
+		window.dbg = new PhpDebugger(
+			{
+				version: window.phpVersionUnderTest
+				, runtimeBaseUrl: '/runtime/'
+				, code: '<?php\n$sum = 0;\nfor($i = 0; $i < 5; $i++) {\n    $sum += $i;\n}\n'
+					+ 'echo $sum;'
+				, breakpoints: [4, 6]
+			}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+	});
+
+	const edit = page.getByRole('button', {name: 'Edit breakpoint, line 4', exact: true});
+	const conditionOn = page.getByRole('checkbox', {name: 'Condition', exact: true});
+	const condition = page.getByRole('textbox', {name: 'Condition', exact: true});
+	const source = page.getByRole('textbox', {name: 'PHP source', exact: true});
+	const row = page.locator('.php-debugger-breakpoint').filter({hasText: 'Line 4'});
+	const other = page.locator('.php-debugger-breakpoint').filter({hasText: 'Line 6'});
+
+	await openPanel(page, 'Breakpoints');
+	await edit.click();
+	await conditionOn.check();
+	await page.keyboard.type('$i === 3');
+
+	// Another breakpoint switched off, one added from the gutter, a character typed in the
+	// source: each builds the list again, and none of it is the form's business.
+	await other.getByRole('checkbox').uncheck();
+	await expect(other).toHaveAttribute('data-enabled', 'false');
+	await page.locator('.php-debugger-line').nth(1).click();
+	await expect(page.locator('.php-debugger-breakpoint')).toHaveCount(3);
+	await source.press('End');
+	await source.pressSequentially(' ');
+
+	await expect(conditionOn).toBeChecked();
+	await expect(condition).toHaveValue('$i === 3');
+	await expect(edit).toHaveAttribute('aria-expanded', 'true');
+
+	// A change made from a script while the box has focus leaves the caret in it.
+	await condition.focus();
+	await page.evaluate(() => dbg.setBreakpoints(dbg.breakpoints.filter(bp => bp.line !== 2)));
+	await expect(page.locator('.php-debugger-breakpoint')).toHaveCount(2);
+	await expect(condition).toBeFocused();
+	await page.keyboard.type(' && true');
+	await condition.press('Enter');
+
+	await expect(row.locator('.php-debugger-breakpoint-detail')).toHaveText(
+		'when $i === 3 && true'
+	);
+
+	// Closed by its own button with something typed, it opens again on what was saved.
+	await edit.click();
+	await condition.fill('$i === 4');
+	await edit.click();
+	await expect(condition).toHaveCount(0);
+	await edit.click();
+	await expect(condition).toHaveValue('$i === 3 && true');
+
+	// A breakpoint removed with its form open does not open one when it is set again.
+	await row.getByRole('button', {name: 'Remove breakpoint, line 4', exact: true}).click();
+	await expect(page.locator('.php-debugger-breakpoint')).toHaveCount(1);
+	await page.locator('.php-debugger-line').nth(3).click();
+	await expect(page.locator('.php-debugger-breakpoint')).toHaveCount(2);
+	await expect(page.locator('.php-debugger-breakpoint-settings')).toHaveCount(0);
 	await page.evaluate(() => dbg.destroy());
 });
 
@@ -972,7 +2345,7 @@ test('breakpoints list by line and add with Enter; a run clears the console', as
 	await expect(tabNamed(page, 'Breakpoints')).toHaveAccessibleName('Breakpoints 1');
 
 	// A breakpoint is named by its line; unticking keeps it without stopping there.
-	await expect(list.getByRole('listitem')).toHaveText(['Line 3×']);
+	await expect(list.getByRole('listitem')).toHaveText(['Line 3Edit×']);
 	await list.getByRole('checkbox', {name: 'Line 3', exact: true}).uncheck();
 	await expect(gutter.nth(2)).toHaveAttribute('data-breakpoint', 'false');
 	await expect(list.getByRole('listitem')).toHaveAttribute('data-enabled', 'false');
@@ -982,7 +2355,7 @@ test('breakpoints list by line and add with Enter; a run clears the console', as
 	// Enter adds, and the box is ready for the next one.
 	await line.fill('2');
 	await line.press('Enter');
-	await expect(list.getByRole('listitem')).toHaveText(['Line 2×', 'Line 3×']);
+	await expect(list.getByRole('listitem')).toHaveText(['Line 2Edit×', 'Line 3Edit×']);
 	await expect(line).toHaveValue('');
 	await expect(line).toBeFocused();
 	await expect(tabNamed(page, 'Breakpoints')).toHaveAccessibleName('Breakpoints 2');
@@ -1007,7 +2380,7 @@ test('breakpoints list by line and add with Enter; a run clears the console', as
 	);
 
 	await remove(2).click();
-	await expect(list.getByRole('listitem')).toHaveText(['Line 3×']);
+	await expect(list.getByRole('listitem')).toHaveText(['Line 3Edit×']);
 	await expect(remove(3)).toBeFocused();
 	await page.keyboard.press('Enter');
 	await expect(list).toContainText('No breakpoints.');
@@ -1063,7 +2436,7 @@ test(
 
 		// Wide enough for every tab: no More.
 		await width(2400);
-		await expect(tabs).toHaveCount(9);
+		await expect(tabs).toHaveCount(10);
 		await expect(more).toBeHidden();
 
 		// Before a run, a panel says when it will have something to show.
@@ -1078,7 +2451,7 @@ test(
 		await expect(tabs.nth(1)).toHaveAccessibleName('Frames 2');
 		await page.getByRole('textbox', {name: 'PHP expression', exact: true}).fill('$n * 2');
 		await page.getByRole('button', {name: 'Watch', exact: true}).click();
-		await expect(tabs.nth(2)).toHaveAccessibleName('Watches 1');
+		await expect(tabNamed(page, 'Watches')).toHaveAccessibleName('Watches 1');
 
 		// Narrow: the last tabs fold into More, and the row does not scroll.
 		await width(360);
@@ -1109,7 +2482,7 @@ test(
 		await page.getByRole('button', {name: 'Continue', exact: true}).click();
 		await expect(page.getByRole('status')).toContainText('Finished');
 		await expect(tabs.first()).toHaveAccessibleName('Variables');
-		await expect(tabs.nth(2)).toHaveAccessibleName('Watches 1');
+		await expect(tabNamed(page, 'Watches')).toHaveAccessibleName('Watches 1');
 		await page.evaluate(() => dbg.destroy());
 	}
 );
@@ -1178,6 +2551,8 @@ test('line numbers and tabs are one tab stop each, worked with the arrow keys', 
 	await expect(tab('Frames')).toBeFocused();
 	await expect(tab('Frames')).toHaveAttribute('aria-selected', 'true');
 	await expect(panel('Frames')).toContainText('Frame 0');
+	await page.keyboard.press('ArrowRight');
+	await expect(panel('Opcodes').getByRole('table')).toBeVisible();
 	await page.keyboard.press('ArrowRight');
 	await expect(panel('Watches')).toBeVisible();
 
