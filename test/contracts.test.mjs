@@ -135,6 +135,40 @@ test('expected logs match the messages one for one, in order', async () => {
 	assert.equal((await checkExpectations(result, {logs: ['1', '0']})).status, 'failed');
 });
 
+test('expectations of the wrong shape fail the test and are not thrown', async () => {
+	const {checkExpectations} = await import('../src/expectations.mjs');
+
+	const result = {
+		status: 'completed'
+		, stdout: ''
+		, stderr: ''
+		, exitCode: 0
+		, diagnostics: []
+		, logs: [{file: '/main.php', line: 4, message: 'total: 40'}]
+	};
+
+	for(const logs of ['total: 40', null, 5, {0: 'total: 40'}])
+	{
+		const {status, failures} = await checkExpectations(result, {logs});
+
+		assert.equal(status, 'failed');
+
+		assert.deepEqual(
+			failures
+			, [{field: 'logs', message: 'expect.logs must be an array of strings or patterns'}]
+		);
+	}
+
+	const text = await checkExpectations(result, 'total: 40');
+
+	assert.equal(text.status, 'failed');
+	assert.deepEqual(text.failures, [{field: 'expect', message: 'Expectations must be an object'}]);
+
+	// With null there is nothing to compare, and the run must still have ended well.
+	assert.equal((await checkExpectations(result, null)).status, 'passed');
+	assert.equal((await checkExpectations({...result, exitCode: 2}, null)).status, 'failed');
+});
+
 test('controller import and construction are DOM-free and do not load a runtime', async () => {
 	const {PhpDebugger} = await import('../src/index.mjs');
 	const dbg = new PhpDebugger({code: '<?php echo 1;'});

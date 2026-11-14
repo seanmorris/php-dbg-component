@@ -525,7 +525,14 @@ export class PhpDebugger extends EventTarget
 			result.status = 'error';
 		}
 
-		result.test = await checkExpectations(result, active.expectations, active.assertion);
+		// Whatever checking the expectations throws, the run still ends, as a failed test.
+		result.test = await checkExpectations(result, active.expectations, active.assertion).catch(
+			error => ({
+				status: 'failed'
+				, failures: [{field: 'expect', message: error.message || String(error)}]
+			})
+		);
+
 		this.active = null;
 		this.result = result;
 		this.testStatus = result.test.status;

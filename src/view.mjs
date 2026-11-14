@@ -594,9 +594,11 @@ export class DebuggerView
 			, result => {
 				if(result.test.status === 'failed')
 				{
+					// A failure is a value that differed, or a message alone.
 					this.message.textContent = result.test.failures.map(
-						f => `${f.field}: expected ${f.expected ?? f.message}, received ${f.actual
-							?? ''}`
+						f => 'message' in f
+							? `${f.field}: ${f.message}`
+							: `${f.field}: expected ${f.expected}, received ${f.actual ?? ''}`
 					).join('\n');
 				}
 

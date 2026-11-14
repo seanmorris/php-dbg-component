@@ -918,3 +918,47 @@ test('opcodes() lists what phpdbg prints, and marks the op the frame stands on',
 	expect(result.diagnostics).toEqual([]);
 	expect(result.stdout).toBe('8');
 });
+
+test('a run ends as a failed test whatever shape its expectations have', async({page}) => {
+	await setup(page);
+	await create(page, {code: '<?php echo "ok";'});
+
+	const report = await page.evaluate(async() => {
+
+		/** A test run in brief: how it ended and what failed. */
+		const brief = ({status, test}) => ({status, test: test.status, failures: test.failures});
+
+		const logs = brief(await dbg.run({mode: 'test', expect: {logs: 'ok'}}));
+		const text = brief(await dbg.run({mode: 'test', expect: 'ok'}));
+
+		// An expectation that throws when it is read is the worst there is: the run still ends.
+		const unreadable = {get stdout() {throw new Error('unreadable');}};
+		const thrown = brief(await dbg.run({mode: 'test', expect: unreadable}));
+
+		// And the debugger is free for the next run.
+		const after = brief(await dbg.run({mode: 'test', expect: {stdout: 'ok'}}));
+
+		return {logs, text, thrown, after, state: dbg.state};
+	});
+
+	const message = 'expect.logs must be an array of strings or patterns';
+
+	expect(report.logs).toEqual({
+		status: 'completed'
+		, test: 'failed'
+		, failures: [{field: 'logs', message}]
+	});
+
+	expect(report.text.failures).toEqual(
+		[{field: 'expect', message: 'Expectations must be an object'}]
+	);
+
+	expect(report.thrown).toEqual({
+		status: 'completed'
+		, test: 'failed'
+		, failures: [{field: 'expect', message: 'unreadable'}]
+	});
+
+	expect(report.after).toEqual({status: 'completed', test: 'passed', failures: []});
+	expect(report.state).toBe('completed');
+});

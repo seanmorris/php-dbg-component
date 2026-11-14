@@ -16,7 +16,15 @@ export async function checkExpectations(result, expectations, assertion)
 	}
 
 	const failures = [];
-	const expect = expectations || {};
+
+	// Expectations that are not an object check nothing, and the test says so.
+	const usable = expectations == null || typeof expectations === 'object';
+	const expect = usable && expectations || {};
+
+	if(!usable)
+	{
+		failures.push({field: 'expect', message: 'Expectations must be an object'});
+	}
 
 	if(result.status !== 'completed')
 	{
@@ -32,7 +40,13 @@ export async function checkExpectations(result, expectations, assertion)
 	}
 
 	// What the logpoints printed, in order: each entry is a string or a pattern for one message.
-	if('logs' in expect)
+	if('logs' in expect && !Array.isArray(expect.logs))
+	{
+		const message = 'expect.logs must be an array of strings or patterns';
+
+		failures.push({field: 'logs', message});
+	}
+	else if('logs' in expect)
 	{
 		const actual = result.logs.map(entry => entry.message);
 
