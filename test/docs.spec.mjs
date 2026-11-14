@@ -39,8 +39,18 @@ test('the home page demo does what it asks of the reader', async({page}) => {
 	expect(steps.y).toBeGreaterThan(demo.y + demo.height);
 	await expect(page.getByRole('navigation', {name: 'Contents'})).toBeVisible();
 
+	// Opposite the steps, at the right: Reset, then the editor choice with its name under it.
+	const reset = await page.locator('#reset').boundingBox();
+	const choice = page.getByRole('combobox', {name: 'Source editor', exact: true});
+	const choiceBox = await choice.boundingBox();
+	const name = await page.locator('label[for=editor-kind]').boundingBox();
+
+	expect(reset.x).toBeGreaterThan(steps.x + steps.width);
+	expect(reset.x + reset.width).toBeLessThanOrEqual(choiceBox.x);
+	expect(name.y).toBeGreaterThanOrEqual(choiceBox.y + choiceBox.height);
+
 	// The example opens in CodeMirror 6, inside the debugger.
-	await expect(page.locator('#editor-kind')).toHaveValue('codemirror6');
+	await expect(choice).toHaveValue('codemirror6');
 	await expect(page.locator('.php-debugger-hosted-editor > .cm-editor')).toBeVisible();
 
 	/** What the panel shows for one value, by its name. */

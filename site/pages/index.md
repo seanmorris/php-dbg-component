@@ -32,11 +32,6 @@ hero: |
   :::
 
   <div class="demo">
-  <div class="demo-bar">
-  <label class="field">Source editor <select id="editor-kind" class="field-select"><option value="textarea">Textarea</option><option value="ace">Ace</option><option value="codemirror5">CodeMirror 5</option><option value="codemirror6" selected>CodeMirror 6</option></select></label>
-  <button id="reset" type="button" class="btn">Reset example</button>
-  <div id="demo-problem" class="demo-problem" role="alert"></div>
-  </div>
   <div id="debugger-host"></div>
   </div>
   <script type="module" src="demo.mjs"></script>
@@ -45,6 +40,12 @@ hero: |
   ## Try it here {#try}
 
   Click **Run** to pause on line 8, at the first item in the cart. Open `item` and change `price` to `10`, then click **Continue**. It pauses on line 8 again for the pen and the backpack, with `sum` growing each time; click **Continue** until it finishes. The notebook's line comes to `30`, the discount to `7`, and the total to `63` instead of `58`.
+
+  <div class="demo-bar">
+  <button id="reset" type="button" class="btn">Reset example</button>
+  <div class="field"><select id="editor-kind" class="field-select"><option value="textarea">Textarea</option><option value="ace">Ace</option><option value="codemirror5">CodeMirror 5</option><option value="codemirror6" selected>CodeMirror 6</option></select><label for="editor-kind">Source editor</label></div>
+  <div id="demo-problem" class="demo-problem" role="alert"></div>
+  </div>
   :::
 ---
 
