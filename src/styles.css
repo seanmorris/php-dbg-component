@@ -145,6 +145,23 @@
 	color: var(--php-debugger-muted);
 }
 
+/*
+ * A box's arrow is drawn, so it sits as far inside the right edge as the text does inside the
+ * left; the browser's own sits against the border.
+ */
+.php-debugger .php-debugger-version,
+.php-debugger .php-debugger-opcodes-scope {
+	appearance: none;
+	padding-right: 1.6em;
+	cursor: pointer;
+	background-image:
+		linear-gradient(45deg, transparent 50%, currentColor 50%),
+		linear-gradient(135deg, currentColor 50%, transparent 50%);
+	background-position: calc(100% - .8em) 55%, calc(100% - .5em) 55%;
+	background-size: .3em .3em;
+	background-repeat: no-repeat;
+}
+
 /* The status line is the foot of the box: edge to edge, under a rule of its own. */
 .php-debugger .php-debugger-status {
 	margin: 0 -1em -.4em;

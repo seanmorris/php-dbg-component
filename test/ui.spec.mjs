@@ -1057,6 +1057,11 @@ test('status says where execution is; keys drive it; a version change owns up', 
 	await expect(button('Step out')).toHaveAttribute('title', /\(Shift\+F11\)$/);
 	await expect(version).toHaveValue(await page.evaluate(() => window.phpVersionUnderTest));
 
+	// The box draws its own arrow, as far inside its right edge as the text is inside its left.
+	await expect(version).toHaveCSS('appearance', 'none');
+	await expect(version).toHaveCSS('background-position', /calc\(100% - 8px\) 55%$/);
+	await expect(version).toHaveCSS('padding-left', '8px');
+
 	// F8 starts the run from anywhere in the debugger, the source included.
 	await page.getByRole('textbox', {name: 'PHP source', exact: true}).focus();
 	await page.keyboard.press('F8');
