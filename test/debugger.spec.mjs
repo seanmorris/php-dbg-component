@@ -977,6 +977,49 @@ test(
 	}
 );
 
+test('a name in other than ASCII reaches phpdbg whole', async({page}) => {
+	await setup(page);
+
+	await create(
+		page
+		, {
+			code: [
+				'<?php'
+				, 'function café() { return 1; }'
+				, 'function caféé() { return 2; }'
+				, 'function 😀() { return 3; }'
+				, 'class Naïveté { function où() { return 4; } }'
+				, 'echo café() + caféé() + 😀();'
+			].join('\n')
+			, breakpoints: [3]
+		}
+	);
+
+	const names = await page.evaluate(async() => {
+		const done = dbg.run();
+
+		await dbg.whenPaused();
+
+		/** The names of the functions a target lists. */
+		const listed = async target => (await dbg.opcodes(target)).functions.map(f => f.name);
+
+		const names = [
+			...await listed({function: 'caféé'})
+			, ...await listed({function: '😀'})
+			, ...await listed({class: 'Naïveté'})
+		];
+
+		await dbg.continue();
+		await done;
+
+		return names;
+	});
+
+	// The runtime cut a command line at as many bytes as it had characters: "caféé" was listed
+	// as café(), and a name further from ASCII was not found.
+	expect(names).toEqual(['caféé', '😀', 'Naïveté::où']);
+});
+
 test(
 	'a breakpoint acts once each time its line is reached, and nothing evaluated stops at one'
 	, async({page}) => {

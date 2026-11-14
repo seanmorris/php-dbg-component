@@ -666,6 +666,54 @@ test('a pause asked for while a breakpoint decides waits for it, then pauses the
 	assert.equal(binary.dbgPauseRequested, true);
 });
 
+test('a command line with other than ASCII in it is given room for its bytes', async () => {
+	const {DebugEngine} = await import('../src/engine.mjs');
+	const {isPhpName} = await import('../src/model.mjs');
+	const engine = new DebugEngine(() => {});
+
+	const lines = [];
+
+	engine.process = new Promise(() => {});
+
+	// Stands in for the runtime: the prompt comes back as soon as a line is given.
+	engine.php = {
+
+		async provideInput(line) {
+			lines.push(line);
+
+			for(const waiter of engine.waiters)
+			{
+				waiter.resolve();
+			}
+		}
+
+		, flush() {}
+	};
+
+	await engine.command('print func caféé');
+	await engine.command('print func 😀');
+	await engine.command('continue');
+
+	// Two bytes more than characters in each name, and as many spaces after it.
+	assert.deepEqual(lines, ['print func caféé  ', 'print func 😀  ', 'continue']);
+
+	// What may be put on that line as a name, and what may not.
+	for(const name of ['total', 'App\\total', '\\App\\Bag', 'café', 'App\\😀', '_x9'])
+	{
+		assert.equal(isPhpName(name), true, name);
+	}
+
+	const refused = [
+		'9x', '', 'twice; continue', 'a b', 'App\\', 'App\\\\total', 'App\\{closure}'
+		, 'class@anonymous\0/main.php:3$0', null
+	];
+
+	for(const name of refused)
+	{
+		assert.equal(isPhpName(name), false, String(name));
+	}
+});
+
 test('an evaluated value keeps its PHP type when the runtime provides debugger API 2', async () => {
 	const {DebugEngine} = await import('../src/engine.mjs');
 

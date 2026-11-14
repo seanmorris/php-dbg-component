@@ -1,4 +1,4 @@
-import {versions, phpClassLabel, typeLabel, operandParts} from './model.mjs';
+import {versions, phpClassLabel, typeLabel, operandParts, isPhpName} from './model.mjs';
 
 let views = 0;
 
@@ -786,24 +786,105 @@ export class DebuggerView
 	/**
 	 * The Opcodes panel: what to list, the paused frame's function by default, then a table of
 	 * ops for each function phpdbg's print lists. The op the frame stands on is kept in view.
+	 *
+	 * A listing that is the one last shown keeps its tables, and only the mark of the op the
+	 * frame stands on moves: the panel stays where it was scrolled to, and a step within a
+	 * function builds nothing.
 	 */
 	async showOpcodes(generation)
 	{
-		const listing = await this.dbg.opcodes(opcodeTarget(this.opcodeChoice));
 
-		/** The names in a list of symbols, which may come keyed by name or as names alone. */
-		const names = list => (Array.isArray(list) ? list : Object.values(list)).map(
-			entry => typeof entry === 'string' ? entry : entry.name
+		/** Whether this refresh is still the one to show. */
+		const wanted = () => generation === this.refreshNumber && this.dbg.state === 'paused';
+
+		/** A choice's listing, or an empty one and why phpdbg has none. */
+		const listed = choice => this.dbg.opcodes(opcodeTarget(choice)).then(
+			listing => ({listing})
+			, error => ({listing: {functions: [], current: null}, problem: error.message})
 		);
 
-		const functions = names(await this.dbg.inspect('functions'));
-		const classes = names(await this.dbg.inspect('classes'));
+		let {listing, problem} = await listed(this.opcodeChoice);
 
-		if(generation !== this.refreshNumber || this.dbg.state !== 'paused')
+		if(!wanted())
 		{
 			return;
 		}
 
+		// A choice phpdbg cannot list is given up for the paused frame, and the reason is shown.
+		if(problem && this.opcodeChoice !== 'frame')
+		{
+			this.opcodeChoice = 'frame';
+			({listing} = await listed('frame'));
+		}
+
+		/** The names in a list of symbols, keyed by name or names alone, that can be asked for. */
+		const names = list => (Array.isArray(list) ? list : Object.values(list)).map(
+			entry => typeof entry === 'string' ? entry : entry.name
+		).filter(isPhpName);
+
+		const functions = names(await this.dbg.inspect('functions'));
+		const classes = names(await this.dbg.inspect('classes'));
+
+		if(!wanted())
+		{
+			return;
+		}
+
+		const signature = JSON.stringify(
+			[this.opcodeChoice, listing.functions, functions, classes]
+		);
+
+		const kept = this.opcodesShown?.signature === signature;
+
+		const shown = kept
+			? this.opcodesShown
+			: {signature, ...this.opcodeParts(listing, functions, classes)};
+
+		const attached = kept && this.content.contains(shown.bar);
+		const stands = JSON.stringify(listing.current);
+		const moved = shown.stands !== stands;
+
+		this.opcodesShown = Object.assign(shown, {stands});
+
+		if(!attached)
+		{
+			const held = this.holdFocus();
+
+			// What a jump marked belongs to the listing as it was last looked at.
+			for(const marked of shown.tables.flatMap(table => [...table.rows]))
+			{
+				marked.removeAttribute('data-jumped');
+			}
+
+			this.rows = shown.rows;
+			this.content.replaceChildren(shown.bar, ...shown.tables, ...shown.empty);
+			this.returnFocus(held);
+		}
+
+		if(shown.tables.length)
+		{
+			this.markCurrentOp(shown.tables[0], listing.functions[0].ops, listing.current);
+		}
+
+		const here = this.content.querySelector('tr[aria-current]');
+
+		if(here && (!attached || moved))
+		{
+			this.keepInView(here);
+		}
+
+		if(problem)
+		{
+			throw new Error(problem);
+		}
+	}
+
+	/**
+	 * The Opcodes panel's parts for a listing: the bar that chooses what is listed, a table for
+	 * each function, and words in their place when there is none.
+	 */
+	opcodeParts(listing, functions, classes)
+	{
 		const rows = new Map();
 		const bar = node('div', 'php-debugger-opcodes-bar');
 		const label = node('label', 'php-debugger-opcodes-label', 'Opcodes of ');
@@ -835,22 +916,34 @@ export class DebuggerView
 		label.append(picker);
 		bar.append(label);
 
-		const tables = listing.functions.map(
-			(listed, at) => this.opcodeTable(listed, at, at === 0 ? listing.current : null)
-		);
+		const tables = listing.functions.map((listed, at) => this.opcodeTable(listed, at));
+		const chosen = picker.selectedOptions[0]?.textContent ?? 'this';
 
-		const held = this.holdFocus();
+		// A class may have no PHP of its own: an interface, or one whose methods are inherited.
+		const empty = tables.length
+			? []
+			: [node('p', 'php-debugger-empty', `No opcodes to list for ${chosen}.`)];
 
-		this.rows = rows;
-		this.content.replaceChildren(bar, ...tables);
-		this.returnFocus(held);
+		return {rows, bar, tables, empty};
+	}
 
-		const here = this.content.querySelector('tr[aria-current]');
+	/**
+	 * Mark the op the paused frame stands on among a function's rows, which are in the order of
+	 * its ops. Where PHP 8.0 gives only the line, every op on it is marked.
+	 */
+	markCurrentOp(table, ops, current)
+	{
+		[...table.tBodies[0].rows].forEach((row, at) => {
+			const {line, index} = ops[at];
+			const here = current?.line === line && [null, index].includes(current.index);
 
-		if(here)
-		{
-			this.keepInView(here);
-		}
+			row.toggleAttribute('aria-current', here);
+
+			if(here)
+			{
+				row.setAttribute('aria-current', 'step');
+			}
+		});
 	}
 
 	/** Scroll the panel so a row of it is a third of the way down. */
@@ -862,10 +955,10 @@ export class DebuggerView
 	}
 
 	/**
-	 * One function's ops as a table, numbered first, as jumps name them. The op the paused frame
-	 * stands on is marked like its line; a jump target is a link to its op.
+	 * One function's ops as a table, numbered first, as jumps name them. A jump target is a link
+	 * to its op.
 	 */
-	opcodeTable(listed, at, current)
+	opcodeTable(listed, at)
 	{
 		const table = node('table', 'php-debugger-opcodes');
 		const name = listed.name === '{main}' ? '{main}' : `${listed.name}()`;
@@ -896,12 +989,6 @@ export class DebuggerView
 			const operands = node('td', 'php-debugger-opcode-operands');
 
 			row.id = id(op.index);
-
-			// Where PHP 8.0 gives only the line, every op on it is marked.
-			if(current?.line === op.line && [null, op.index].includes(current.index))
-			{
-				row.setAttribute('aria-current', 'step');
-			}
 
 			for(const part of operandParts(op, listed.ops.length))
 			{

@@ -5,6 +5,8 @@ import {
 	, phpClassLabel
 	, phpPropertyName
 	, evaluationError
+
+	, isPhpName
 	, parseOpcodes
 	, parseOpline
 } from './model.mjs';
@@ -55,9 +57,6 @@ const unavailable = (name, error) => ({
 	, writable: false
 	, expandable: false
 });
-
-/** A PHP function or class name, namespaced or not. */
-const phpName = /^\\?[A-Za-z_\x80-￿][\w\x80-￿]*(?:\\[A-Za-z_\x80-￿][\w\x80-￿]*)*$/u;
 
 /** Lives beside the runtime, in a worker by default. Live Zend values stay here. */
 export class DebugEngine
@@ -298,7 +297,13 @@ export class DebugEngine
 		}
 
 		const prompt = this.waitPrompt();
-		await this.php.provideInput(line);
+
+		// The runtime makes room for as many bytes as the line has characters and cuts what is
+		// over, so a name in other than ASCII lost its end: "caféé" was read as "café". Spaces
+		// after the line make the room.
+		const over = new TextEncoder().encode(line).length - line.length;
+
+		await this.php.provideInput(line + ' '.repeat(over));
 		await Promise.race([prompt, this.process]);
 		this.php.flush();
 	}
@@ -992,7 +997,7 @@ export class DebugEngine
 		const name = target.function ?? target.class;
 
 		// A name reaches the phpdbg command line, so it must be a PHP name and nothing more.
-		if(name !== undefined && !phpName.test(name))
+		if(name !== undefined && !isPhpName(name))
 		{
 			throw new TypeError(`Not a PHP function or class name: ${name}`);
 		}

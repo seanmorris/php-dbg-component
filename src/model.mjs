@@ -175,6 +175,20 @@ export function typeLabel({type, className, count, displayValue})
 	return String(displayValue).toLowerCase().startsWith(label.toLowerCase()) ? '' : label;
 }
 
+// A part of a PHP name: a letter, an underscore or anything past ASCII, then digits as well.
+const namePart = '[A-Za-z_\\u{80}-\\u{10FFFF}][\\w\\u{80}-\\u{10FFFF}]*';
+const phpName = new RegExp(`^\\\\?${namePart}(?:\\\\${namePart})*$`, 'u');
+
+/**
+ * Whether a string is a PHP function or class name, namespaced or not, and nothing more, so that
+ * it can go on phpdbg's command line. The name PHP gives an anonymous class, which holds a NUL
+ * byte, is not one, nor is a closure's.
+ */
+export function isPhpName(name)
+{
+	return typeof name === 'string' && phpName.test(name);
+}
+
 /*
  * phpdbg's print command, read into functions and their ops.
  *

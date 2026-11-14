@@ -1042,6 +1042,113 @@ test('the Opcodes panel lists the paused function and anything else asked for', 
 	await page.evaluate(() => dbg.destroy());
 });
 
+test(
+	'the Opcodes panel keeps its place, gives up what it cannot list, and says when it is empty'
+	, async({page}) => {
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		await page.evaluate(() => {
+			window.dbg = new PhpDebugger(
+				{
+					version: window.phpVersionUnderTest
+					, runtimeBaseUrl: '/runtime/'
+					, code: [
+						'<?php'
+						, 'class Plain {}'
+						, '$anonymous = new class { function hi() { return 1; } };'
+						, 'function long($n) {'
+						, '    $n += 1;'
+						, ...Array.from({length: 40}, (_, i) => `    $n += ${i};`)
+
+						, '    while($n < 2000) {'
+						, '        $n++;'
+						, '    }'
+						, '    return $n;'
+						, '}'
+						, 'echo long(1);'
+					].join('\n')
+					, breakpoints: [5]
+				}
+			);
+
+			dbg.mount(document.querySelector('#host'));
+		});
+
+		const panel = page.getByRole('tabpanel', {name: 'Opcodes', exact: true});
+		const scope = page.getByRole('combobox', {name: 'Opcodes of', exact: true});
+		const message = page.locator('.php-debugger-message');
+		const current = panel.locator('tr[aria-current] .php-debugger-opcode-line');
+
+		await page.getByRole('button', {name: 'Run', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Paused at line 5');
+		await openPanel(page, 'Opcodes');
+		await expect(panel.locator('caption')).toContainText('long()');
+
+		// Only what phpdbg can be asked for is offered: an anonymous class's name is not.
+		const offered = await scope.locator('option').allTextContents();
+
+		expect(offered).toEqual(expect.arrayContaining(['long()', 'class Plain']));
+		expect(offered.filter(text => text.includes('anonymous'))).toEqual([]);
+
+		// A class with no PHP of its own lists nothing, and the panel says so under the choice.
+		await scope.selectOption('class:Plain');
+
+		await expect(panel.locator('.php-debugger-empty')).toHaveText(
+			'No opcodes to list for class Plain.'
+		);
+
+		await expect(panel.getByRole('table')).toHaveCount(0);
+		await expect(scope).toHaveValue('class:Plain');
+
+		// A choice phpdbg cannot list: the reason is shown, and the paused frame is listed again.
+		await scope.evaluate(select => {
+			select.append(new Option('gone()', 'function:gone'));
+			select.value = 'function:gone';
+			select.dispatchEvent(new Event('change', {bubbles: true}));
+		});
+
+		await expect(message).toHaveText('The function gone could not be found');
+		await expect(scope).toHaveValue('frame');
+		await expect(panel.locator('caption')).toContainText('long()');
+
+		// Scrolled down a long listing, with a jump followed: a refresh of the same listing leaves
+		// the tables, the place and the mark as they were.
+		const jump = panel.getByRole('link').first();
+
+		await jump.click();
+		await panel.getByRole('table').evaluate(table => {table.dataset.kept = 'yes';});
+
+		const place = await panel.evaluate(content => {
+			content.scrollTop = 300;
+
+			return content.scrollTop;
+		});
+
+		expect(place).toBe(300);
+
+		await page.evaluate(async() => {
+			const [n] = await dbg.inspect('variables');
+
+			await dbg.setVariable(n.reference, '5');
+		});
+
+		await expect(panel.getByRole('table')).toHaveAttribute('data-kept', 'yes');
+		await expect(panel.locator('tr[data-jumped]')).toHaveCount(1);
+		expect(await panel.evaluate(content => content.scrollTop)).toBe(300);
+		await expect(message).toHaveText('');
+
+		// A step within the function shows the same tables, with the mark on the next line and
+		// the jump's mark gone.
+		await page.getByRole('button', {name: 'Step over', exact: true}).click();
+		await expect(page.getByRole('status')).toContainText('Paused at line 6');
+		await expect(current).toHaveText(['6']);
+		await expect(panel.getByRole('table')).toHaveAttribute('data-kept', 'yes');
+		await expect(panel.locator('tr[data-jumped]')).toHaveCount(0);
+		await page.evaluate(() => dbg.destroy());
+	}
+);
+
 test('side by side, the output and every inspector panel are one height', async({page}) => {
 	await page.goto('/test/harness.html');
 	await page.waitForFunction(() => window.PhpDebugger);
