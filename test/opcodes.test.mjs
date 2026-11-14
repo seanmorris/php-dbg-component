@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseOpcodes, parseOpline, operandParts} from '../src/model.mjs';
+import {
+	parseOpcodes
+	, parseOpline
+	, operandParts
+	, arrivesAt
+	, plainLine
+} from '../src/model.mjs';
 
 // What phpdbg's print wrote in the browser runtimes, paused on line 5 inside total(), whose
 // foreach runs ops 5 to 11.
@@ -398,4 +404,71 @@ test('PHP 8.0 pads a column in bytes; a carriage return is shown as PHP writes i
 
 	assert.deepEqual(listed.ops.map(op => op.index), [0, 1, 2, 3]);
 	assert.equal(listed.ops[2].operands, 'CV0($a) string("x\\r\\ny")');
+});
+
+test('a key of a jump table may hold a line break, and its targets are still jumps', () => {
+	const choose = [
+		''
+		, 'choose:'
+		, '     ; (lines=12, args=1, vars=1, tmps=2)'
+		, '     ; /main.php:2-4'
+		, 'L0002 0000 CV0($x) = RECV 1'
+		, 'L0003 0001 EXT_STMT'
+		, 'L0003 0002 MATCH CV0($x) "a'
+		, 'b": 0003, "z": 0005, default: 0007'
+
+		, 'L0003 0003 T2 = QM_ASSIGN int(1)'
+		, 'L0003 0004 JMP 0009'
+		, 'L0003 0005 T2 = QM_ASSIGN int(2)'
+		, 'L0003 0006 JMP 0009'
+		, 'L0003 0007 T2 = QM_ASSIGN int(3)'
+		, 'L0003 0008 JMP 0009'
+		, 'L0003 0009 RETURN T2'
+
+		, 'L0004 0010 EXT_STMT'
+		, 'L0004 0011 RETURN null'
+	].join('\n');
+
+	const [{ops}] = parseOpcodes(choose);
+
+	assert.equal(ops.length, 12);
+	assert.equal(ops[2].operands, 'CV0($x) "a\\nb": 0003, "z": 0005, default: 0007');
+	assert.deepEqual(ops[2].jumps, [3, 5, 7]);
+});
+
+test('an op is an arrival at its line unless its statement was on the line before it', () => {
+
+	/** Ops from "line opcode" words, numbered in order. */
+	const ops = (...words) => words.map((word, index) => {
+		const [line, opcode] = word.split(' ');
+
+		return {line: Number(line), index, opcode};
+	});
+
+	// $x = foo(   on line 5, with $a on line 6 and $b on line 7: phpdbg reports line 7 again
+	// when the call returns, and line 5 again for the assignment.
+	const call = ops(
+		'5 EXT_STMT', '5 INIT_FCALL', '6 SEND_VAR', '7 SEND_VAR', '7 EXT_FCALL_BEGIN'
+		, '7 DO_FCALL', '7 EXT_FCALL_END', '5 ASSIGN', '9 EXT_STMT', '9 RETURN'
+	);
+
+	assert.deepEqual(
+		call.map((op, index) => arrivesAt(call, index))
+		, [true, false, true, true, false, false, false, false, true, false]
+	);
+
+	// Lines 5 and 7 can be come back to; line 6 and line 9 can only be arrived at.
+	assert.deepEqual([5, 6, 7, 9].map(line => plainLine(call, line)), [false, true, false, true]);
+
+	// A loop: its body on line 7, and its own line 6, come round again as arrivals each time.
+	const loop = ops(
+		'6 EXT_STMT', '6 ASSIGN', '6 JMP', '7 EXT_STMT', '7 ASSIGN_OP', '6 PRE_INC'
+		, '6 IS_SMALLER', '6 JMPNZ', '8 EXT_STMT'
+	);
+
+	assert.equal(arrivesAt(loop, 5), true);
+	assert.deepEqual([6, 7].map(line => plainLine(loop, line)), [true, true]);
+
+	// PHP 8.0 writes a number after some opcodes; a call is a call with one.
+	assert.equal(plainLine(ops('3 EXT_STMT', '3 DO_FCALL<1>', '3 EXT_FCALL_END'), 3), false);
 });

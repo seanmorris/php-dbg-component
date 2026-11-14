@@ -319,11 +319,21 @@ function paddedOp(line, index, text)
  * Whether the dumper is inside a string once it has written `text`. It writes a string as
  * string("…"), its quotes and backslashes escaped and its line breaks as they are, so a string
  * with a line break in it carries its op onto the lines that follow.
+ *
+ * `keyed` is for an op that jumps by a table of keys, SWITCH_STRING and MATCH: the keys are
+ * written in quotes with nothing escaped, each quote opening or closing one.
  */
-function insideString(text, inside = false)
+function insideString(text, inside = false, keyed = false)
 {
 	for(let at = 0; at < text.length; at++)
 	{
+		if(keyed)
+		{
+			inside = text[at] === '"' ? !inside : inside;
+
+			continue;
+		}
+
 		if(!inside)
 		{
 			inside = text.startsWith('string("', at);
@@ -345,6 +355,9 @@ function insideString(text, inside = false)
 
 	return inside;
 }
+
+/** Whether an op jumps by a table of keys, which the dumper writes as they are. */
+const keyed = op => ['SWITCH_STRING', 'MATCH'].includes(op.opcode);
 
 /** A function the listing begins, named as phpdbg's frames name it: the script is {main}. */
 function listedFunction(name, fields = {})
@@ -386,7 +399,7 @@ export function parseOpcodes(text)
 		if(unfinished)
 		{
 			unfinished.operands += '\\n' + line;
-			unfinished = insideString(line, true) ? unfinished : null;
+			unfinished = insideString(line, true, keyed(unfinished)) ? unfinished : null;
 
 			return;
 		}
@@ -406,7 +419,7 @@ export function parseOpcodes(text)
 			const op = (dumped ? dumpedOp : paddedOp)(Number(number), Number(index), rest);
 
 			current.ops.push(op);
-			unfinished = dumped && insideString(op.operands) ? op : null;
+			unfinished = dumped && insideString(op.operands, false, keyed(op)) ? op : null;
 
 			return;
 		}
@@ -490,6 +503,57 @@ export function operandParts({opcode, operands}, count = Infinity)
 	parts.push({text: operands.slice(from)});
 
 	return parts.filter(part => part.text);
+}
+
+// The ops that hand execution to other code, from which it comes back into the statement.
+const callOp = /^(?:DO_FCALL|DO_ICALL|DO_UCALL|DO_FCALL_BY_NAME|INCLUDE_OR_EVAL|YIELD|YIELD_FROM)$/;
+
+/**
+ * Whether the op at `index` is where execution arrives at its line, and not where it comes back
+ * to it. phpdbg reports a line reached whenever execution comes to it from another: also when a
+ * call made on it returns, and when a statement written over several lines comes round to its
+ * first line again. A statement's ops begin at an EXT_STMT; the op is an arrival when no earlier
+ * op of its statement is on its line.
+ */
+export function arrivesAt(ops, index)
+{
+	let start = index;
+
+	while(start > 0 && ops[start].opcode !== 'EXT_STMT')
+	{
+		start--;
+	}
+
+	return !ops.slice(start, index).some(op => op.line === ops[index].line);
+}
+
+/**
+ * Whether a line of a function can only be arrived at, never come back to: in each statement
+ * with ops on it, those ops stand together, with no op of another line and no call among them.
+ */
+export function plainLine(ops, line)
+{
+	const statements = [];
+
+	for(const op of ops)
+	{
+		if(op.opcode === 'EXT_STMT' || !statements.length)
+		{
+			statements.push([]);
+		}
+
+		statements.at(-1).push(op);
+	}
+
+	return statements.every(statement => {
+		const on = statement.flatMap((op, at) => op.line === line ? [at] : []);
+		const together = on.length ? statement.slice(on[0], on.at(-1) + 1) : [];
+
+		// PHP 8.0 writes a number after some opcodes: "DO_FCALL<1>".
+		return together.every(
+			op => op.line === line && !callOp.test(op.opcode.replace(/<.*$/, ''))
+		);
+	});
 }
 
 /**
