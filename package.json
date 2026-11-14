@@ -17,6 +17,7 @@
     "./adapters/ace": "./src/adapters/ace.mjs",
     "./adapters/codemirror5": "./src/adapters/codemirror5.mjs",
     "./adapters/codemirror6": "./src/adapters/codemirror6.mjs",
+    "./adapters/code-block": "./src/adapters/code-block.mjs",
     "./styles.css": "./src/styles.css"
   },
   "files": [
@@ -63,6 +64,7 @@
     "codemirror": "^5.65.0",
     "esbuild": "^0.25.0",
     "eslint": "^10.14.0",
+    "highlight.js": "^11.12.0",
     "sm-no-saccade-style": "^0.2.3",
     "typescript": "^5.9.0"
   }

@@ -7,7 +7,7 @@ A vanilla JavaScript PHP debugger you can embed in a page or drive from a script
 - PHP 8.0–8.5, selected at runtime; default 8.4.
 - Breakpoints, conditional breakpoints and logpoints, pause/continue, stepping, frames, locals, globals, constants, functions, classes, and files.
 - Edit variables and evaluate PHP expressions in the selected frame while paused. Expand arrays and objects; add watches in the UI.
-- Textarea, arbitrary DOM element, string, async getter, or an existing Ace / CodeMirror 5 / CodeMirror 6 editor.
+- Textarea, arbitrary DOM element, string, async getter, an existing Ace / CodeMirror 5 / CodeMirror 6 editor, or a code block already highlighted by highlight.js or Pandoc.
 - Awaitable run results, output events, cancellation, timeouts, and optional test expectations.
 - Light DOM, namespaced classes, optional CSS, and no editor dependency in the core.
 
@@ -49,6 +49,7 @@ const dbg = new PhpDebugger({source: document.querySelector('textarea'), runtime
 import {createAceAdapter} from 'php-dbg-component/adapters/ace';
 import {createCodeMirror5Adapter} from 'php-dbg-component/adapters/codemirror5';
 import {createCodeMirror6Adapter} from 'php-dbg-component/adapters/codemirror6';
+import {createCodeBlockAdapter} from 'php-dbg-component/adapters/code-block';
 const adapter = createAceAdapter(existingAceEditor);
 const editorDebugger = new PhpDebugger({source: adapter, runtimeBaseUrl: './runtime/'});
 editorDebugger.mount(document.querySelector('#controls'));
@@ -57,7 +58,7 @@ await editorDebugger.destroy();
 adapter.dispose(); // Detach markers/listeners; the host still owns the editor.
 ```
 
-Make the editor inside the element you pass to `mount()` and it moves into the interface, under the toolbar where the textarea would be, until `destroy()` hands it back; made anywhere else, it stays where the page put it. Either way it keeps its own theme and the height you give it. Use just the adapter matching your editor. Ace and CodeMirror 5 import no editor library. CodeMirror 6 has optional `@codemirror/state` and `@codemirror/view` peers. Adapters add breakpoint gutters, current-line highlights, and temporary read-only state. Set `{file:'/example.php'}` on an adapter if the controller uses that entrypoint.
+Make the editor inside the element you pass to `mount()` and it moves into the interface, under the toolbar where the textarea would be, until `destroy()` hands it back; made anywhere else, it stays where the page put it. Either way it keeps its own theme and the height you give it. Use just the adapter matching your editor. Ace and CodeMirror 5 import no editor library. CodeMirror 6 has optional `@codemirror/state` and `@codemirror/view` peers. Adapters add breakpoint gutters, current-line highlights, and temporary read-only state. Set `{file:'/example.php'}` on an adapter if the controller uses that entrypoint. `createCodeBlockAdapter(block, {highlight})` debugs a code block already on the page, as highlight.js, Pandoc (and so SMGen) or nothing at all left it: each line gets a number to click for a breakpoint, the paused line is marked, and `dispose()` gives the block back as it was.
 
 ## Debugging from JavaScript
 

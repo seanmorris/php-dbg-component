@@ -323,3 +323,21 @@ if($('#debugger-host') && versions.length)
 
 	await change(true);
 }
+
+// The editors page debugs one of its own code blocks, as Pandoc and SMGen built it.
+if($('#code-block-example') && versions.length)
+{
+	const {createCodeBlockAdapter} = await import(asset('component/adapters/code-block.mjs'));
+
+	const blockDebugger = new PhpDebugger(
+		{
+			runtimeBaseUrl
+			, version: versions.includes('8.4') ? '8.4' : versions[0]
+			, versions
+			, source: createCodeBlockAdapter($('#code-block-example'))
+		}
+	);
+
+	blockDebugger.mount($('#code-block-debugger'));
+	window.phpDebuggerBlockDemo = blockDebugger;
+}

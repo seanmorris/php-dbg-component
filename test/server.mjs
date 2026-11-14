@@ -93,7 +93,7 @@ await fs.mkdir(path.join(root, '.cache'), {recursive: true});
 
 await build(
 	{
-		stdin: {contents: `export {EditorState} from '@codemirror/state'; export {EditorView, lineNumbers} from '@codemirror/view'; export {createCodeMirror6Adapter} from './src/adapters/codemirror6.mjs';`, resolveDir: root}
+		stdin: {contents: `export {EditorState} from '@codemirror/state'; export {EditorView, lineNumbers} from '@codemirror/view'; export {createCodeMirror6Adapter} from './src/adapters/codemirror6.mjs'; export {default as hljs} from 'highlight.js/lib/core'; export {default as hljsPhp} from 'highlight.js/lib/languages/php';`, resolveDir: root}
 		, bundle: true
 		, format: 'esm'
 		, outfile: path.join(root, '.cache/editors.mjs')

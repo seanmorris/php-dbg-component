@@ -199,6 +199,40 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 	);
 }
 
+test('the editors page debugs one of its own code blocks, as Pandoc built it', async({page}) => {
+	await page.goto(docs + '/guide/editors.html');
+	await page.waitForFunction(() => window.phpDebuggerBlockDemo);
+
+	const block = page.locator('#code-block-example');
+	const debuggerBox = page.locator('#code-block-debugger');
+	const line = block.locator('.php-debugger-code-line').nth(4);
+
+	// A number before each line, which sets a breakpoint; the run pauses there, marked.
+	await expect(block.locator('.php-debugger-code-gutter')).toHaveCount(7);
+	await block.getByRole('button', {name: 'Breakpoint on line 5', exact: true}).click();
+	await debuggerBox.getByRole('button', {name: 'Run', exact: true}).click();
+
+	await expect(debuggerBox.locator('.php-debugger-status')).toHaveText(
+		'Paused at line 5 of /main.php, on a breakpoint.'
+	);
+
+	await expect(line).toHaveClass(/php-debugger-active-line/);
+	await expect(line).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+
+	const result = await page.evaluate(async() => {
+		const dbg = window.phpDebuggerBlockDemo;
+		const done = dbg.whenPaused().catch(() => {});
+
+		await dbg.setBreakpoints([]);
+		await dbg.continue();
+		await done;
+
+		return dbg.result;
+	});
+
+	expect(result.stdout).toBe('Total: 40\n');
+});
+
 test(
 	'guide and reference pages link up, highlight their code and run their examples'
 	, async({page}) => {

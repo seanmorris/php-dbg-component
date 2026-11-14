@@ -31,6 +31,7 @@ The controller reads its source at the start of each run. Give it a string or a 
 | A textarea or input        | `source: document.querySelector('textarea')`                 |
 | Any other element          | `source: document.querySelector('pre')` reads its text       |
 | An editor you already have | `source: adapter`                                            |
+| Code already on the page   | `source: createCodeBlockAdapter(block)`, below               |
 
 </div>
 
@@ -67,6 +68,39 @@ adapter.dispose();
 The CodeMirror 6 adapter needs `@codemirror/state` and `@codemirror/view`, from the same copies your editor uses.
 
 An adapter adds a breakpoint gutter you can click, marks the paused line, and makes the editor read-only while PHP runs. The editor stays yours: you create it, theme it and destroy it. The component itself depends on neither Ace nor CodeMirror.
+
+## Code already on the page
+
+`createCodeBlockAdapter` debugs a code block your page already shows, as its highlighter left it: highlight.js's `<pre><code class="hljs">`, Pandoc's `<div class="sourceCode">` (the blocks SMGen builds), or a plain `<pre><code>`. Each line gets a number to click for a breakpoint, and the line where execution pauses is marked. It imports no highlighter; the colours stay the ones already there.
+
+```javascript
+import {createCodeBlockAdapter} from 'php-dbg-component/adapters/code-block';
+
+const adapter = createCodeBlockAdapter(document.querySelector('#example'), {
+  // Optional: colour the block again after setCode().
+  highlight: code => hljs.highlightElement(code)
+});
+
+new PhpDebugger({runtimeBaseUrl: './runtime/', source: adapter, breakpoints: [5]})
+  .mount(document.querySelector('#example-debugger'));
+```
+
+Pass the block's `<pre>`, its `<code>`, or Pandoc's `div.sourceCode`. Highlight the block before making the adapter. `setCode()` replaces its text, and `highlight`, when given, colours it again. The numbers are drawn, not text, so copying the code copies the code alone; `dispose()` gives the block back as it was.
+
+This block is Pandoc's, as SMGen built this page. Click a line number, then **Run**:
+
+```{#code-block-example .php}
+<?php
+$prices = ['pen' => 2, 'notebook' => 8, 'backpack' => 30];
+$total = 0;
+foreach ($prices as $name => $price) {
+    $total += $price;
+}
+echo "Total: $total\n";
+```
+
+<div id="code-block-debugger"></div>
+<script type="module" src="../demo.mjs"></script>
 
 ## Where the editor goes
 

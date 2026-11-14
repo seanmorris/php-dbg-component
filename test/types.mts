@@ -2,6 +2,7 @@ import {PhpDebugger, AssetRegistry, type RunResult} from 'php-dbg-component';
 import {definePhpDebugger} from 'php-dbg-component/element';
 import {createAceAdapter} from 'php-dbg-component/adapters/ace';
 import {createCodeMirror6Adapter} from 'php-dbg-component/adapters/codemirror6';
+import {createCodeBlockAdapter} from 'php-dbg-component/adapters/code-block';
 
 const dbg = new PhpDebugger(
 	{
@@ -20,6 +21,11 @@ const logged: string[] = result.logs.map(entry => entry.message);
 void [logged, dbg.run({mode: 'test', expect: {logs: ['1', /3/]}})];
 // @ts-expect-error a log is PHP, as a string
 void dbg.setBreakpoints([{line: 4, log: 3}]);
+
+// Code already on the page, coloured again by the page's own highlighter after setCode().
+const block = createCodeBlockAdapter(document.createElement('pre'), {highlight: code => void code});
+block.setCode('<?php echo 1;');
+void new PhpDebugger({source: block});
 await dbg.setBreakpoints([3, {file: '/main.php',line: 5,enabled: false}]);
 const values = await dbg.inspect('variables');
 

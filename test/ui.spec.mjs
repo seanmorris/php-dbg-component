@@ -270,6 +270,158 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6'])
 	}
 }
 
+// Code already on the page: what Pandoc writes (SMGen's code blocks), what highlight.js leaves,
+// and a plain block. The PHP has a comment over two lines, which highlight.js gives one token.
+const pandocBlock = `<div class="sourceCode" id="cb1"><pre
+class="sourceCode php"><code class="sourceCode php"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">&lt;?php</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="co">/* Two</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co">   lines */</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="va">$n</span> <span class="op">=</span> <span class="dv">2</span><span class="ot">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="va">$n</span> <span class="op">+=</span> <span class="dv">3</span><span class="ot">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">echo</span> <span class="va">$n</span><span class="ot">;</span></span></code></pre></div>`;
+
+for(const kind of ['pandoc', 'highlight.js', 'plain'])
+{
+	const title = `a ${kind} code block takes breakpoints, shows the pause and is given back`;
+
+	test(title, async({page}) => {
+		await page.goto('/test/harness.html');
+		await page.waitForFunction(() => window.PhpDebugger);
+
+		const report = await page.evaluate(async([kind, pandocBlock]) => {
+			const source = '<?php\n/* Two\n   lines */\n$n = 2;\n$n += 3;\necho $n;';
+			const holder = document.createElement('div');
+
+			document.body.prepend(holder);
+
+			if(kind === 'pandoc')
+			{
+				holder.innerHTML = pandocBlock;
+			}
+			else
+			{
+				holder.innerHTML = '<pre><code class="language-php"></code></pre>';
+				holder.querySelector('code').textContent = source + '\n';
+			}
+
+			if(kind === 'highlight.js')
+			{
+				const {hljs, hljsPhp} = await import('/editors.mjs');
+
+				hljs.registerLanguage('php', hljsPhp);
+				hljs.highlightElement(holder.querySelector('code'));
+			}
+
+			const before = holder.innerHTML;
+			const {createCodeBlockAdapter} = await import('/src/adapters/code-block.mjs');
+			const adapter = createCodeBlockAdapter(holder.firstElementChild);
+			const code = holder.querySelector('code');
+			const numbers = [...code.querySelectorAll('.php-debugger-code-gutter')];
+			const lines = [...code.querySelectorAll('.php-debugger-code-line')];
+
+			const report = {
+				numbers: numbers.map(number => number.dataset.line)
+				, code: adapter.getCode()
+				, same: adapter.getCode() === (kind === 'pandoc' ? source : source + '\n')
+				// The comment's two lines keep the comment's colour on both.
+				, comment: lines.slice(1, 3).map(
+					line => [...line.children].filter(token => token.localName !== 'button').at(-1)
+						?.className ?? ''
+				)
+			};
+
+			window.dbg = new PhpDebugger(
+				{source: adapter, version: window.phpVersionUnderTest, runtimeBaseUrl: '/runtime/'}
+			);
+
+			dbg.mount(document.querySelector('#host'));
+
+			// A click on line 5's number sets a breakpoint there; the run pauses on it, marked.
+			numbers[4].click();
+			await new Promise(resolve => setTimeout(resolve, 0));
+			report.breakpoints = dbg.breakpoints.map(bp => bp.line);
+			report.pressed = numbers.map(number => number.getAttribute('aria-pressed'));
+
+			const done = dbg.run();
+
+			await dbg.whenPaused();
+
+			report.paused = lines.findIndex(
+				line => line.classList.contains('php-debugger-active-line')
+			);
+
+			await dbg.continue();
+			report.stdout = (await done).stdout;
+			await dbg.destroy();
+			adapter.dispose();
+			report.restored = holder.innerHTML === before;
+			holder.remove();
+
+			return report;
+		}, [kind, pandocBlock]);
+
+		expect(report.numbers).toEqual(['1', '2', '3', '4', '5', '6']);
+		expect(report.same).toBe(true);
+
+		const comment = {pandoc: 'co', 'highlight.js': 'hljs-comment', plain: ''}[kind];
+
+		expect(report.comment).toEqual([comment, comment]);
+
+		expect(report.breakpoints).toEqual([5]);
+		expect(report.pressed).toEqual(['false', 'false', 'false', 'false', 'true', 'false']);
+		expect(report.paused).toBe(4);
+		expect(report.stdout).toBe('5');
+		expect(report.restored).toBe(true);
+	});
+}
+
+test('a code block takes new code, coloured again by the page\'s highlighter', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	const report = await page.evaluate(async() => {
+		const {hljs, hljsPhp} = await import('/editors.mjs');
+		const {createCodeBlockAdapter} = await import('/src/adapters/code-block.mjs');
+		const holder = document.createElement('div');
+
+		hljs.registerLanguage('php', hljsPhp);
+		holder.innerHTML = '<pre><code class="language-php">&lt;?php\necho 1;</code></pre>';
+		document.body.prepend(holder);
+		hljs.highlightElement(holder.querySelector('code'));
+
+		const adapter = createCodeBlockAdapter(
+			holder.querySelector('pre')
+			, {highlight: code => hljs.highlightElement(code)}
+		);
+
+		window.dbg = new PhpDebugger(
+			{source: adapter, version: window.phpVersionUnderTest, runtimeBaseUrl: '/runtime/'}
+		);
+
+		dbg.mount(document.querySelector('#host'));
+		dbg.setCode('<?php\n$n = 6 * 7;\necho $n;');
+
+		const code = holder.querySelector('code');
+
+		const report = {
+			numbers: [...code.querySelectorAll('.php-debugger-code-gutter')].length
+			, coloured: !!code.querySelector('.hljs-variable')
+			, stdout: (await dbg.run()).stdout
+		};
+
+		await dbg.destroy();
+		adapter.dispose();
+		report.left = code.textContent;
+		holder.remove();
+
+		return report;
+	});
+
+	expect(report).toEqual(
+		{numbers: 3, coloured: true, stdout: '42', left: '<?php\n$n = 6 * 7;\necho $n;'}
+	);
+});
+
 test('GUI edits a live value and exposes symbols, globals, constants and frames', async({page}) => {
 	await page.goto('/test/harness.html');
 	await page.waitForFunction(() => window.PhpDebugger);
