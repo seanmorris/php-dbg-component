@@ -164,6 +164,23 @@ test('expectations of the wrong shape fail the test and are not thrown', async (
 	assert.equal(text.status, 'failed');
 	assert.deepEqual(text.failures, [{field: 'expect', message: 'Expectations must be an object'}]);
 
+	// An assertion fails the test by whatever it throws, nothing at all included.
+	const thrown = [
+		[() => Promise.reject(), 'Assertion rejected without a reason']
+		, [() => {throw null;}, 'Assertion rejected without a reason']
+		, [() => {throw 'a string';}, 'a string']
+		, [() => {throw new Error('an error');}, 'an error']
+		, [() => false, 'Assertion returned false']
+	];
+
+	for(const [assertion, message] of thrown)
+	{
+		assert.deepEqual(
+			(await checkExpectations(result, undefined, assertion)).failures
+			, [{field: 'assertion', message}]
+		);
+	}
+
 	// With null there is nothing to compare, and the run must still have ended well.
 	assert.equal((await checkExpectations(result, null)).status, 'passed');
 	assert.equal((await checkExpectations({...result, exitCode: 2}, null)).status, 'failed');

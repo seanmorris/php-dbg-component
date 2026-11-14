@@ -86,7 +86,9 @@ export async function checkExpectations(result, expectations, assertion)
 		}
 		catch(error)
 		{
-			message = error.message || String(error);
+			// Whatever was thrown is the reason, and an assertion may reject with nothing at all.
+			message = error?.message
+				|| (error == null ? 'Assertion rejected without a reason' : String(error));
 		}
 
 		if(message !== null)
