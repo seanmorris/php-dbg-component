@@ -977,6 +977,91 @@ test(
 	}
 );
 
+test(
+	'Step out stops in the caller; Until stops past its line, or at a breakpoint'
+	, async({page}) => {
+		await setup(page);
+
+		await create(
+			page
+			, {
+				code: [
+					'<?php'
+					, 'function total($items) {'
+					, '    $sum = 0;'
+					, '    foreach($items as $item) {'
+					, '        $sum += $item;'
+					, '    }'
+
+					, '    return $sum;'
+					, '}'
+					, '$t = total([1, 2, 3]);'
+					, 'echo $t;'
+				].join('\n')
+			}
+		);
+
+		const report = await page.evaluate(async() => {
+			const pauses = [];
+
+			dbg.addEventListener('pause', event => pauses.push(event.detail.reason));
+
+			/** Where a resume ended, why, and what the sum was there. */
+			const landed = async resumed => {
+				const {line} = await resumed;
+				const sum = dbg.state === 'paused'
+					? (await dbg.evaluate('$sum ?? null')).value
+					: null;
+
+				return `${line} ${pauses.at(-1)} sum=${sum}`;
+			};
+
+			const report = {};
+
+			// Until, on the loop's last line, finishes the loop: three times round, then line 7.
+			await dbg.setBreakpoints([5]);
+
+			let done = dbg.run();
+
+			await dbg.whenPaused();
+			await dbg.setBreakpoints([]);
+			report.until = await landed(dbg.until());
+
+			// Step out of total() stops where it was called, with nothing more run there.
+			report.out = await landed(dbg.stepOut());
+			report.assigned = (await dbg.evaluate('isset($t)')).value;
+			await dbg.continue();
+			report.stdout = (await done).stdout;
+
+			// Where the next line is a later one, Until is a step to it. From the loop's last line,
+			// with its breakpoint left on, it stops there the next time round, as Continue would.
+			await dbg.setBreakpoints([3, 5]);
+			done = dbg.run();
+			await dbg.whenPaused();
+			report.next = await landed(dbg.until());
+			report.again = await landed(dbg.until());
+			report.round = await landed(dbg.until());
+
+			// Step out from the main script runs it to its end.
+			await dbg.setBreakpoints([]);
+			await dbg.stepOut();
+			await dbg.stepOut();
+			report.ended = (await done).status;
+
+			return report;
+		});
+
+		expect(report.until).toBe('7 step sum=6');
+		expect(report.out).toBe('9 step sum=null');
+		expect(report.assigned).toBe(false);
+		expect(report.stdout).toBe('6');
+		expect(report.next).toBe('4 step sum=0');
+		expect(report.again).toBe('5 step sum=0');
+		expect(report.round).toBe('5 breakpoint sum=1');
+		expect(report.ended).toBe('completed');
+	}
+);
+
 test('a name in other than ASCII reaches phpdbg whole', async({page}) => {
 	await setup(page);
 

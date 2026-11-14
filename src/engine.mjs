@@ -383,6 +383,44 @@ export class DebugEngine
 		await this.command(command);
 	}
 
+	/**
+	 * Start what a resume asks for. Two of phpdbg's commands do not stop where their names say:
+	 * "finish" runs on past the caller, and "until" past the next line, to the next breakpoint or
+	 * the end. Stepping out is therefore "leave", which stops where the function returns, and
+	 * one step from there into the caller; Until is a step over a line, which resume() repeats.
+	 */
+	async begin(command)
+	{
+		if(command !== 'finish')
+		{
+			return this.go(command === 'until' ? 'next' : command);
+		}
+
+		await this.go('leave');
+
+		// Stopped where the function returns, and not by an exception or a pause on the way.
+		if(await this.php.isRunning() && !this.exception && !this.pauseRequested)
+		{
+			await this.go('step');
+		}
+	}
+
+	/**
+	 * Where execution paused, for Until: its line, and how deep the stack is. The line is the
+	 * one the pause was reported at; the runtime's own answer is the evaluation's once anything
+	 * has been evaluated there.
+	 */
+	async place()
+	{
+		return {line: this.stopped.line, depth: (await this.frames()).length};
+	}
+
+	/** Whether execution is past the line Until began on: on a later one, or out of its frame. */
+	async past(began, line)
+	{
+		return (await this.frames()).length !== began.depth || line > began.line;
+	}
+
 	async resume(command = 'continue')
 	{
 		if(command !== 'run' && !this.paused)
@@ -400,7 +438,10 @@ export class DebugEngine
 		// Run and Continue stop at breakpoints; a step stops where it lands.
 		const continues = ['run', 'continue'].includes(command);
 
-		await this.go(command);
+		// Until goes on line by line from where it began, and stops once past that line.
+		const began = command === 'until' ? await this.place() : null;
+
+		await this.begin(command);
 
 		while(await this.php.isRunning())
 		{
@@ -408,32 +449,38 @@ export class DebugEngine
 
 			const file = await this.php.currentFile();
 			const line = await this.php.currentLine();
+			const interrupted = this.pauseRequested || this.exception;
 
 			// The breakpoint on this line, unless execution stopped here for another reason.
-			const reached = this.pauseRequested || this.exception
+			const reached = interrupted
 				? null
 				: this.installedBreakpoints?.find(bp => bp.file === file && bp.line === line);
 
-			// A breakpoint says whether execution pauses at it, and a test run never pauses. A
-			// pause asked for while the breakpoint was deciding is answered here.
-			const passes = (reached && !await this.reach(reached, continues))
+			// Until, not yet past its line, meets a breakpoint as Continue does.
+			const seeking = !!began && !interrupted && !await this.past(began, line);
+			const meets = continues || seeking;
+
+			// A breakpoint says whether execution pauses at it; without one, only Until's search
+			// goes on. A test run never pauses. A pause asked for while a breakpoint was deciding
+			// is answered here.
+			const passes = (reached ? !await this.reach(reached, meets) : seeking)
 				|| this.config.mode === 'test';
 
 			if(passes && !this.pauseRequested)
 			{
-				await this.go('continue');
+				await this.go(began ? 'next' : 'continue');
 
 				continue;
 			}
 
 			this.paused = true;
-			const location = {file, line, frame: 0, pauseId: this.epoch};
+			const location = this.stopped = {file, line, frame: 0, pauseId: this.epoch};
 
 			const reason = this.pauseRequested
 				? 'pause'
 				: this.exception
 					? 'exception'
-					: continues ? 'breakpoint' : 'step';
+					: meets ? 'breakpoint' : 'step';
 
 			// The pause asked for is this one, whatever stopped PHP here.
 			this.pauseRequested = false;
