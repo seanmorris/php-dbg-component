@@ -175,6 +175,28 @@ export function typeLabel({type, className, count, displayValue})
 	return String(displayValue).toLowerCase().startsWith(label.toLowerCase()) ? '' : label;
 }
 
+/**
+ * The events a debugger dispatches, each a CustomEvent with its detail. The custom element
+ * dispatches every one of them again as phpdbg-<name>.
+ */
+export const debuggerEvents = [
+	'statechange'
+	, 'progress'
+	, 'output'
+	, 'log'
+	, 'pause'
+	, 'locationchange'
+	, 'framechange'
+
+	, 'variablechange'
+	, 'breakpointchange'
+	, 'versionchange'
+	, 'sourcechange'
+	, 'diagnostic'
+	, 'testresult'
+	, 'complete'
+];
+
 // A part of a PHP name: a letter, an underscore or anything past ASCII, then digits as well.
 const namePart = '[A-Za-z_\\u{80}-\\u{10FFFF}][\\w\\u{80}-\\u{10FFFF}]*';
 const phpName = new RegExp(`^\\\\?${namePart}(?:\\\\${namePart})*$`, 'u');

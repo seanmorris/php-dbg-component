@@ -169,6 +169,57 @@ test('expectations of the wrong shape fail the test and are not thrown', async (
 	assert.equal((await checkExpectations({...result, exitCode: 2}, null)).status, 'failed');
 });
 
+test('the custom element forwards every event and method the controller declares', async () => {
+	const {debuggerEvents} = await import('../src/model.mjs');
+	const {readFileSync} = await import('node:fs');
+
+	/** A source file's text. */
+	const read = name => readFileSync(new URL(`../src/${name}`, import.meta.url), 'utf8');
+
+	const types = read('index.d.ts');
+	const controller = read('index.mjs');
+	const element = read('element.mjs');
+	const elementTypes = read('element.d.ts');
+
+	/** The names a block of a declaration file begins its lines with, one tab in. */
+	const members = (source, opening) => {
+		const block = source.slice(source.indexOf(opening)).split(/^}/m)[0];
+
+		return [...new Set([...block.matchAll(/^\t(\w+)[(:?]/gm)].map(match => match[1]))];
+	};
+
+	// The events: the list the element forwards is the declared one, and nothing is emitted
+	// under a name that is not on it.
+	assert.deepEqual(
+		[...debuggerEvents].sort()
+		, members(types, 'export interface DebuggerEvents').sort()
+	);
+
+	const emitted = [...controller.matchAll(/this\.emit\(\s*'(\w+)'/g)].map(match => match[1]);
+
+	assert.equal(emitted.length > 10, true);
+	assert.deepEqual(emitted.filter(name => !debuggerEvents.includes(name)), []);
+	assert.match(element, /for\(const name of debuggerEvents\)/);
+
+	// The methods: all but those that make no sense on an element, one under another name.
+	const kept = ['constructor', 'readCode', 'setCode', 'destroy', 'mount'];
+	const renamed = {children: 'inspectChildren'};
+
+	const expected = members(types, 'export class PhpDebugger').filter(
+		name => !kept.includes(name) && !name.endsWith('EventListener')
+	).map(name => renamed[name] ?? name);
+
+	const declared = members(elementTypes, 'export interface PhpDebuggerElement');
+
+	assert.equal(expected.includes('opcodes') && expected.includes('run'), true);
+	assert.deepEqual(expected.filter(name => !declared.includes(name)), []);
+
+	for(const name of expected)
+	{
+		assert.match(element, new RegExp(`^\\t\\t${name}\\(`, 'm'), name);
+	}
+});
+
 test('controller import and construction are DOM-free and do not load a runtime', async () => {
 	const {PhpDebugger} = await import('../src/index.mjs');
 	const dbg = new PhpDebugger({code: '<?php echo 1;'});

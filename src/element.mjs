@@ -1,10 +1,5 @@
 import {PhpDebugger} from './index.mjs';
-
-// The debugger's events, which the element dispatches again as phpdbg-<name>.
-const forwarded = [
-	'statechange', 'output', 'pause', 'complete', 'testresult', 'variablechange'
-	, 'breakpointchange', 'locationchange', 'diagnostic', 'progress'
-];
+import {debuggerEvents} from './model.mjs';
 
 /** Registration is explicit, so importing this module has no DOM side effects. */
 export function definePhpDebugger(name = 'php-debugger', registry = customElements)
@@ -73,7 +68,8 @@ export function definePhpDebugger(name = 'php-debugger', registry = customElemen
 			this.debugger = new PhpDebugger(options);
 			this.forwarding = new AbortController();
 
-			for(const name of forwarded)
+			// Every event of the debugger's is dispatched again from the element, as phpdbg-<name>.
+			for(const name of debuggerEvents)
 			{
 				this.debugger.addEventListener(
 					name
@@ -169,6 +165,8 @@ export function definePhpDebugger(name = 'php-debugger', registry = customElemen
 		evaluate(...args) {return this.debugger.evaluate(...args);}
 
 		setVariable(...args) {return this.debugger.setVariable(...args);}
+
+		opcodes(...args) {return this.debugger.opcodes(...args);}
 
 		setBreakpoints(...args) {return this.debugger.setBreakpoints(...args);}
 	}

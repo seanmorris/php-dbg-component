@@ -804,6 +804,57 @@ test('Evaluate answers beside its box and keeps the exchange in the console', as
 	await page.evaluate(() => dbg.destroy());
 });
 
+test('the custom element dispatches the debugger\'s events and has its methods', async({page}) => {
+	await page.goto('/test/harness.html');
+	await page.waitForFunction(() => window.PhpDebugger);
+
+	const report = await page.evaluate(async() => {
+		const element = document.createElement('php-debugger');
+		const seen = [];
+
+		element.setAttribute('runtime-base-url', '/runtime/');
+		element.setAttribute('version', window.phpVersionUnderTest);
+		element.code = '<?php\nfunction twice($n) {\n    return $n * 2;\n}\necho twice(4);';
+
+		element.setAttribute(
+			'breakpoints'
+			, JSON.stringify([{line: 3, log: '"n=$n"', enabled: true}, {line: 5, enabled: true}])
+		);
+
+		for(const name of ['log', 'framechange', 'sourcechange', 'versionchange', 'pause'])
+		{
+			element.addEventListener(
+				`phpdbg-${name}`
+				, event => seen.push(name === 'log' ? `log ${event.detail.message}` : name)
+			);
+		}
+
+		document.querySelector('#host').replaceChildren(element);
+
+		const done = element.run();
+
+		await element.whenPaused();
+
+		const listed = (await element.opcodes({function: 'twice'})).functions.map(f => f.name);
+
+		await element.selectFrame(0);
+
+		// Line 5 is met again when its call returns.
+		while(element.state === 'paused')
+		{
+			await element.continue();
+		}
+
+		await done;
+		element.code = '<?php echo 1;';
+
+		return {seen, listed};
+	});
+
+	expect(report.listed).toEqual(['twice']);
+	expect(report.seen).toEqual(['pause', 'framechange', 'log n=4', 'pause', 'sourcechange']);
+});
+
 test(
 	'an element taken off the page and put back has its textarea or its editor again'
 	, async({page}) => {
