@@ -1671,7 +1671,7 @@ export class DebuggerView
 		edit.addEventListener('click', () => {
 			this.editingBreakpoint = editing ? null : bp.id;
 
-			const part = editing ? 'edit' : 'expression';
+			const part = editing ? 'edit' : 'start';
 
 			this.breakpointFocus = {id: bp.id, part: `.php-debugger-breakpoint-${part}`};
 
@@ -1715,7 +1715,7 @@ export class DebuggerView
 			, 'condition'
 			, 'Condition'
 			, bp.condition
-			, 'PHP that must be true for the breakpoint to act. Empty: every time.'
+			, 'PHP expression that must be true for the breakpoint to stop.'
 		);
 
 		const log = this.breakpointField(
@@ -1723,7 +1723,7 @@ export class DebuggerView
 			, 'log'
 			, 'Log message'
 			, bp.log
-			, 'PHP whose value is printed instead of stopping. Empty: it stops.'
+			, 'PHP expression whose value is printed instead of stopping.'
 		);
 
 		const outcome = node('p', 'php-debugger-breakpoint-outcome');
@@ -1731,9 +1731,9 @@ export class DebuggerView
 		const apply = node('button', 'php-debugger-button', 'Apply');
 		const cancel = node('button', 'php-debugger-button', 'Cancel');
 
-		/** Say what the breakpoint will do with what the boxes hold now. */
+		/** Say what the breakpoint will do with what is ticked and typed now. */
 		const describe = () => outcome.replaceChildren(
-			...this.breakpointOutcome(bp, condition.value.trim(), log.value.trim())
+			...this.breakpointOutcome(bp, condition.value(), log.value())
 		);
 
 		/** Close the form, and go back to the row's Edit button. */
@@ -1752,7 +1752,7 @@ export class DebuggerView
 			event.preventDefault();
 
 			const changed = this.dbg.breakpoints.map(
-				b => b.id === bp.id ? {...b, condition: condition.value, log: log.value} : b
+				b => b.id === bp.id ? {...b, condition: condition.value(), log: log.value()} : b
 			);
 
 			void this.act(async() => {
@@ -1777,6 +1777,12 @@ export class DebuggerView
 
 		actions.append(apply, cancel);
 		form.append(outcome, actions);
+
+		// The form opens on the first PHP it holds, or on the Condition checkbox.
+		const ticked = [condition, log].find(field => field.toggle.checked);
+		const start = ticked?.input ?? condition.toggle;
+
+		start.classList.add('php-debugger-breakpoint-start');
 
 		return form;
 	}
@@ -1809,26 +1815,53 @@ export class DebuggerView
 			: [`Stops each time ${where} runs.`];
 	}
 
-	/** One box of the breakpoint form: its name above, the PHP, and what it does underneath. */
+	/**
+	 * One part of the breakpoint form: a checkbox that turns it on, what it does, and, while it is
+	 * on, the box for its PHP. Turned off, what was typed stays in the box but does not count.
+	 */
 	breakpointField(form, key, name, value, help)
 	{
 		const id = `${this.id}-breakpoint-${key}`;
 		const field = node('div', 'php-debugger-breakpoint-field');
+		const toggle = node('input', 'php-debugger-breakpoint-on');
 		const label = node('label', 'php-debugger-breakpoint-label', name);
-		const input = node('input', 'php-debugger-breakpoint-expression');
 		const hint = node('span', 'php-debugger-breakpoint-hint', help);
+		const input = node('input', 'php-debugger-breakpoint-expression');
 
-		label.htmlFor = id;
+		toggle.type = 'checkbox';
+		toggle.id = `${id}-on`;
+		toggle.checked = !!value;
+		label.htmlFor = toggle.id;
+		hint.id = `${id}-hint`;
+
 		input.id = id;
 		input.value = value ?? '';
+		input.hidden = !toggle.checked;
 		input.spellcheck = false;
 		input.autocomplete = 'off';
-		hint.id = `${id}-hint`;
-		input.setAttribute('aria-describedby', hint.id);
-		field.append(label, input, hint);
+		input.setAttribute('aria-label', name);
+
+		for(const control of [toggle, input])
+		{
+			control.setAttribute('aria-describedby', hint.id);
+		}
+
+		// Ticked, the box appears and takes the typing, and the form, now taller, stays in view;
+		// unticked, the box goes.
+		toggle.addEventListener('change', () => {
+			input.hidden = !toggle.checked;
+
+			if(toggle.checked)
+			{
+				input.focus();
+				form.scrollIntoView({block: 'nearest'});
+			}
+		});
+
+		field.append(toggle, label, hint, input);
 		form.append(field);
 
-		return input;
+		return {toggle, input, value: () => toggle.checked ? input.value.trim() : ''};
 	}
 
 	/** Make one line number the gutter's tab stop. */

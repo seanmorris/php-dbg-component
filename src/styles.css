@@ -841,15 +841,29 @@
 	border-radius: var(--php-debugger-radius);
 }
 
-/* Each box under its name, with what it does in small type underneath. */
+/*
+ * A checkbox and its name, what it does in small type under the name, and, while it is ticked,
+ * the box for its PHP, all in line with the name.
+ */
 .php-debugger .php-debugger-breakpoint-field {
 	display: grid;
-	gap: .25em;
+	grid-template-columns: auto minmax(0, 1fr);
+	gap: .25em .45em;
+	align-items: center;
+}
+
+.php-debugger .php-debugger-breakpoint-field > :not(.php-debugger-breakpoint-on) {
+	grid-column: 2;
+}
+
+.php-debugger .php-debugger-breakpoint-on {
+	margin: 0;
 }
 
 .php-debugger .php-debugger-breakpoint-label {
 	font-size: .9em;
 	font-weight: 600;
+	cursor: pointer;
 }
 
 .php-debugger .php-debugger-breakpoint-expression {

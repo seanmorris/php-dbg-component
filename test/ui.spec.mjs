@@ -1124,28 +1124,40 @@ test('a breakpoint takes a condition or a log from its row; a logpoint runs on',
 	});
 
 	const edit = page.getByRole('button', {name: 'Edit breakpoint, line 4', exact: true});
+	const conditionOn = page.getByRole('checkbox', {name: 'Condition', exact: true});
+	const logOn = page.getByRole('checkbox', {name: 'Log message', exact: true});
 	const condition = page.getByRole('textbox', {name: 'Condition', exact: true});
 	const log = page.getByRole('textbox', {name: 'Log message', exact: true});
 	const outcome = page.locator('.php-debugger-breakpoint-outcome');
 	const row = page.locator('.php-debugger-breakpoint').filter({hasText: 'Line 4'});
 	const mark = page.locator('.php-debugger-line').nth(3);
+	const both = 'Prints $i when $i === 3 is true at line 4, without stopping.';
+	const stops = /must be true for the breakpoint to stop/;
 
+	// The form opens on its first checkbox. Each says what it turns on; its box shows once ticked.
 	await openPanel(page, 'Breakpoints');
 	await edit.click();
 	await expect(edit).toHaveAttribute('aria-expanded', 'true');
-	await expect(condition).toBeFocused();
+	await expect(conditionOn).toBeFocused();
+	await expect(conditionOn).toHaveAccessibleDescription(stops);
+	await expect(logOn).toHaveAccessibleDescription(/printed instead of stopping/);
+	await expect(condition).toBeHidden();
+	await expect(log).toBeHidden();
 
-	// Each box says what it is for, and the form says what the breakpoint will do as it is typed.
-	await expect(condition).toHaveAccessibleDescription(/must be true for the breakpoint to act/);
-	await expect(log).toHaveAccessibleDescription(/printed instead of stopping/);
+	// The form says what the breakpoint will do as it is ticked and typed.
 	await expect(outcome).toHaveText('Stops each time line 4 runs.');
+	await conditionOn.check();
+	await expect(condition).toBeFocused();
 	await page.keyboard.type('$i === 3');
 	await expect(outcome).toHaveText('Stops at line 4 when $i === 3 is true.');
-	await log.fill('$i');
-	const both = 'Prints $i when $i === 3 is true at line 4, without stopping.';
 
+	await logOn.check();
+	await expect(log).toBeFocused();
+	await page.keyboard.type('$i');
 	await expect(outcome).toHaveText(both);
-	await log.fill('');
+	await logOn.uncheck();
+	await expect(log).toBeHidden();
+	await expect(outcome).toHaveText('Stops at line 4 when $i === 3 is true.');
 
 	// Enter applies; the row says what the breakpoint checks, and focus goes back to Edit.
 	await condition.press('Enter');
@@ -1153,18 +1165,21 @@ test('a breakpoint takes a condition or a log from its row; a logpoint runs on',
 	await expect(edit).toBeFocused();
 	await expect(mark).toHaveAttribute('data-condition', 'true');
 	await expect(mark).toHaveAttribute('title', 'when $i === 3');
+	expect(await page.evaluate(() => dbg.breakpoints[0].log)).toBeUndefined();
 
-	// Escape leaves it as it was.
+	// Reopened, it starts in the condition's box. Escape leaves the breakpoint as it was.
 	await edit.click();
+	await expect(condition).toBeFocused();
 	await page.keyboard.type(' && false');
 	await page.keyboard.press('Escape');
 	await expect(condition).toHaveCount(0);
 	await expect(edit).toBeFocused();
 	expect(await page.evaluate(() => dbg.breakpoints[0].condition)).toBe('$i === 3');
 
-	// Without its condition and with a log, it is a logpoint: a diamond, and no pause.
+	// Its condition off and a log on, it is a logpoint: a diamond, and no pause.
 	await edit.click();
-	await condition.fill('');
+	await conditionOn.uncheck();
+	await logOn.check();
 	await log.fill('"sum=$sum"');
 	await log.press('Enter');
 	await expect(row.locator('.php-debugger-breakpoint-detail')).toHaveText('logs "sum=$sum"');
