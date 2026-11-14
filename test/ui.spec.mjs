@@ -231,6 +231,149 @@ for(const kind of ['ace', 'codemirror5', 'codemirror6', 'code-block'])
 	});
 }
 
+// A logpoint and a breakpoint with a condition are told apart in an editor's gutter too.
+for(const kind of ['ace', 'codemirror5', 'codemirror6'])
+{
+	test(
+		`${kind} marks logpoints and conditions as the debugger's own gutter does`
+		, async({page}) => {
+			await page.goto('/test/harness.html');
+			await page.waitForFunction(() => window.PhpDebugger);
+
+			if(kind === 'ace')
+			{
+				await page.addScriptTag({url: '/node_modules/ace-builds/src-noconflict/ace.js'});
+			}
+
+			if(kind === 'codemirror5')
+			{
+				await page.addScriptTag({url: '/node_modules/codemirror/lib/codemirror.js'});
+				await page.addStyleTag({url: '/node_modules/codemirror/lib/codemirror.css'});
+			}
+
+			const marks = await page.evaluate(async kind => {
+				const host = document.createElement('div');
+				const code = '<?php\n$n = 2;\n$n += 3;\n$n += 4;\necho $n;';
+				let adapter;
+
+				document.body.append(host);
+
+				if(kind === 'ace')
+				{
+					const container = document.createElement('div');
+
+					container.style.height = '200px';
+					host.append(container);
+
+					const editor = ace.edit(container);
+
+					editor.setValue(code, -1);
+					adapter = (await import('/src/adapters/ace.mjs')).createAceAdapter(editor);
+				}
+				else if(kind === 'codemirror5')
+				{
+					const editor = CodeMirror(host, {value: code, lineNumbers: true});
+
+					adapter = (await import('/src/adapters/codemirror5.mjs'))
+					.createCodeMirror5Adapter(editor);
+				}
+				else
+				{
+					const {EditorState, EditorView, lineNumbers, createCodeMirror6Adapter}
+					= await import('/editors.mjs');
+
+					const state = EditorState.create({doc: code, extensions: [lineNumbers()]});
+
+					adapter = createCodeMirror6Adapter(new EditorView({state, parent: host}));
+				}
+
+				const breakpoints = [
+					2
+					, {line: 3, log: '$n'}
+					, {line: 4, condition: '$n > 1'}
+					, {line: 5, log: '$n', condition: '$n > 1'}
+				];
+
+				const dbg = new PhpDebugger(
+					{
+						source: adapter
+						, version: window.phpVersionUnderTest
+						, runtimeBaseUrl: '/runtime/'
+						, breakpoints
+					}
+				);
+
+				dbg.mount(document.querySelector('#host'));
+
+				/** The marks on show, top to bottom, once the editor has drawn them. */
+				const drawn = async() => {
+					await new Promise(
+						resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))
+					);
+
+					// CodeMirror 6 keeps an invisible marker in its gutter to reserve the width.
+					const marks = [...host.querySelectorAll(
+						'.php-debugger-breakpoint-marker'
+					)].filter(
+						mark => mark.getClientRects().length
+						&& getComputedStyle(mark).visibility === 'visible'
+					);
+
+					return marks.map(mark => {
+						const shape = getComputedStyle(mark, '::before');
+
+						const kinds = ['log', 'condition'].filter(
+							name => mark.classList.contains(`php-debugger-breakpoint-${name}`)
+						);
+
+						// Ace's mark is drawn on the number's cell; CodeMirror's is a character.
+						return kind === 'ace'
+							? [kinds.join('+'), shape.borderRadius, shape.backgroundColor].join(' ')
+							: [kinds.join('+'), mark.textContent, mark.title].join(' ');
+					});
+				};
+
+				const first = await drawn();
+
+				await dbg.setBreakpoints([{line: 2, log: '"x"'}]);
+
+				const changed = await drawn();
+
+				await dbg.destroy();
+
+				return {first, changed};
+			}, kind
+			);
+
+			const hollow = 'rgba(0, 0, 0, 0)';
+
+			// Ace: the shape drawn on the number's cell, round or square, filled or hollow.
+			const drawn = {
+				first: [
+					expect.stringMatching(/^ 50% rgb\(/)
+					, expect.stringMatching(/^log 0px rgb\(/)
+					, `condition 50% ${hollow}`
+					, `log+condition 0px ${hollow}`
+				]
+				, changed: [expect.stringMatching(/^log 0px rgb\(/)]
+			};
+
+			// CodeMirror: a character of that shape, and what the breakpoint does as its tooltip.
+			const written = {
+				first: [
+					' ● '
+					, 'log ◆ logs $n'
+					, 'condition ○ when $n > 1'
+					, 'log+condition ◇ logs $n when $n > 1'
+				]
+				, changed: ['log ◆ logs "x"']
+			};
+
+			expect(marks).toEqual(kind === 'ace' ? drawn : written);
+		}
+	);
+}
+
 // Each editor beside the debugger, where it stays, and inside the element the debugger is mounted
 // on, where it moves into the interface until the debugger is destroyed.
 for(const kind of ['ace', 'codemirror5', 'codemirror6'])

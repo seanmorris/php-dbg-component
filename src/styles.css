@@ -1111,14 +1111,35 @@
 	color: var(--php-debugger-error, #e5484d);
 }
 
-/* Ace puts the class on the line number's cell: a dot beside the number, which keeps its colour. */
+/*
+ * Ace puts the classes on the line number's cell: the mark is drawn beside the number, which
+ * keeps its colour. As in the debugger's own gutter, a logpoint is a diamond and a breakpoint
+ * with a condition, either kind, is hollow; CodeMirror's markers are characters of those shapes.
+ */
 .ace_gutter-cell.php-debugger-breakpoint-marker {
 	color: inherit;
-	background-image: radial-gradient(
-		circle at .75em 50%,
-		var(--php-debugger-error, #e5484d) 0 .3em,
-		transparent calc(.3em + 1px)
-	);
+}
+
+.ace_gutter-cell.php-debugger-breakpoint-marker::before {
+	content: '';
+	position: absolute;
+	left: .75em;
+	top: 50%;
+	width: .6em;
+	height: .6em;
+	border-radius: 50%;
+	background: var(--php-debugger-error, #e5484d);
+	transform: translate(-50%, -50%);
+}
+
+.ace_gutter-cell.php-debugger-breakpoint-log::before {
+	border-radius: 0;
+	transform: translate(-50%, -50%) rotate(45deg) scale(.85);
+}
+
+.ace_gutter-cell.php-debugger-breakpoint-condition::before {
+	background: transparent;
+	box-shadow: inset 0 0 0 .13em var(--php-debugger-error, #e5484d);
 }
 
 .php-debugger-cm5-gutter,

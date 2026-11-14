@@ -1,3 +1,5 @@
+import {breakpointMark} from './marks.mjs';
+
 /** CodeMirror 5 adapter; the editor and its library remain owned by the host. */
 export function createCodeMirror5Adapter(editor, {file = '/main.php'} = {})
 {
@@ -83,8 +85,11 @@ export function createCodeMirror5Adapter(editor, {file = '/main.php'} = {})
 			for(const bp of lines)
 			{
 				const marker = document.createElement('span');
-				marker.className = 'php-debugger-breakpoint-marker';
-				marker.textContent = '●';
+				const {className, glyph, title} = breakpointMark(bp);
+
+				marker.className = className;
+				marker.textContent = glyph;
+				marker.title = title;
 				markers.push(editor.setGutterMarker(bp.line - 1, gutter, marker));
 			}
 		}

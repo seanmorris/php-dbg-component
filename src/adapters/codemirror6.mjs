@@ -1,5 +1,6 @@
 import {Compartment, StateEffect, StateField, RangeSet, EditorState} from '@codemirror/state';
 import {gutter, GutterMarker, Decoration, EditorView} from '@codemirror/view';
+import {breakpointMark} from './marks.mjs';
 
 /** Optional CodeMirror 6 integration; these peer imports never enter the core. */
 export function createCodeMirror6Adapter(view, {file = '/main.php'} = {})
@@ -15,11 +16,25 @@ export function createCodeMirror6Adapter(view, {file = '/main.php'} = {})
 	class Marker extends GutterMarker
 	{
 
+		constructor(bp)
+		{
+			super();
+			this.mark = breakpointMark(bp);
+		}
+
+		eq(other)
+		{
+			// The gutter draws a line's marker again only when it is not the one it has.
+			return ['className', 'title'].every(key => other.mark[key] === this.mark[key]);
+		}
+
 		toDOM()
 		{
 			const n = document.createElement('span');
-			n.className = 'php-debugger-breakpoint-marker';
-			n.textContent = '●';
+
+			n.className = this.mark.className;
+			n.textContent = this.mark.glyph;
+			n.title = this.mark.title;
 
 			return n;
 		}
@@ -38,7 +53,10 @@ export function createCodeMirror6Adapter(view, {file = '/main.php'} = {})
 				{
 					if(effect.is(change))
 					{
-						value = RangeSet.of(effect.value.map(from => marker.range(from)), true);
+						value = RangeSet.of(
+							effect.value.map(([from, bp]) => new Marker(bp).range(from))
+							, true
+						);
 					}
 				}
 
@@ -140,7 +158,7 @@ export function createCodeMirror6Adapter(view, {file = '/main.php'} = {})
 				{
 					effects: change.of(
 						lines.filter(bp => bp.line <= view.state.doc.lines).map(
-							bp => view.state.doc.line(bp.line).from
+							bp => [view.state.doc.line(bp.line).from, bp]
 						)
 					)
 				}
