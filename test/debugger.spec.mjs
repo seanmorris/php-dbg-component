@@ -947,7 +947,7 @@ test(
 			const broke = (await dbg.opcodes({class: 'Broke'})).functions;
 			const [script] = (await dbg.opcodes()).functions;
 
-			// Line 5 is met again when its call returns.
+			// On to the end of the run, whatever else pauses it.
 			while(dbg.state === 'paused')
 			{
 				await dbg.continue();
@@ -1761,14 +1761,14 @@ test(
 			const report = {};
 
 			/** Continue from each pause to the end of the run, noting where each one was. */
-			const pauses = async done => {
+			const pauses = async(done, php = '"i=" . ($i ?? "-")') => {
 				const seen = [];
 
 				await dbg.whenPaused();
 
 				while(dbg.state === 'paused')
 				{
-					seen.push(`${dbg.location.line} i=${(await dbg.evaluate('$i ?? "-"')).value}`);
+					seen.push(`${dbg.location.line} ${(await dbg.evaluate(php)).value}`);
 					await dbg.continue();
 				}
 
@@ -1782,9 +1782,15 @@ test(
 			await dbg.setBreakpoints([{line: 7, log: '"i=$i"'}]);
 			report.logged = (await dbg.run()).logs.map(entry => entry.message);
 
-			// A breakpoint that pauses does so again as each call returns, as phpdbg's do.
+			// A breakpoint that pauses does so once each time round too.
 			await dbg.setBreakpoints([7]);
 			report.paused = (await pauses(dbg.run())).seen;
+
+			// Its condition is asked once each time round: twice by the time it holds.
+			const asking = '($GLOBALS["asked"] = ($GLOBALS["asked"] ?? 0) + 1) && $i === 1';
+
+			await dbg.setBreakpoints([{line: 7, condition: asking}]);
+			report.asked = (await pauses(dbg.run(), '"i=$i asked=" . $GLOBALS["asked"]')).seen;
 
 			// The loop's own line is reached for its start and for each step of it.
 			await dbg.setBreakpoints([{line: 6, log: '"at " . ($i ?? "-")'}]);
@@ -1814,7 +1820,8 @@ test(
 		});
 
 		expect(report.logged).toEqual(['i=0', 'i=1']);
-		expect(report.paused).toEqual(['7 i=0', '7 i=0', '7 i=0', '7 i=1', '7 i=1', '7 i=1']);
+		expect(report.paused).toEqual(['7 i=0', '7 i=1']);
+		expect(report.asked).toEqual(['7 i=1 asked=2']);
 		expect(report.loop).toEqual(['at -', 'at 0', 'at 1']);
 
 		expect(report.nested).toEqual({

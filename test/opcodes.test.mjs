@@ -109,6 +109,11 @@ test('the dumper\'s listing is read into a function, its ops and their jumps', (
 
 	assert.deepEqual(jumps(total.ops), {'4 FE_RESET_R': [12], '5 FE_FETCH_R': [12], '11 JMP': [5]});
 	assert.deepEqual(parseOpline('L0005 0006 EXT_STMT\n', [total]), {line: 5, index: 6});
+
+	// A number is any function's. Where this one has another op there, or the same on another
+	// line, the op is not this function's, and only its line is known.
+	assert.deepEqual(parseOpline('L0005 0006 RETURN null\n', [total]), {line: 5, index: null});
+	assert.deepEqual(parseOpline('L0004 0006 EXT_STMT\n', [total]), {line: 4, index: null});
 });
 
 test('PHP 8.0\'s columns are read the same way, and its opline found by address', () => {

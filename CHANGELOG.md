@@ -8,7 +8,7 @@ Changes
 
 * Execution: `run()`, `restart()`, `stop()`, `pause()`, `continue()`, `stepInto()`, `stepOver()`, `stepOut()`, `until()` and `leave()`, with `whenPaused()` to wait for the next pause. A run takes a timeout, a load timeout, an `AbortSignal` and an output limit, and resolves with its status, exit code, output and diagnostics.
 
-* Breakpoints by file and line. A breakpoint may carry a `condition`, a PHP expression that must be true for it to stop, and a `log`, a PHP expression whose value is printed instead of stopping.
+* Breakpoints by file and line. A breakpoint may carry a `condition`, a PHP expression that must be true for it to stop, and a `log`, a PHP expression whose value is printed instead of stopping. A breakpoint acts once each time execution reaches its line, and not again when a call made on the line returns.
 
 * Inspection while paused: `inspect()` lists variables, globals, constants, functions, classes, files and frames; `children()` expands arrays and objects; `selectFrame()` moves between frames; `evaluate()` and `setVariable()` take PHP expressions in the selected frame; `opcodes()` lists the ops of the paused function, the main script, a function or a class, with the op execution stands on.
 

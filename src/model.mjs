@@ -559,14 +559,27 @@ export function plainLine(ops, line)
 /**
  * The op a print opline names, found among the listed functions' ops: {line, index}, with the
  * index null when only the line is known. PHP 8.0 gives its address, not its number.
+ *
+ * A number names an op of any function. It is taken for a listed function's only where that
+ * function has the same op there: the line, the opcode and what the result goes to.
  */
 export function parseOpline(text, functions)
 {
-	const dumped = text.match(/^L(\d+) (\d+) /m);
+	const dumped = text.match(/^L(\d+) (\d+) (.*)$/m);
 
 	if(dumped)
 	{
-		return {line: Number(dumped[1]), index: Number(dumped[2])};
+		const line = Number(dumped[1]);
+		const index = Number(dumped[2]);
+		const {result, opcode} = dumpedOp(line, index, dumped[3]);
+
+		const listed = functions.some(({ops}) => {
+			const op = ops[index];
+
+			return op?.line === line && op.opcode === opcode && op.result === result;
+		});
+
+		return {line, index: listed ? index : null};
 	}
 
 	const padded = text.match(/^\s*L(\d+)\s+(0x[0-9a-f]+) (\S+)/m);

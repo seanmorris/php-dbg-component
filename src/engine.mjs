@@ -826,8 +826,8 @@ export class DebugEngine
 	 * breakpoint says, after any log.
 	 *
 	 * A line a call was made on is reached again, as phpdbg sees it, when the call returns. A
-	 * breakpoint that pauses does so again, as phpdbg's do; a log is for arriving at the line, and
-	 * is not printed a second time.
+	 * breakpoint is for arriving at its line: it does not pause, ask its condition or print its
+	 * log a second time there.
 	 *
 	 * A condition PHP cannot evaluate pauses, with the reason in the console, so the mistake is
 	 * seen; in a test run, which never pauses, the reason is logged instead.
@@ -846,14 +846,16 @@ export class DebugEngine
 
 		try
 		{
+			// Back on the line and not arrived at it, the breakpoint is passed; a step still
+			// pauses, where it landed.
+			if(!await this.arrived(bp))
+			{
+				return !continues;
+			}
+
 			if(!bp.condition && !bp.log)
 			{
 				return true;
-			}
-
-			if(bp.log && !await this.arrived(bp))
-			{
-				return !continues;
 			}
 
 			const {met, message, failed} = await this.decide(bp);
@@ -889,13 +891,16 @@ export class DebugEngine
 	}
 
 	/**
-	 * Whether execution has arrived at a logpoint's line, and is not merely back on it. phpdbg
+	 * Whether execution has arrived at a breakpoint's line, and is not merely back on it. phpdbg
 	 * reports a line reached whenever execution comes to it from another: also when a call made
 	 * on it returns, and when a statement written over several lines comes round to a line of
 	 * its own again. The op execution stands on tells the two apart.
 	 *
-	 * The function is listed once for each logpoint. A line it can only arrive at is not asked
-	 * about again, so a logpoint on one costs no command more.
+	 * The function is listed once for each breakpoint. A line it can only arrive at is not asked
+	 * about again, so a breakpoint on one costs no command more.
+	 *
+	 * Where it cannot be told, the answer is that execution arrived: a pause too many is seen,
+	 * and one too few is not.
 	 */
 	async arrived(bp)
 	{
@@ -918,7 +923,7 @@ export class DebugEngine
 		const at = parseOpline(await this.printed('print opline').catch(() => ''), [listed]);
 
 		// An op that is not this function's, on this line, is another function's on the same
-		// line: what is known of this one says nothing of it.
+		// line, as an arrow function's is: what is known of this one says nothing of it.
 		return listed.ops[at?.index]?.line !== bp.line || arrivesAt(listed.ops, at.index);
 	}
 

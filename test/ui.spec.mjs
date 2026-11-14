@@ -1456,7 +1456,7 @@ test('the custom element dispatches the debugger\'s events and has its methods',
 
 		await element.selectFrame(0);
 
-		// Line 5 is met again when its call returns.
+		// On to the end of the run, whatever else pauses it.
 		while(element.state === 'paused')
 		{
 			await element.continue();
@@ -1469,7 +1469,8 @@ test('the custom element dispatches the debugger\'s events and has its methods',
 	});
 
 	expect(report.listed).toEqual(['twice']);
-	expect(report.seen).toEqual(['pause', 'framechange', 'log n=4', 'pause', 'sourcechange']);
+	// One pause: line 5's breakpoint is not met again when the call made on it returns.
+	expect(report.seen).toEqual(['pause', 'framechange', 'log n=4', 'sourcechange']);
 });
 
 test(
@@ -2081,7 +2082,7 @@ test('status says where execution is; keys drive it; a version change owns up', 
 				version: window.phpVersionUnderTest
 				, runtimeBaseUrl: '/runtime/'
 				, code: '<?php\nfunction add($a) {\n\treturn $a + 1;\n}\n$n = add(1);\nexit(3);'
-				, breakpoints: [5]
+				, breakpoints: [5, 6]
 			}
 		);
 
@@ -2121,10 +2122,11 @@ test('status says where execution is; keys drive it; a version change owns up', 
 	await expect(status).toHaveText('Paused. Showing frame 1, at line 5 of /main.php.');
 	await expect(page.locator('.php-debugger-symbol').nth(1)).toBeFocused();
 
-	// The same key carries on from a pause. Returning to line 5 meets its breakpoint again; the
-	// frame that had focus is gone by then, and the keys still work.
+	// The same key carries on from a pause. Returning to line 5 is not reaching it, and its
+	// breakpoint is passed. At the next one the frame that had focus is gone, and the keys
+	// still work.
 	await page.keyboard.press('F8');
-	await expect(status).toHaveText('Paused at line 5 of /main.php, on a breakpoint.');
+	await expect(status).toHaveText('Paused at line 6 of /main.php, on a breakpoint.');
 	await expect(page.locator('.php-debugger-symbol')).toHaveCount(1);
 	await page.keyboard.press('F8');
 	await expect(status).toHaveText('Finished with exit code 3.');
